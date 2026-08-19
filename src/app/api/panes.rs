@@ -183,6 +183,45 @@ impl App {
         encode_success(id, ResponseResult::PaneInfo { pane })
     }
 
+    pub(super) fn handle_pane_mark_unseen(&mut self, id: String, target: PaneTarget) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        let Some(pane_state) = self.state.workspaces[ws_idx]
+            .tabs
+            .iter_mut()
+            .find_map(|tab| tab.panes.get_mut(&pane_id))
+        else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get(&pane_state.attached_terminal_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        if terminal.state != crate::detect::AgentState::Idle {
+            return encode_error(id, "pane_not_idle", "pane agent is not idle");
+        }
+        let changed = std::mem::replace(&mut pane_state.seen, false);
+
+        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        if changed {
+            self.emit_event(EventEnvelope {
+                event: EventKind::PaneAgentStatusChanged,
+                data: EventData::PaneAgentStatusChanged {
+                    pane_id: pane.pane_id.clone(),
+                    workspace_id: pane.workspace_id.clone(),
+                    agent_status: pane.agent_status,
+                    agent: pane.agent.clone(),
+                    title: pane.title.clone(),
+                    display_agent: pane.display_agent.clone(),
+                    state_labels: pane.state_labels.clone(),
+                },
+            });
+        }
+        encode_success(id, ResponseResult::PaneInfo { pane })
+    }
+
     pub(super) fn handle_pane_layout(&mut self, id: String, params: PaneLayoutParams) -> String {
         let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
             return encode_error(id, "pane_not_found", "pane not found");
@@ -3740,6 +3779,70 @@ mod tests {
         assert_eq!(app.state.workspaces[1].active_tab, target_tab_idx);
         assert_eq!(app.state.workspaces[1].focused_pane_id(), Some(target_pane));
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn api_pane_mark_unseen_marks_focused_idle_agent_done() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        app.state.active = Some(0);
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
+        terminal.last_agent_state_change_seq = Some(7);
+
+        let target = PaneTarget {
+            pane_id: public_pane_id.clone(),
+        };
+        let response = app.handle_pane_mark_unseen("req".into(), target.clone());
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneInfo { pane } = success.result else {
+            panic!("expected pane info response");
+        };
+        assert!(pane.focused);
+        assert_eq!(pane.agent_status, crate::api::schema::AgentStatus::Done);
+        assert_eq!(
+            app.state.terminals[&terminal_id].last_agent_state_change_seq,
+            Some(7)
+        );
+        let events = app.event_hub.events_after(0);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].1.event, EventKind::PaneAgentStatusChanged);
+        assert!(matches!(
+            &events[0].1.data,
+            EventData::PaneAgentStatusChanged {
+                pane_id,
+                agent_status: crate::api::schema::AgentStatus::Done,
+                ..
+            } if pane_id == &public_pane_id
+        ));
+
+        let response = app.handle_pane_mark_unseen("again".into(), target);
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(app.event_hub.events_after(0).len(), 1);
+    }
+
+    #[test]
+    fn api_pane_mark_unseen_rejects_non_idle_pane() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+
+        let response = app.handle_pane_mark_unseen(
+            "req".into(),
+            PaneTarget {
+                pane_id: public_pane_id,
+            },
+        );
+
+        let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "pane_not_idle");
+        assert!(app.state.workspaces[0].tabs[0]
+            .panes
+            .values()
+            .all(|pane| pane.seen));
+        assert!(app.event_hub.events_after(0).is_empty());
     }
 
     #[test]
