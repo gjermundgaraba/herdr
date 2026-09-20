@@ -8,6 +8,9 @@ pub(super) struct EndpointAgentPresentation {
     boot_id: Option<String>,
     acknowledged: HashMap<String, u64>,
     completed: HashMap<String, u64>,
+    /// States the user marked unread, which project as Done even when they
+    /// were never observed as completed work.
+    marked_unread: HashMap<String, u64>,
     working: HashSet<String>,
     pending_completions: Option<(
         Option<u64>,
@@ -49,6 +52,7 @@ impl EndpointAgentPresentation {
             self.boot_id = Some(snapshot.boot_id.clone());
             self.acknowledged.clear();
             self.completed.clear();
+            self.marked_unread.clear();
             self.working.clear();
             self.acknowledged.extend(
                 snapshot
@@ -65,6 +69,8 @@ impl EndpointAgentPresentation {
         self.acknowledged
             .retain(|pane_id, _| pane_ids.contains(pane_id.as_str()));
         self.completed
+            .retain(|pane_id, _| pane_ids.contains(pane_id.as_str()));
+        self.marked_unread
             .retain(|pane_id, _| pane_ids.contains(pane_id.as_str()));
         self.working
             .retain(|pane_id| pane_ids.contains(pane_id.as_str()));
@@ -115,6 +121,30 @@ impl EndpointAgentPresentation {
         project_aggregate_status(snapshot);
     }
 
+    /// Forget the acknowledgement of one exact agent state so it projects as
+    /// Done again until the pane is presented on a focused surface.
+    pub(super) fn unacknowledge(
+        &mut self,
+        snapshot: &mut ClientShellSnapshot,
+        pane_id: &str,
+        sequence: u64,
+    ) -> bool {
+        let current = snapshot
+            .agents
+            .iter()
+            .any(|agent| agent.pane_id == pane_id && agent.state_change_seq == sequence);
+        if !current || self.acknowledged.get(pane_id) != Some(&sequence) {
+            return false;
+        }
+        self.acknowledged.remove(pane_id);
+        self.marked_unread.insert(pane_id.to_owned(), sequence);
+        for agent in &mut snapshot.agents {
+            agent.agent_status = self.projected_status(agent);
+        }
+        project_aggregate_status(snapshot);
+        true
+    }
+
     pub(super) fn acknowledge_surface(
         &mut self,
         snapshot: &mut ClientShellSnapshot,
@@ -138,9 +168,13 @@ impl EndpointAgentPresentation {
             else {
                 continue;
             };
-            let acknowledged = self.acknowledged.entry(agent.pane_id.clone()).or_default();
-            if *acknowledged < agent.state_change_seq {
-                *acknowledged = agent.state_change_seq;
+            if self
+                .acknowledged
+                .get(&agent.pane_id)
+                .is_none_or(|sequence| *sequence < agent.state_change_seq)
+            {
+                self.acknowledged
+                    .insert(agent.pane_id.clone(), agent.state_change_seq);
                 changed = true;
             }
         }
@@ -154,11 +188,19 @@ impl EndpointAgentPresentation {
     }
 
     pub(super) fn seen(&self, agent: &ClientShellAgent) -> bool {
-        self.completed.get(&agent.pane_id).is_none_or(|completion| {
+        let acknowledged = |state: u64| {
             self.acknowledged
                 .get(&agent.pane_id)
-                .is_some_and(|sequence| sequence >= completion)
-        })
+                .is_some_and(|sequence| *sequence >= state)
+        };
+        if self.marked_unread.get(&agent.pane_id) == Some(&agent.state_change_seq)
+            && !acknowledged(agent.state_change_seq)
+        {
+            return false;
+        }
+        self.completed
+            .get(&agent.pane_id)
+            .is_none_or(|completion| acknowledged(*completion))
     }
 
     fn projected_status(&self, agent: &ClientShellAgent) -> AgentStatus {
@@ -474,5 +516,38 @@ mod tests {
         assert!(!presentation.acknowledge_surface(&mut completed, &surface(1), Some(true)));
         assert!(!presentation.acknowledge_surface(&mut completed, &surface(2), Some(false)));
         assert_eq!(completed.agents[0].agent_status, AgentStatus::Done);
+    }
+
+    #[test]
+    fn presenting_a_restored_zero_sequence_completion_clears_its_badge_immediately() {
+        let mut presentation = EndpointAgentPresentation::default();
+        let mut snapshot = snapshot(AgentStatus::Idle, 0, 1);
+        presentation.project_snapshot(&mut snapshot);
+        assert!(presentation.unacknowledge(&mut snapshot, "agent-pane", 0));
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Done);
+        assert!(presentation.acknowledge_surface(&mut snapshot, &surface(1), Some(true)));
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Idle);
+        assert!(!presentation.acknowledge_surface(&mut snapshot, &surface(1), Some(true)));
+    }
+
+    #[test]
+    fn unacknowledge_restores_done_until_the_pane_is_presented_again() {
+        let mut presentation = EndpointAgentPresentation::default();
+        let mut snapshot = snapshot(AgentStatus::Idle, 4, 1);
+        presentation.project_snapshot(&mut snapshot);
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Idle);
+        // Only the exact acknowledged completion can be forgotten.
+        assert!(!presentation.unacknowledge(&mut snapshot, "agent-pane", 3));
+        assert!(!presentation.unacknowledge(&mut snapshot, "other-pane", 4));
+        assert!(presentation.unacknowledge(&mut snapshot, "agent-pane", 4));
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Done);
+        assert!(!presentation.unacknowledge(&mut snapshot, "agent-pane", 4));
+        // The mark outlives later projections of the same state.
+        let mut reprojected = snapshot.clone();
+        presentation.project_snapshot(&mut reprojected);
+        assert_eq!(reprojected.agents[0].agent_status, AgentStatus::Done);
+        // Presenting the pane again acknowledges it like any completion.
+        assert!(presentation.acknowledge_surface(&mut snapshot, &surface(1), Some(true)));
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Idle);
     }
 }

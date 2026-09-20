@@ -25,6 +25,7 @@ pub(super) enum ClientLoopEvent {
     },
     EndpointSupervisor(endpoint::EndpointSupervisorEvent),
     EndpointCatalog(Result<Vec<endpoint::SavedSshEndpoint>, String>),
+    FrontendApi(super::frontend_api::Event),
     ActivateEndpoint {
         endpoint_id: endpoint::ClientEndpointId,
         target: Option<shell::ClientEndpointFocusTarget>,
