@@ -2387,3 +2387,130 @@ fn navigator_foreign_tab_selection_keeps_the_tab_target() {
         }] if activated == &endpoint_id && tab_id == "tab_1"
     ));
 }
+
+#[test]
+fn acknowledgment_is_scoped_to_the_active_endpoint() {
+    use crate::api::schema::AgentStatus;
+
+    fn endpoint_agent_status(
+        state: &ClientShellState,
+        endpoint_id: &ClientEndpointId,
+    ) -> Option<AgentStatus> {
+        state
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == *endpoint_id)
+            .and_then(|endpoint| endpoint.snapshot.as_deref())
+            .and_then(|snapshot| snapshot.agents.first())
+            .map(|agent| agent.agent_status)
+    }
+
+    let (mut state, remote) = state_with_remote();
+    // The remote agent completes while the endpoint is inactive: the client
+    // never presented the completion, so it stays projected Done.
+    let mut working = snapshot();
+    working.boot_id = "remote-boot".into();
+    working.agents = vec![agent("remote agent", AgentStatus::Working, 1)];
+    state.set_endpoint_snapshot(&remote, Box::new(working));
+    let mut completion = snapshot();
+    completion.boot_id = "remote-boot".into();
+    completion.revision = 2;
+    completion.agents = vec![agent("remote agent", AgentStatus::Idle, 2)];
+    state.set_endpoint_snapshot(&remote, Box::new(completion));
+    assert_eq!(
+        endpoint_agent_status(&state, &remote),
+        Some(AgentStatus::Done)
+    );
+
+    // A surface belonging to the inactive remote endpoint must never be
+    // acknowledged through the active local endpoint's projection.
+    let mut remote_surface = surface();
+    remote_surface.boot_id = "remote-boot".into();
+    remote_surface.projection_revision = 2;
+    assert!(!state.acknowledge_active_surface_agents(&remote_surface));
+    assert_eq!(
+        endpoint_agent_status(&state, &remote),
+        Some(AgentStatus::Done)
+    );
+
+    // Presenting the same surface through the activated endpoint acknowledges.
+    assert!(state.activate_endpoint_projection(&remote));
+    state.set_pane_surface(remote_surface);
+    assert_eq!(
+        endpoint_agent_status(&state, &remote),
+        Some(AgentStatus::Idle)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn acknowledged_completion_repubishes_the_frontend_observation() {
+    use crate::api::schema::AgentStatus;
+    use crate::client::endpoint::EndpointRegistry;
+
+    let (mut state, remote) = state_with_remote();
+    let mut working = snapshot();
+    working.boot_id = "remote-boot".into();
+    working.agents = vec![agent("remote agent", AgentStatus::Working, 1)];
+    state.set_endpoint_snapshot(&remote, Box::new(working));
+    let mut completion = snapshot();
+    completion.boot_id = "remote-boot".into();
+    completion.revision = 2;
+    completion.agents = vec![agent("remote agent", AgentStatus::Idle, 2)];
+    state.set_endpoint_snapshot(&remote, Box::new(completion));
+    let mut remote_surface = surface();
+    remote_surface.boot_id = "remote-boot".into();
+    remote_surface.projection_revision = 2;
+    let registry = EndpointRegistry::empty();
+
+    // A cross-endpoint no-op leaves the observation fingerprint untouched.
+    let before = state.frontend_observation_fingerprint(&registry, false);
+    assert!(!state.acknowledge_active_surface_agents(&remote_surface));
+    assert_eq!(
+        state.frontend_observation_fingerprint(&registry, false),
+        before
+    );
+
+    // The in-place rewrite keeps snapshot identity (boot, revision,
+    // generation) fixed; the projection revision alone must republish it.
+    assert!(state.activate_endpoint_projection(&remote));
+    let active = state.frontend_observation_fingerprint(&registry, false);
+    state.set_pane_surface(remote_surface);
+    assert_ne!(
+        state.frontend_observation_fingerprint(&registry, false),
+        active
+    );
+}
+
+#[test]
+fn marked_unread_agent_regains_its_badge_after_leaving_and_clears_on_revisit() {
+    let (mut state, remote) = state_with_remote();
+    let mut local_snapshot = snapshot();
+    local_snapshot.agents = vec![agent("local", AgentStatus::Idle, 4)];
+    state.set_endpoint_snapshot(&ClientEndpointId::Local, Box::new(local_snapshot));
+    state.set_pane_surface(surface());
+    let local_status = |state: &ClientShellState| {
+        state
+            .endpoints
+            .iter()
+            .find(|endpoint| endpoint.endpoint_id == ClientEndpointId::Local)
+            .and_then(|endpoint| endpoint.snapshot.as_deref())
+            .map(|snapshot| snapshot.agents[0].agent_status)
+    };
+    assert_eq!(local_status(&state), Some(AgentStatus::Idle));
+
+    let mut outcome = ClientShellInput::default();
+    state.mark_focused_agent_unread(&mut outcome);
+    assert!(state.pending_unread.is_some());
+    // Still on the pane: nothing changes until the user leaves.
+    assert_eq!(local_status(&state), Some(AgentStatus::Idle));
+
+    assert!(state.activate_endpoint_projection(&remote));
+    assert!(state.pending_unread.is_none());
+    assert_eq!(local_status(&state), Some(AgentStatus::Done));
+
+    // Coming back and presenting the pane acknowledges it like any completion.
+    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
+    state.set_pane_surface(surface());
+    assert_eq!(local_status(&state), Some(AgentStatus::Idle));
+}

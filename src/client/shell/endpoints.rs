@@ -95,10 +95,19 @@ impl ClientShellState {
             next.iter()
                 .any(|endpoint| &endpoint.endpoint_id == endpoint_id)
         });
+        for endpoint in &self.endpoints {
+            if !next.iter().any(|candidate| {
+                candidate.endpoint_id == endpoint.endpoint_id
+                    && candidate.status != ClientEndpointStatus::Disabled
+            }) {
+                self.history.retire(&endpoint.endpoint_id);
+            }
+        }
         self.endpoints = next;
     }
 
     pub(crate) fn select_unavailable_local(&mut self) {
+        self.history.clear();
         self.reset_endpoint_projection();
         self.active_endpoint_id = ClientEndpointId::Local;
         self.mode = ClientShellMode::Terminal;
@@ -108,6 +117,7 @@ impl ClientShellState {
     }
 
     pub(crate) fn retire_endpoint(&mut self, endpoint_id: &ClientEndpointId) {
+        self.history.retire(endpoint_id);
         self.retire_endpoint_notifications(endpoint_id);
         if let Some(endpoint) = self
             .endpoints
@@ -524,6 +534,9 @@ impl ClientShellState {
         {
             return;
         }
+        // A server reboot invalidates history visits recorded under its old boot,
+        // even while the endpoint is inactive.
+        self.history.observe_boot(endpoint_id, &snapshot.boot_id);
         let boot_changed = self.endpoints[index]
             .snapshot
             .as_deref()
@@ -629,8 +642,96 @@ impl ClientShellState {
         };
         if changed {
             self.snapshot = self.endpoints[index].snapshot.clone();
+            self.bump_agent_projection_revision();
         }
         changed
+    }
+
+    /// In-place agent status rewrites leave snapshot identity (boot, revision)
+    /// intact; bump the projection revision so the frontend observation
+    /// republishes them.
+    pub(super) fn bump_agent_projection_revision(&mut self) {
+        self.agent_projection_revision = self.agent_projection_revision.saturating_add(1);
+    }
+
+    /// Hold the focused agent's acknowledged completion so its badge comes back
+    /// once the user leaves the pane. Only an acknowledged completion (shown as
+    /// idle) can be forgotten; working, blocked, and still-badged agents have
+    /// nothing to restore.
+    pub(super) fn mark_focused_agent_unread(&mut self, outcome: &mut ClientShellInput) {
+        let target = self.snapshot.as_deref().and_then(|snapshot| {
+            let pane_id = snapshot.focused_pane_id.clone()?;
+            let agent = snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.pane_id == pane_id)?;
+            matches!(agent.agent_status, crate::api::schema::AgentStatus::Idle).then(|| {
+                ClientUnreadTarget {
+                    endpoint_id: self.active_endpoint_id.clone(),
+                    pane_id,
+                    boot_id: snapshot.boot_id.clone(),
+                    sequence: agent.state_change_seq,
+                }
+            })
+        });
+        let (title, body) = match &target {
+            Some(_) => (
+                "Marked unread",
+                "The badge returns when you leave this pane.",
+            ),
+            None => (
+                "Nothing to mark",
+                "The focused pane has no acknowledged completion.",
+            ),
+        };
+        self.pending_unread = target;
+        outcome.repaint |= self.push_endpoint_notice(
+            ClientEndpointNoticeKind::Rejected,
+            "mark_unread",
+            title,
+            body,
+        );
+    }
+
+    /// Apply the held unread mark once the active snapshot shows the user has
+    /// left the marked pane.
+    pub(super) fn settle_pending_unread(&mut self) {
+        let Some(target) = self.pending_unread.take() else {
+            return;
+        };
+        let still_there = target.endpoint_id == self.active_endpoint_id
+            && self
+                .snapshot
+                .as_deref()
+                .and_then(|snapshot| snapshot.focused_pane_id.as_deref())
+                == Some(target.pane_id.as_str());
+        if still_there {
+            self.pending_unread = Some(target);
+            return;
+        }
+        let Some(endpoint) = self
+            .endpoints
+            .iter_mut()
+            .find(|endpoint| endpoint.endpoint_id == target.endpoint_id)
+        else {
+            return;
+        };
+        let Some(snapshot) = endpoint.snapshot.as_deref_mut() else {
+            return;
+        };
+        if snapshot.boot_id != target.boot_id
+            || !endpoint.agent_presentation.unacknowledge(
+                snapshot,
+                &target.pane_id,
+                target.sequence,
+            )
+        {
+            return;
+        }
+        if target.endpoint_id == self.active_endpoint_id {
+            self.snapshot = endpoint.snapshot.clone();
+        }
+        self.bump_agent_projection_revision();
     }
 
     #[cfg(test)]

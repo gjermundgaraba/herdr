@@ -48,6 +48,28 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
+                if action == crate::input::KeybindAction::AgentPicker {
+                    self.open_navigator(NavigatorLayout::Agents);
+                    outcome.repaint = true;
+                    return;
+                }
+                if action == crate::input::KeybindAction::WorkspaceList {
+                    self.open_navigator(NavigatorLayout::Workspaces);
+                    outcome.repaint = true;
+                    return;
+                }
+                if action == crate::input::KeybindAction::HistoryBack {
+                    self.history_step(false, outcome);
+                    return;
+                }
+                if action == crate::input::KeybindAction::HistoryForward {
+                    self.history_step(true, outcome);
+                    return;
+                }
+                if action == crate::input::KeybindAction::MarkUnread {
+                    self.mark_focused_agent_unread(outcome);
+                    return;
+                }
                 if action == crate::input::KeybindAction::Help {
                     self.overlay = Some(ClientShellOverlay::Help(ClientHelpOverlay {
                         query: TextEditor::default(),
@@ -445,6 +467,25 @@ impl ClientShellState {
         outcome.actions
     }
 
+    /// Track a frontend-socket request so its reply settles with the result.
+    pub(crate) fn register_frontend_request(
+        &mut self,
+        request_id: String,
+        boot_id: String,
+        method_name: String,
+        reply: crate::client::frontend_api::FrontendReply,
+    ) {
+        self.pending_requests.insert(
+            request_id,
+            PendingEndpointRequest {
+                boot_id,
+                method_name,
+                confirmation_workspace_id: None,
+                kind: PendingEndpointKind::Frontend(reply),
+            },
+        );
+    }
+
     pub(crate) fn cancel_endpoint_request(&mut self, request_id: &str) -> bool {
         let Some(pending) = self.pending_requests.get(request_id) else {
             return false;
@@ -474,6 +515,13 @@ impl ClientShellState {
     ) -> (bool, Vec<ClientShellAction>) {
         let Some(pending) = self.pending_requests.remove(request_id) else {
             return (false, Vec::new());
+        };
+        let pending = match pending.kind {
+            PendingEndpointKind::Frontend(reply) => {
+                reply.settle(&result);
+                return (false, Vec::new());
+            }
+            kind => PendingEndpointRequest { kind, ..pending },
         };
         if pending.boot_id != boot_id
             || self

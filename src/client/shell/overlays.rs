@@ -826,6 +826,7 @@ fn render_navigator_overlay(
         };
         b.set_style(rect, st);
         let tree = match &r.target {
+            _ if n.layout == NavigatorLayout::Agents => String::new(),
             ClientNavigatorTarget::Machine { .. } => "▾".to_owned(),
             ClientNavigatorTarget::Workspace {
                 endpoint_id,

@@ -33,6 +33,29 @@ impl EndpointAgentPresentation {
         project_aggregate_status(snapshot);
     }
 
+    /// Forget the acknowledgement of one exact completion so it projects as
+    /// Done again until the pane is presented on a focused surface.
+    pub(super) fn unacknowledge(
+        &mut self,
+        snapshot: &mut ClientShellSnapshot,
+        pane_id: &str,
+        sequence: u64,
+    ) -> bool {
+        let current = snapshot
+            .agents
+            .iter()
+            .any(|agent| agent.pane_id == pane_id && agent.state_change_seq == sequence);
+        if !current || self.acknowledged.get(pane_id) != Some(&sequence) {
+            return false;
+        }
+        self.acknowledged.remove(pane_id);
+        for agent in &mut snapshot.agents {
+            agent.agent_status = self.projected_status(agent);
+        }
+        project_aggregate_status(snapshot);
+        true
+    }
+
     pub(super) fn acknowledge_surface(
         &mut self,
         snapshot: &mut ClientShellSnapshot,
@@ -261,5 +284,22 @@ mod tests {
         assert!(!presentation.acknowledge_surface(&mut completed, &surface(1), Some(true)));
         assert!(!presentation.acknowledge_surface(&mut completed, &surface(2), Some(false)));
         assert_eq!(completed.agents[0].agent_status, AgentStatus::Done);
+    }
+
+    #[test]
+    fn unacknowledge_restores_done_until_the_pane_is_presented_again() {
+        let mut presentation = EndpointAgentPresentation::default();
+        let mut snapshot = snapshot(AgentStatus::Idle, 4, 1);
+        presentation.project_snapshot(&mut snapshot);
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Idle);
+        // Only the exact acknowledged completion can be forgotten.
+        assert!(!presentation.unacknowledge(&mut snapshot, "agent-pane", 3));
+        assert!(!presentation.unacknowledge(&mut snapshot, "other-pane", 4));
+        assert!(presentation.unacknowledge(&mut snapshot, "agent-pane", 4));
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Done);
+        assert!(!presentation.unacknowledge(&mut snapshot, "agent-pane", 4));
+        // Presenting the pane again acknowledges it like any completion.
+        assert!(presentation.acknowledge_surface(&mut snapshot, &surface(1), Some(true)));
+        assert_eq!(snapshot.agents[0].agent_status, AgentStatus::Idle);
     }
 }

@@ -542,6 +542,36 @@
           "description": "Open the session navigator."
         },
         {
+          "key": "keys.agent_picker",
+          "type": "keybinding",
+          "default": "\"\"",
+          "description": "Open the navigator as a flat list of every agent across machines, in priority order."
+        },
+        {
+          "key": "keys.workspace_list",
+          "type": "keybinding",
+          "default": "\"\"",
+          "description": "Open the navigator with every workspace collapsed."
+        },
+        {
+          "key": "keys.history_back",
+          "type": "keybinding",
+          "default": "\"\"",
+          "description": "Return to the previously focused pane, across machines."
+        },
+        {
+          "key": "keys.history_forward",
+          "type": "keybinding",
+          "default": "\"\"",
+          "description": "Go forward again in pane history."
+        },
+        {
+          "key": "keys.mark_unread",
+          "type": "keybinding",
+          "default": "\"\"",
+          "description": "Keep the focused agent's completion badge after leaving its pane."
+        },
+        {
           "key": "keys.navigate_workspace_up",
           "type": "keybinding",
           "default": "\"up\"",

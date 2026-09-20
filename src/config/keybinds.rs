@@ -328,6 +328,11 @@ pub struct Keybinds {
     pub close_workspace: ActionKeybinds,
     pub workspace_picker: ActionKeybinds,
     pub goto: ActionKeybinds,
+    pub agent_picker: ActionKeybinds,
+    pub workspace_list: ActionKeybinds,
+    pub history_back: ActionKeybinds,
+    pub history_forward: ActionKeybinds,
+    pub mark_unread: ActionKeybinds,
     pub detach: ActionKeybinds,
     pub reload_config: ActionKeybinds,
     pub open_notification_target: ActionKeybinds,
@@ -370,6 +375,18 @@ pub struct Keybinds {
     pub resize_pane_right: ActionKeybinds,
     pub toggle_sidebar: ActionKeybinds,
     pub custom_commands: Vec<CustomCommandKeybind>,
+}
+
+impl Keybinds {
+    /// Actions handled by the TUI client itself. They come from the local
+    /// config even when an endpoint's keybinding profile is in effect.
+    pub(crate) fn copy_client_actions(&mut self, from: &Keybinds) {
+        self.agent_picker = from.agent_picker.clone();
+        self.workspace_list = from.workspace_list.clone();
+        self.history_back = from.history_back.clone();
+        self.history_forward = from.history_forward.clone();
+        self.mark_unread = from.mark_unread.clone();
+    }
 }
 
 impl Default for Keybinds {
@@ -496,6 +513,11 @@ impl Config {
             close_workspace: empty_action!(),
             workspace_picker: empty_action!(),
             goto: empty_action!(),
+            agent_picker: empty_action!(),
+            workspace_list: empty_action!(),
+            history_back: empty_action!(),
+            history_forward: empty_action!(),
+            mark_unread: empty_action!(),
             detach: empty_action!(),
             reload_config: empty_action!(),
             open_notification_target: empty_action!(),
@@ -624,6 +646,11 @@ impl Config {
             apply_action!(keybinds.close_workspace, close_workspace, source);
             apply_action!(keybinds.workspace_picker, workspace_picker, source);
             apply_action!(keybinds.goto, goto, source);
+            apply_action!(keybinds.agent_picker, agent_picker, source);
+            apply_action!(keybinds.workspace_list, workspace_list, source);
+            apply_action!(keybinds.history_back, history_back, source);
+            apply_action!(keybinds.history_forward, history_forward, source);
+            apply_action!(keybinds.mark_unread, mark_unread, source);
             apply_action!(keybinds.detach, detach, source);
             apply_action!(keybinds.reload_config, reload_config, source);
             apply_action!(

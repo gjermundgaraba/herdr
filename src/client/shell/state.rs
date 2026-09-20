@@ -5,6 +5,17 @@ pub(super) const NEW_TAB_WIDTH: u16 = 3;
 pub(super) const WORKSPACE_HEADER_ROWS: u16 = 2;
 const ENDPOINT_ERROR_TIMEOUT_SECS: u64 = 5;
 
+/// A client-local unread restoration for one captured agent lifecycle. The
+/// connection generation is deliberately absent: a reconnect does not
+/// invalidate the completion identity, only a server boot change does.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClientUnreadTarget {
+    pub(crate) endpoint_id: ClientEndpointId,
+    pub(crate) pane_id: String,
+    pub(crate) boot_id: String,
+    pub(crate) sequence: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClientShellKeybindingSource {
     Local,
@@ -37,6 +48,8 @@ pub(crate) struct ClientShellConfig {
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
     pub(super) local_keys: crate::config::KeysConfig,
+    /// Client-only actions stay bound from the local config under any profile.
+    pub(super) local_client_actions: crate::config::Keybinds,
     pub(super) keybinding_source: ClientShellKeybindingSource,
     pub(super) prompt_new_tab_name: bool,
     pub(super) prompt_new_workspace_name: bool,
@@ -357,8 +370,20 @@ pub(super) struct ClientNavigatorRow {
     pub(super) target: ClientNavigatorTarget,
 }
 
+/// Which rows the Navigator lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NavigatorLayout {
+    /// Machines, workspaces, tabs, and panes as a tree.
+    Tree,
+    /// Every agent pane across machines as a flat list in priority order.
+    Agents,
+    /// Workspaces with their tabs collapsed.
+    Workspaces,
+}
+
 #[derive(Debug)]
 pub(super) struct ClientNavigatorOverlay {
+    pub(super) layout: NavigatorLayout,
     pub(super) query: TextEditor,
     pub(super) search_focused: bool,
     pub(super) selected: Option<ClientNavigatorTarget>,
@@ -643,6 +668,8 @@ pub(super) enum PendingEndpointKind {
     PaneLinkResolve {
         target: super::link_hover::LinkHoverTarget,
     },
+    /// A frontend-socket request; the reply settles from this request's result.
+    Frontend(crate::client::frontend_api::FrontendReply),
     PaneLinkActivate {
         pane_id: String,
         inner_rect: Rect,
@@ -873,7 +900,15 @@ pub(crate) struct ClientShellState {
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
     pub(super) endpoints: Vec<ClientShellEndpoint>,
-    pub(super) active_endpoint_id: ClientEndpointId,
+    /// Bounded Back/Forward visit history across endpoints.
+    pub(crate) history: super::history::History,
+    /// A completion whose badge is restored once the user leaves its pane.
+    pub(super) pending_unread: Option<ClientUnreadTarget>,
+    /// Bumped when an in-place snapshot mutation (agent acknowledgement) changes
+    /// observed output without a snapshot revision change. Visible to the
+    /// frontend observation fingerprint so stale subscriptions never hide the change.
+    pub(super) agent_projection_revision: u64,
+    pub(crate) active_endpoint_id: ClientEndpointId,
     pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
@@ -1076,6 +1111,9 @@ impl ClientShellState {
             queued_notifications: VecDeque::new(),
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
+            history: Default::default(),
+            pending_unread: None,
+            agent_projection_revision: 0,
             outer_focused: None,
             ascii_input_source_active: false,
             pending_input_source_changes: Vec::new(),
@@ -1285,6 +1323,11 @@ impl ClientShellState {
             self.pending_pane_surface = None;
         }
         self.active_snapshot_generation = generation;
+        self.history.observe(
+            &self.active_endpoint_id,
+            &snapshot.boot_id,
+            snapshot.focused_pane_id.as_deref(),
+        );
         self.graphics.set_scope(&graphics_scope);
         let command_bindings_changed = self.snapshot.as_ref().is_none_or(|current| {
             current.commands.len() != snapshot.commands.len()
@@ -1545,6 +1588,7 @@ impl ClientShellState {
             }
         }
         self.snapshot = Some(snapshot);
+        self.settle_pending_unread();
         let pending_surface = self.pending_pane_surface.take();
         if let Some(surface) = pending_surface {
             let matching = self.snapshot.as_ref().is_some_and(|snapshot| {

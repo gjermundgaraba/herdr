@@ -280,14 +280,11 @@ pub(super) fn navigator_rows(
     active_endpoint_id: &ClientEndpointId,
     navigator: &ClientNavigatorOverlay,
 ) -> Vec<ClientNavigatorRow> {
+    if navigator.layout == NavigatorLayout::Agents {
+        return agent_navigator_rows(endpoints, active_endpoint_id, navigator);
+    }
     let query = navigator.query.trim().to_lowercase();
-    let filter = |status| match navigator.filter {
-        Some(ClientNavigatorFilter::Blocked) => status == crate::api::schema::AgentStatus::Blocked,
-        Some(ClientNavigatorFilter::Working) => status == crate::api::schema::AgentStatus::Working,
-        Some(ClientNavigatorFilter::Idle) => status == crate::api::schema::AgentStatus::Idle,
-        Some(ClientNavigatorFilter::Done) => status == crate::api::schema::AgentStatus::Done,
-        None => true,
-    };
+    let filter = |status| filter_matches(navigator.filter, status);
     let text = |value: &str| query.is_empty() || value.to_lowercase().contains(&query);
     let filtering = navigator.filter.is_some() || !query.is_empty();
     let federated = endpoints.len() > 1;
@@ -419,6 +416,85 @@ pub(super) fn navigator_rows(
         }
     }
     rows
+}
+
+fn filter_matches(
+    filter: Option<ClientNavigatorFilter>,
+    status: crate::api::schema::AgentStatus,
+) -> bool {
+    match filter {
+        Some(ClientNavigatorFilter::Blocked) => status == crate::api::schema::AgentStatus::Blocked,
+        Some(ClientNavigatorFilter::Working) => status == crate::api::schema::AgentStatus::Working,
+        Some(ClientNavigatorFilter::Idle) => status == crate::api::schema::AgentStatus::Idle,
+        Some(ClientNavigatorFilter::Done) => status == crate::api::schema::AgentStatus::Done,
+        None => true,
+    }
+}
+
+/// Every agent pane across machines as one flat list in priority order.
+fn agent_navigator_rows(
+    endpoints: &[ClientShellEndpoint],
+    active_endpoint_id: &ClientEndpointId,
+    navigator: &ClientNavigatorOverlay,
+) -> Vec<ClientNavigatorRow> {
+    let query = navigator.query.trim().to_lowercase();
+    let text = |value: &str| query.is_empty() || value.to_lowercase().contains(&query);
+    let federated = endpoints.len() > 1;
+    aggregate_agent_rows(
+        endpoints,
+        active_endpoint_id,
+        crate::config::AgentPanelSortConfig::Priority,
+    )
+    .into_iter()
+    .filter_map(|row| {
+        let agent = row.agent;
+        let snapshot = row.endpoint.snapshot;
+        if !filter_matches(navigator.filter, agent.agent_status) {
+            return None;
+        }
+        let pane = snapshot
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == agent.pane_id);
+        let workspace = snapshot
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.workspace_id == agent.workspace_id)
+            .map_or(agent.workspace_id.as_str(), |workspace| {
+                workspace.label.as_str()
+            });
+        let name = pane
+            .and_then(|pane| pane.label.clone())
+            .or_else(|| agent.name.clone())
+            .or_else(|| agent.display_agent.clone())
+            .or_else(|| agent.title.clone())
+            .unwrap_or_else(|| agent.pane_id.clone());
+        let label = if federated && !row.endpoint.endpoint_id.is_local() {
+            format!("{} · {workspace}: {name}", row.endpoint.label)
+        } else {
+            format!("{workspace}: {name}")
+        };
+        let meta = pane
+            .and_then(|pane| pane.foreground_cwd.clone().or_else(|| pane.cwd.clone()))
+            .unwrap_or_default();
+        if !(text(&label) || text(&meta)) {
+            return None;
+        }
+        Some(ClientNavigatorRow {
+            depth: 0,
+            label,
+            meta,
+            status: Some(agent.agent_status),
+            stale: row.endpoint.stale(),
+            current: row.endpoint.endpoint_id == active_endpoint_id
+                && snapshot.focused_pane_id.as_deref() == Some(agent.pane_id.as_str()),
+            target: ClientNavigatorTarget::Pane {
+                endpoint_id: row.endpoint.endpoint_id.clone(),
+                pane_id: agent.pane_id.clone(),
+            },
+        })
+    })
+    .collect()
 }
 
 pub(super) fn navigator_selected_index(

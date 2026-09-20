@@ -35,6 +35,21 @@ impl HeadlessServer {
             self.send_to_client(client_id, message);
             return false;
         }
+        // The public API installs an asynchronous prompt waiter; this command lane
+        // only submits prompts and must not silently accept unsupported wait semantics.
+        if matches!(&request.method, api::schema::Method::AgentPrompt(params) if params.wait.is_some())
+        {
+            self.send_to_client(
+                client_id,
+                crate::server::client_commands::error_message(
+                    boot_id,
+                    request_id,
+                    "invalid_params",
+                    "agent.prompt wait is not supported through the endpoint command lane",
+                ),
+            );
+            return false;
+        }
         let surface_active = client.shell_surface_active;
         if let api::schema::Method::ClientShellSurfaceSet(params) = &request.method {
             let Some((changed, projection_revision)) =

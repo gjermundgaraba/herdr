@@ -826,3 +826,38 @@ fn resize_mode_reuses_endpoint_resize_and_stays_active_until_done() {
     assert!(state.handle_input_bytes(b"\r").actions.is_empty());
     assert_eq!(state.mode, ClientShellMode::Terminal);
 }
+
+#[test]
+fn client_only_actions_come_from_local_config_under_an_endpoint_profile() {
+    let local: Config = toml::from_str(
+        r#"
+[keys]
+prefix = "ctrl+a"
+agent_picker = "prefix+a"
+history_back = "alt+left"
+"#,
+    )
+    .unwrap();
+    let endpoint: Config = toml::from_str(
+        r#"
+[keys]
+prefix = "ctrl+x"
+new_tab = "prefix+n"
+"#,
+    )
+    .unwrap();
+    let mut state = ClientShellState::new(
+        ClientShellConfig::from_config(&local)
+            .with_keybinding_source(ClientShellKeybindingSource::Endpoint),
+    );
+    let mut projection = snapshot();
+    projection.server_keybindings_toml = endpoint.local_keybindings_profile_toml().ok();
+    state.set_snapshot(Box::new(projection));
+
+    let keybinds = &state.config.keybinds.keybinds;
+    assert_eq!(state.config.keybinds.prefix.0, KeyCode::Char('x'));
+    assert_eq!(keybinds.new_tab.label().as_deref(), Some("prefix+n"));
+    assert_eq!(keybinds.agent_picker.label().as_deref(), Some("prefix+a"));
+    assert_eq!(keybinds.history_back.label().as_deref(), Some("alt+left"));
+    assert!(keybinds.mark_unread.label().is_none());
+}

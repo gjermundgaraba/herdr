@@ -69,6 +69,11 @@ pub(crate) enum KeybindAction {
     OpenNotificationTarget,
     Detach,
     OpenNavigator,
+    AgentPicker,
+    WorkspaceList,
+    HistoryBack,
+    HistoryForward,
+    MarkUnread,
 }
 
 pub(crate) fn resolve_direct_binding(
@@ -152,6 +157,11 @@ pub(crate) fn resolve_non_indexed_action(
         ),
         (&keybinds.detach, KeybindAction::Detach),
         (&keybinds.goto, KeybindAction::OpenNavigator),
+        (&keybinds.agent_picker, KeybindAction::AgentPicker),
+        (&keybinds.workspace_list, KeybindAction::WorkspaceList),
+        (&keybinds.history_back, KeybindAction::HistoryBack),
+        (&keybinds.history_forward, KeybindAction::HistoryForward),
+        (&keybinds.mark_unread, KeybindAction::MarkUnread),
     ] {
         if action_matches(bindings, key, dispatch) {
             return Some(action);

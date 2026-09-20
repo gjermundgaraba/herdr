@@ -24,6 +24,7 @@ mod endpoint_commands;
 mod errors;
 mod events;
 mod frame_output;
+mod frontend_api;
 mod handshake;
 mod input;
 mod loop_config;
@@ -465,6 +466,20 @@ async fn run_client_loop(
 
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
 
+    // Frontend socket: same-user automation for tools running on the TUI host. A
+    // missing socket only disables those tools; the session does not depend on it.
+    let mut frontend_api = if state.shell.is_some() {
+        match frontend_api::FrontendApi::start(event_tx.clone()) {
+            Ok(api) => Some(api),
+            Err(error) => {
+                warn!(%error, "frontend API unavailable");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Spawn the stdin reader thread.
     let will_query_host_terminal_theme =
         state.attach_escape.is_none() && should_query_host_terminal_theme();
@@ -703,6 +718,13 @@ async fn run_client_loop(
                 &supervisor_tx,
             );
         }
+        // Frontend publication runs at the loop boundary, covering event arms
+        // that end in `continue`. Publish after dispatch and housekeeping, and
+        // settle navigation replies from observed state before the next event.
+        if let (Some(api), Some(shell)) = (frontend_api.as_mut(), state.shell.as_mut()) {
+            api.publish(shell, state.presentation_frozen, &write_stream);
+            api.settle_selects(shell, std::time::Instant::now());
+        }
         let timer_delay = state
             .shell
             .as_ref()
@@ -745,6 +767,49 @@ async fn run_client_loop(
         }
 
         match event {
+            ClientLoopEvent::FrontendApi(event) => {
+                if let (Some(api), Some(shell)) = (frontend_api.as_mut(), state.shell.as_mut()) {
+                    let dispatch = api.handle(
+                        event,
+                        shell,
+                        state.presentation_frozen,
+                        &mut write_stream,
+                        &mut endpoint_commands,
+                    );
+                    match dispatch {
+                        None => {}
+                        Some(frontend_api::Dispatch::Input { id, reply, input }) => {
+                            let frame = input
+                                .repaint
+                                .then(|| {
+                                    shell.compose(state.reported_size.0, state.reported_size.1)
+                                })
+                                .flatten();
+                            if finish_client_shell_input(
+                                &mut state,
+                                input,
+                                frame,
+                                &mut write_stream,
+                                &mut pending_activation,
+                                &mut endpoint_commands,
+                                &mut prefix_input_source,
+                                &mut scheduled_activation,
+                            )? {
+                                return Ok(());
+                            }
+                            let _ = reply
+                                .send(frontend_api::success(id, serde_json::json!({"ok": true})));
+                        }
+                        Some(frontend_api::Dispatch::Select { endpoint, target }) => {
+                            scheduled_activation = Some(ClientLoopEvent::ActivateEndpoint {
+                                endpoint_id: endpoint,
+                                target: Some(target),
+                                force: false,
+                            });
+                        }
+                    }
+                }
+            }
             ClientLoopEvent::EndpointCatalog(reload) => pending_catalog = Some(reload),
             #[cfg(unix)]
             ClientLoopEvent::StdinInput(data) => {
