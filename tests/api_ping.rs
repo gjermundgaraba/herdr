@@ -127,7 +127,7 @@ fn spawn_herdr_with_options(
     register_runtime_dir(runtime_dir);
     fs::write(
         config_home.join("herdr/config.toml"),
-        "onboarding = false\n",
+        "onboarding = false\n[terminal]\nshell_mode = \"non_login\"\n",
     )
     .unwrap();
 
@@ -143,6 +143,8 @@ fn spawn_herdr_with_options(
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_herdr"));
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
+    // Pin the fixture config independently of debug/release config-directory names.
+    cmd.env("HERDR_CONFIG_PATH", config_home.join("herdr/config.toml"));
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
     cmd.env("HERDR_SOCKET_PATH", socket_path);
     cmd.env_remove("HERDR_CLIENT_SOCKET_PATH");
