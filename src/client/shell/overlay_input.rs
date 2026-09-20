@@ -191,19 +191,38 @@ impl ClientShellState {
     }
 
     pub(super) fn open_navigator_overlay(&mut self) {
+        self.open_navigator(NavigatorLayout::Tree);
+    }
+
+    /// Open the Navigator. The workspace list starts with the search focused so
+    /// typing filters immediately; the agent list and tree start on the rows so
+    /// `j`/`k` move at once and `/` focuses the search.
+    pub(super) fn open_navigator(&mut self, layout: NavigatorLayout) {
         let mut navigator = ClientNavigatorOverlay {
+            layout,
             query: TextEditor::default(),
-            search_focused: false,
+            search_focused: layout == NavigatorLayout::Workspaces,
             selected: None,
             scroll: 0,
             filter: None,
         };
         let rows =
             render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, &navigator);
-        navigator.selected = rows
-            .iter()
-            .find(|row| row.current)
-            .map(|row| row.target.clone());
+        let focused_workspace = self
+            .snapshot
+            .as_deref()
+            .and_then(|snapshot| snapshot.focused_workspace_id.clone());
+        navigator.selected = match layout {
+            // The top row is the highest-priority agent, not the current one.
+            NavigatorLayout::Agents => rows.first(),
+            NavigatorLayout::Tree => rows.iter().find(|row| row.current),
+            NavigatorLayout::Workspaces => rows.iter().find(|row| {
+                matches!(&row.target, ClientNavigatorTarget::Workspace { endpoint_id, workspace_id }
+                    if *endpoint_id == self.active_endpoint_id
+                        && Some(workspace_id) == focused_workspace.as_ref())
+            }),
+        }
+        .map(|row| row.target.clone());
         self.overlay = Some(ClientShellOverlay::Navigator(navigator));
     }
 

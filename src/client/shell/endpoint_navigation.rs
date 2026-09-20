@@ -250,10 +250,58 @@ impl ClientShellState {
         true
     }
 
+    /// Step through the pane visit history, skipping offline machines.
+    pub(super) fn history_step(&mut self, forward: bool, outcome: &mut ClientShellInput) {
+        let online: HashSet<ClientEndpointId> = self
+            .endpoints
+            .iter()
+            .filter(|endpoint| endpoint.status == ClientEndpointStatus::Online)
+            .map(|endpoint| endpoint.endpoint_id.clone())
+            .collect();
+        let visit = if forward {
+            self.history.forward(&online)
+        } else {
+            self.history.back(&online)
+        };
+        let Some(visit) = visit else {
+            let body = if forward {
+                "No later pane in history"
+            } else {
+                "No earlier pane in history"
+            };
+            outcome.repaint |= self.push_endpoint_notice(
+                ClientEndpointNoticeKind::Unavailable,
+                "history",
+                "History",
+                body,
+            );
+            return;
+        };
+        self.focus_or_activate_with_kind(
+            visit.endpoint_id.clone(),
+            ClientEndpointFocusTarget::Pane(visit.pane_id.clone()),
+            PendingEndpointKind::HistoryStep { visit },
+            outcome,
+        );
+        outcome.repaint = true;
+    }
+
     pub(super) fn focus_or_activate(
         &mut self,
         endpoint_id: ClientEndpointId,
         target: ClientEndpointFocusTarget,
+        outcome: &mut ClientShellInput,
+    ) -> bool {
+        self.focus_or_activate_with_kind(endpoint_id, target, PendingEndpointKind::Generic, outcome)
+    }
+
+    /// `kind` tracks the focus request on the active endpoint; activating another
+    /// endpoint carries the target through its own handoff instead.
+    fn focus_or_activate_with_kind(
+        &mut self,
+        endpoint_id: ClientEndpointId,
+        target: ClientEndpointFocusTarget,
+        kind: PendingEndpointKind,
         outcome: &mut ClientShellInput,
     ) -> bool {
         self.pending_workspace_highlight = None;
@@ -285,7 +333,7 @@ impl ClientShellState {
                     })
                 }
             };
-            self.push_endpoint_method(method, outcome);
+            self.push_endpoint_method_with_kind(method, kind, outcome);
         } else {
             outcome.actions.push(ClientShellAction::ActivateEndpoint {
                 endpoint_id,

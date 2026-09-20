@@ -846,7 +846,9 @@ fn render_navigator_overlay(
                 )
                 .bg(p.panel_bg)
         };
-        let is_pane = matches!(r.target, ClientNavigatorTarget::Pane { .. });
+        // The flat agent list has no workspace rows to connect its panes to.
+        let is_pane = n.layout != NavigatorLayout::Agents
+            && matches!(r.target, ClientNavigatorTarget::Pane { .. });
         let connector = if !is_pane {
             ""
         } else if rows

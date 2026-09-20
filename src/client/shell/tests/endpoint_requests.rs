@@ -484,3 +484,76 @@ fn another_machine_disconnect_does_not_cancel_active_popup() {
     assert!(state.popup_pending);
     assert_eq!(state.pending_requests.len(), 1);
 }
+
+fn focused_on(pane_ids: &[&str], focused: &str, revision: u64) -> ClientShellSnapshot {
+    let mut projection = snapshot();
+    projection.revision = revision;
+    projection.focused_pane_id = Some(focused.into());
+    let template = projection.panes[0].clone();
+    projection.panes = pane_ids
+        .iter()
+        .map(|pane_id| ClientShellPane {
+            pane_id: (*pane_id).into(),
+            focused: *pane_id == focused,
+            ..template.clone()
+        })
+        .collect();
+    projection
+}
+
+/// Presses a history key and returns the request id and pane it focuses.
+fn history_step(state: &mut ClientShellState, forward: bool) -> (String, String) {
+    let action = if forward {
+        crate::input::KeybindAction::HistoryForward
+    } else {
+        crate::input::KeybindAction::HistoryBack
+    };
+    let mut outcome = ClientShellInput::default();
+    state.record_binding(crate::input::KeybindMatch::Action(action), &mut outcome);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("expected one history focus request");
+    };
+    let crate::api::schema::Method::PaneFocus(target) = &request.method else {
+        panic!("expected a pane focus request");
+    };
+    (request.id.clone(), target.pane_id.clone())
+}
+
+#[test]
+fn history_skips_panes_closed_since_their_visit() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let all = ["pane_1", "pane_2", "pane_3"];
+    state.set_snapshot(Box::new(focused_on(&all, "pane_1", 1)));
+    state.set_snapshot(Box::new(focused_on(&all, "pane_2", 2)));
+    state.set_snapshot(Box::new(focused_on(&all, "pane_3", 3)));
+    state.set_snapshot(Box::new(focused_on(&["pane_1", "pane_3"], "pane_3", 4)));
+
+    assert_eq!(history_step(&mut state, false).1, "pane_1");
+}
+
+#[test]
+fn failed_history_step_rewinds_and_forgets_the_closed_pane() {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let all = ["pane_1", "pane_2", "pane_3"];
+    state.set_snapshot(Box::new(focused_on(&all, "pane_1", 1)));
+    state.set_snapshot(Box::new(focused_on(&all, "pane_2", 2)));
+    state.set_snapshot(Box::new(focused_on(&all, "pane_3", 3)));
+
+    let (request_id, pane_id) = history_step(&mut state, false);
+    assert_eq!(pane_id, "pane_2");
+    // A snapshot from before the failure must not truncate the forward list.
+    state.set_snapshot(Box::new(focused_on(&all, "pane_3", 4)));
+    state.handle_endpoint_result(
+        "boot-1",
+        &request_id,
+        Err(ClientShellEndpointError {
+            code: Some("pane_not_found".into()),
+            message: "pane pane_2 not found".into(),
+        }),
+    );
+
+    let (_, pane_id) = history_step(&mut state, false);
+    assert_eq!(pane_id, "pane_1");
+    state.set_snapshot(Box::new(focused_on(&all, "pane_1", 5)));
+    assert_eq!(history_step(&mut state, true).1, "pane_3");
+}

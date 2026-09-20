@@ -527,6 +527,7 @@ impl ClientShellState {
             }
             (
                 PendingEndpointKind::Generic
+                | PendingEndpointKind::HistoryStep { .. }
                 | PendingEndpointKind::ProductAnnouncementDismiss { .. }
                 | PendingEndpointKind::ReleaseNotesDismiss
                 | PendingEndpointKind::PopupCommand
@@ -542,6 +543,9 @@ impl ClientShellState {
                 | PendingEndpointKind::CopySearch { .. },
                 Err(_),
             ) => true,
+            // Frontend replies settle in `handle_endpoint_result` before any
+            // worktree handling.
+            (PendingEndpointKind::Frontend(_), Err(_)) => true,
         }
     }
 }

@@ -8,7 +8,7 @@ pub(super) fn tab_attention_priority(state: crate::detect::AgentState, seen: boo
     }
 }
 
-fn parse_api_key(key: &str) -> Option<crossterm::event::KeyEvent> {
+pub(crate) fn parse_api_key(key: &str) -> Option<crossterm::event::KeyEvent> {
     let normalized = normalize_api_key_alias(key.trim());
     let (code, modifiers) = crate::config::parse_key_combo(normalized)?;
     Some(crossterm::event::KeyEvent::new(code, modifiers))

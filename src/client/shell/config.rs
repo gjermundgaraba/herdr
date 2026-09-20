@@ -143,6 +143,7 @@ impl ClientShellConfig {
                     keybinds: config.keybinds(),
                 }),
             local_keys: config.keys.clone(),
+            local_client_actions: config.keybinds(),
             keybinding_source: ClientShellKeybindingSource::Local,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
@@ -256,6 +257,9 @@ impl ClientShellConfig {
             }
         };
         if self.keybinding_source == ClientShellKeybindingSource::Endpoint {
+            keybinds
+                .keybinds
+                .copy_client_actions(&self.local_client_actions);
             for command in commands {
                 let Ok(action) = command.action.try_into() else {
                     continue;
@@ -296,6 +300,7 @@ impl ClientShellConfig {
             match config.live_keybinds_with_diagnostics() {
                 Ok((mut keybinds, keybind_diagnostics)) => {
                     self.local_keys = config.keys.clone();
+                    self.local_client_actions = keybinds.keybinds.clone();
                     if self.keybinding_source == ClientShellKeybindingSource::RemoteLocal {
                         keybinds.keybinds.custom_commands.clear();
                     }
