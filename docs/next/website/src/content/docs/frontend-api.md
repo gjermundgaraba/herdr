@@ -24,11 +24,12 @@ mark_unread = "prefix+u"
 ```
 
 `agent_picker` opens the session navigator as a flat list of every agent across
-connected machines, ordered by status priority and then recency, with the
-search focused. `workspace_list` opens the navigator with every workspace
-collapsed. Both share the navigator's search, status filters, and keys: type to
-search, `↑`/`↓` or `ctrl+n`/`ctrl+p` move, `Enter` opens the selection, `Esc`
-leaves the search and then closes. The tree navigator (`prefix+g`) is
+connected machines, ordered by status priority and then recency, with the top
+row selected: `j`/`k` or `↑`/`↓` move, `/` focuses the search, `Enter` opens
+the selection. `workspace_list` opens the navigator with every workspace
+collapsed and the search focused: type to search, `↑`/`↓` or `ctrl+n`/`ctrl+p`
+move, `Esc` leaves the search and then closes. Both share the navigator's
+search, status filters, and keys. The tree navigator (`prefix+g`) is
 unchanged.
 
 `history_back` and `history_forward` step through pane visits recorded per TUI

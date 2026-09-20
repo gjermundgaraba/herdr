@@ -194,8 +194,9 @@ impl ClientShellState {
         self.open_navigator(NavigatorLayout::Tree);
     }
 
-    /// Open the Navigator. Flat layouts start with the search focused so typing
-    /// filters immediately; the tree keeps its key-driven filters.
+    /// Open the Navigator. The workspace list starts with the search focused so
+    /// typing filters immediately; the agent list and tree start on the rows so
+    /// `j`/`k` move at once and `/` focuses the search.
     pub(super) fn open_navigator(&mut self, layout: NavigatorLayout) {
         let expanded_workspaces = if layout == NavigatorLayout::Tree {
             super::aggregate_navigation::cached_endpoint_snapshots(&self.endpoints)
@@ -211,7 +212,7 @@ impl ClientShellState {
         let mut navigator = ClientNavigatorOverlay {
             layout,
             query: TextEditor::default(),
-            search_focused: layout != NavigatorLayout::Tree,
+            search_focused: layout == NavigatorLayout::Workspaces,
             selected: None,
             scroll: 0,
             filter: None,
