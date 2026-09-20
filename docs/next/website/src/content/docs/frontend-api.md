@@ -61,6 +61,11 @@ The socket grants input and mutation authority over this TUI. A socket whose
 TUI has exited refuses connections; tools that list the directory should treat
 a refused connect as a dead entry.
 
+The Rust client for this socket is the `herdr-frontend` crate in
+`sdk/frontend` of this repository, consumed as a git dependency so a
+consumer's lock file pins the fork commit it was built against. It is a
+standalone crate: `cd sdk/frontend && cargo test`.
+
 The transport is NDJSON, one JSON object per line, with a 1 MiB request limit.
 Every connection receives a `hello` first:
 
