@@ -632,6 +632,10 @@ impl ClientShellOverlay {
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
     Generic,
+    /// A Back/Forward focus request; failure rewinds the history cursor.
+    HistoryStep {
+        visit: super::history::Visit,
+    },
     ProductAnnouncementDismiss {
         version: String,
         id: String,

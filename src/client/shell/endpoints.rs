@@ -535,8 +535,17 @@ impl ClientShellState {
             return;
         }
         // A server reboot invalidates history visits recorded under its old boot,
-        // even while the endpoint is inactive.
+        // and closed panes invalidate theirs, even while the endpoint is inactive.
         self.history.observe_boot(endpoint_id, &snapshot.boot_id);
+        self.history.observe_panes(
+            endpoint_id,
+            &snapshot.boot_id,
+            snapshot
+                .panes
+                .iter()
+                .map(|pane| pane.pane_id.as_str())
+                .chain(snapshot.focused_pane_id.as_deref()),
+        );
         let boot_changed = self.endpoints[index]
             .snapshot
             .as_deref()

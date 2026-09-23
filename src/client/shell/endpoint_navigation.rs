@@ -263,9 +263,10 @@ impl ClientShellState {
             );
             return;
         };
-        self.focus_or_activate(
-            visit.endpoint_id,
-            ClientEndpointFocusTarget::Pane(visit.pane_id),
+        self.focus_or_activate_with_kind(
+            visit.endpoint_id.clone(),
+            ClientEndpointFocusTarget::Pane(visit.pane_id.clone()),
+            PendingEndpointKind::HistoryStep { visit },
             outcome,
         );
         outcome.repaint = true;
@@ -275,6 +276,18 @@ impl ClientShellState {
         &mut self,
         endpoint_id: ClientEndpointId,
         target: ClientEndpointFocusTarget,
+        outcome: &mut ClientShellInput,
+    ) -> bool {
+        self.focus_or_activate_with_kind(endpoint_id, target, PendingEndpointKind::Generic, outcome)
+    }
+
+    /// `kind` tracks the focus request on the active endpoint; activating another
+    /// endpoint carries the target through its own handoff instead.
+    fn focus_or_activate_with_kind(
+        &mut self,
+        endpoint_id: ClientEndpointId,
+        target: ClientEndpointFocusTarget,
+        kind: PendingEndpointKind,
         outcome: &mut ClientShellInput,
     ) -> bool {
         let online = self.endpoint_is_online(&endpoint_id);
@@ -304,7 +317,7 @@ impl ClientShellState {
                     })
                 }
             };
-            self.push_endpoint_method(method, outcome);
+            self.push_endpoint_method_with_kind(method, kind, outcome);
         } else {
             outcome.actions.push(ClientShellAction::ActivateEndpoint {
                 endpoint_id,

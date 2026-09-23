@@ -579,6 +579,12 @@ impl ClientShellState {
         }
         match pending.kind {
             PendingEndpointKind::Generic => {}
+            PendingEndpointKind::HistoryStep { visit } => {
+                if let Err(error) = &result {
+                    let pane_closed = error.code.as_deref() == Some("pane_not_found");
+                    self.history.traversal_failed(&visit, pane_closed);
+                }
+            }
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
                 return match result {
