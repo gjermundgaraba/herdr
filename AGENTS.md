@@ -2,6 +2,8 @@
 
 Terminal based agent runtime for coding agents.
 
+This checkout is a personal fork, not `herdrdev/herdr`. Before any work, read @FORK.md and, if present, @FORK.local.md.
+
 ## Scope and Audience
 
 These instructions are layered.
