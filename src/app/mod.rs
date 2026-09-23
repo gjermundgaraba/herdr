@@ -1823,22 +1823,22 @@ mod tests {
         assert_eq!(
             app.state.sidebar_agents.rows,
             vec![vec![
-                crate::config::AgentSidebarToken::StateIcon,
-                crate::config::AgentSidebarToken::Custom("summary".into()),
+                crate::config::AgentSidebarToken::StateIcon.into(),
+                crate::config::AgentSidebarToken::Custom("summary".into()).into(),
             ]]
         );
         assert_eq!(
             app.state.sidebar_agents.rows_by_agent["claude"],
             vec![vec![
-                crate::config::AgentSidebarToken::TerminalTitleStripped,
+                crate::config::AgentSidebarToken::TerminalTitleStripped.into(),
             ]]
         );
         assert_eq!(app.state.sidebar_agents.row_gap, 1);
         assert_eq!(
             app.state.sidebar_spaces.rows,
             vec![vec![
-                crate::config::SpaceSidebarToken::Workspace,
-                crate::config::SpaceSidebarToken::Custom("jj_status".into()),
+                crate::config::SpaceSidebarToken::Workspace.into(),
+                crate::config::SpaceSidebarToken::Custom("jj_status".into()).into(),
             ]]
         );
         assert_eq!(app.state.sidebar_spaces.row_gap, 3);

@@ -173,7 +173,7 @@ async fn headless_api_reads_latest_title_without_spinner_event_flooding() {
     server.app.state.selected = 0;
     server.app.state.mode = crate::app::Mode::Terminal;
     server.app.state.sidebar_agents.rows = vec![vec![
-        crate::config::AgentSidebarToken::TerminalTitleStripped,
+        crate::config::AgentSidebarToken::TerminalTitleStripped.into(),
     ]];
     let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
     let terminal_id = server.app.state.workspaces[0].tabs[0].panes[&pane_id]

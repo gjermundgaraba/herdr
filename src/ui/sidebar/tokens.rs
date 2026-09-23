@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::config::{
     AgentSidebarToken, AgentsSidebarConfig, SidebarTokenStyle, SpaceSidebarToken,
     SpacesSidebarConfig,
@@ -7,6 +9,7 @@ use crate::config::{
 pub(crate) struct ResolvedToken {
     pub kind: ResolvedTokenKind,
     pub style: SidebarTokenStyle,
+    pub separator_before: Option<Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,13 +45,21 @@ impl ResolvedTokenKind {
 }
 
 impl ResolvedToken {
-    fn new(kind: ResolvedTokenKind, style: SidebarTokenStyle) -> Self {
-        Self { kind, style }
+    fn new(
+        kind: ResolvedTokenKind,
+        style: SidebarTokenStyle,
+        separator_before: Option<Arc<str>>,
+    ) -> Self {
+        Self {
+            kind,
+            style,
+            separator_before,
+        }
     }
 
     #[cfg(test)]
     pub(super) fn unstyled(kind: ResolvedTokenKind) -> Self {
-        Self::new(kind, SidebarTokenStyle::default())
+        Self::new(kind, SidebarTokenStyle::default(), None)
     }
 }
 
@@ -76,8 +87,7 @@ pub(crate) fn agent_rows(
             let resolved = row
                 .iter()
                 .filter_map(|configured| {
-                    let (token, style) = configured.parts();
-                    let kind = match token {
+                    let kind = match &configured.token {
                         AgentSidebarToken::StateIcon => Some(ResolvedTokenKind::StateIcon),
                         AgentSidebarToken::StateText => {
                             Some(ResolvedTokenKind::StateText(state_text.to_string()))
@@ -108,12 +118,15 @@ pub(crate) fn agent_rows(
                             .get(name)
                             .cloned()
                             .map(ResolvedTokenKind::Custom),
-                        AgentSidebarToken::Styled { .. } => None,
                     }?;
-                    let style = kind
-                        .text_value()
-                        .map_or(Some(style), |value| configured.style_for_value(value))?;
-                    Some(ResolvedToken::new(kind, style))
+                    let style = kind.text_value().map_or(Some(configured.style), |value| {
+                        configured.style_for_value(value)
+                    })?;
+                    Some(ResolvedToken::new(
+                        kind,
+                        style,
+                        configured.separator_before.clone(),
+                    ))
                 })
                 .collect::<Vec<_>>();
             (!resolved.is_empty()).then_some(resolved)
@@ -141,8 +154,7 @@ pub(crate) fn space_rows(
             let resolved = row
                 .iter()
                 .filter_map(|configured| {
-                    let (token, style) = configured.parts();
-                    let kind = match token {
+                    let kind = match &configured.token {
                         SpaceSidebarToken::StateIcon => Some(ResolvedTokenKind::StateIcon),
                         SpaceSidebarToken::StateText => {
                             Some(ResolvedTokenKind::StateText(context.state_text.to_string()))
@@ -164,12 +176,15 @@ pub(crate) fn space_rows(
                             .get(name)
                             .cloned()
                             .map(ResolvedTokenKind::Custom),
-                        SpaceSidebarToken::Styled { .. } => None,
                     }?;
-                    let style = kind
-                        .text_value()
-                        .map_or(Some(style), |value| configured.style_for_value(value))?;
-                    Some(ResolvedToken::new(kind, style))
+                    let style = kind.text_value().map_or(Some(configured.style), |value| {
+                        configured.style_for_value(value)
+                    })?;
+                    Some(ResolvedToken::new(
+                        kind,
+                        style,
+                        configured.separator_before.clone(),
+                    ))
                 })
                 .collect::<Vec<_>>();
             (!resolved.is_empty()).then_some(resolved)
@@ -177,8 +192,10 @@ pub(crate) fn space_rows(
         .collect()
 }
 
-pub(crate) fn separator(previous: &ResolvedToken, current: &ResolvedToken) -> &'static str {
-    if matches!(previous.kind, ResolvedTokenKind::StateIcon)
+pub(crate) fn separator<'a>(previous: &ResolvedToken, current: &'a ResolvedToken) -> &'a str {
+    if let Some(separator) = current.separator_before.as_deref() {
+        separator
+    } else if matches!(previous.kind, ResolvedTokenKind::StateIcon)
         || matches!(current.kind, ResolvedTokenKind::GitStatus { .. })
     {
         " "
@@ -228,6 +245,130 @@ mod tests {
             canonical_agent: entry.canonical_agent,
             tokens: &entry.tokens,
         }
+    }
+
+    fn separator_test_text(row: &[ResolvedToken], width: usize) -> String {
+        let style = ratatui::style::Style::default();
+        super::super::resolved_token_spans(
+            row,
+            ("*", style),
+            style,
+            style,
+            style,
+            style,
+            &super::super::Palette::catppuccin(),
+            width,
+        )
+        .iter()
+        .map(|span| span.content.as_ref())
+        .collect()
+    }
+
+    fn separator_space_rows(
+        config: &str,
+        tokens: &std::collections::HashMap<String, String>,
+    ) -> Vec<Vec<ResolvedToken>> {
+        space_rows(
+            &toml::from_str(config).unwrap(),
+            SpaceTokenContext {
+                workspace: "repo",
+                branch: Some("main"),
+                state_text: "working",
+                ahead_behind: Some((1, 0)),
+                tokens,
+                suppress_git_details: false,
+            },
+        )
+    }
+
+    #[test]
+    fn sidebar_separator_overrides_replace_default_spacing() {
+        let tokens = std::collections::HashMap::from([("dirty".into(), "".into())]);
+        let default =
+            separator_space_rows(r#"rows = [["branch", "$dirty", "git_status"]]"#, &tokens);
+        assert_eq!(separator_test_text(&default[0], 30), "main ·  ↑1");
+        for (separator, expected) in [(" ", "main  ↑1"), ("", "main ↑1"), (" → ", "main →  ↑1")]
+        {
+            let rows = separator_space_rows(
+                &format!(
+                    r#"rows = [["branch", {{ token = "$dirty", separator_before = "{separator}" }}, "git_status"]]"#
+                ),
+                &tokens,
+            );
+            assert_eq!(separator_test_text(&rows[0], 30), expected);
+        }
+        let rows = separator_space_rows(
+            r#"rows = [["state_icon", { token = "branch", separator_before = "/" }, { token = "git_status", separator_before = ":" }]]"#,
+            &tokens,
+        );
+        assert_eq!(separator_test_text(&rows[0], 30), "*/main:↑1");
+    }
+
+    #[test]
+    fn sidebar_separator_does_not_leak_from_missing_hidden_or_first_tokens() {
+        let tokens = std::collections::HashMap::from([
+            ("hidden".into(), "hide".into()),
+            ("dirty".into(), "".into()),
+        ]);
+        let rows = separator_space_rows(
+            r#"rows = [[{ token = "$missing", separator_before = "LEAK" }, { token = "$hidden", separator_before = "LEAK", rules = [{ equals = "hide", hide = true }] }, { token = "$dirty", separator_before = "LEADING" }, "git_status"]]"#,
+            &tokens,
+        );
+        assert_eq!(separator_test_text(&rows[0], 30), " ↑1");
+        let rows = separator_space_rows(
+            r#"rows = [["branch", { token = "$hidden", separator_before = "LEAK", rules = [{ equals = "hide", hide = true }] }, { token = "$dirty", separator_before = " " }]]"#,
+            &tokens,
+        );
+        assert_eq!(separator_test_text(&rows[0], 30), "main ");
+    }
+
+    #[test]
+    fn sidebar_separator_width_counts_when_fitting_text_tokens() {
+        let tokens = std::collections::HashMap::from([("dirty".into(), "".into())]);
+        let rows = separator_space_rows(
+            r#"rows = [["branch", { token = "$dirty", separator_before = " " }]]"#,
+            &tokens,
+        );
+        assert_eq!(separator_test_text(&rows[0], 6), "main ");
+        assert_eq!(separator_test_text(&rows[0], 1), "");
+        for separator in ["", " ", "界", " very long separator "] {
+            let rows = separator_space_rows(
+                &format!(
+                    r#"rows = [["branch", {{ token = "$dirty", separator_before = "{separator}" }}]]"#
+                ),
+                &tokens,
+            );
+            for width in 0..32 {
+                let text = separator_test_text(&rows[0], width);
+                assert!(
+                    super::super::display_width(&text) <= width,
+                    "{text:?}, width={width}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn agent_sidebar_separator_override_survives_agent_specific_rows_and_rules() {
+        let config: AgentsSidebarConfig = toml::from_str(r##"
+rows = [["workspace", { token = "agent", separator_before = " " }]]
+[rows_by_agent]
+pi = [["workspace", { token = "agent", separator_before = "/", rules = [{ equals = "pi", fg = "#abc" }] }]]
+"##).unwrap();
+        let mut entry = entry();
+        entry.workspace = "repo".into();
+        entry.agent_label = Some("pi".into());
+        entry.canonical_agent = None;
+        let rows = agent_rows(&config, context(&entry), "working");
+        assert_eq!(separator_test_text(&rows[0], 30), "repo pi");
+        let mut context = context(&entry);
+        context.canonical_agent = Some(crate::detect::Agent::Pi);
+        let rows = agent_rows(&config, context, "working");
+        assert_eq!(separator_test_text(&rows[0], 30), "repo/pi");
+        assert_eq!(
+            rows[0][1].style.fg.unwrap().ratatui(),
+            ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc)
+        );
     }
 
     #[test]
@@ -405,11 +546,11 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
         let config = AgentsSidebarConfig {
             rows: vec![
                 vec![
-                    AgentSidebarToken::StateIcon,
-                    AgentSidebarToken::Custom("missing".into()),
+                    AgentSidebarToken::StateIcon.into(),
+                    AgentSidebarToken::Custom("missing".into()).into(),
                 ],
-                vec![AgentSidebarToken::Custom("missing".into())],
-                vec![AgentSidebarToken::Agent],
+                vec![AgentSidebarToken::Custom("missing".into()).into()],
+                vec![AgentSidebarToken::Agent.into()],
             ],
             ..Default::default()
         };
@@ -434,8 +575,8 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
         let entry = entry();
         let config = AgentsSidebarConfig {
             rows: vec![vec![
-                AgentSidebarToken::Machine,
-                AgentSidebarToken::Workspace,
+                AgentSidebarToken::Machine.into(),
+                AgentSidebarToken::Workspace.into(),
             ]],
             ..Default::default()
         };
@@ -466,8 +607,8 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
             .insert("summary".into(), "reviewing auth".into());
         let config = AgentsSidebarConfig {
             rows: vec![vec![
-                AgentSidebarToken::StateText,
-                AgentSidebarToken::Custom("summary".into()),
+                AgentSidebarToken::StateText.into(),
+                AgentSidebarToken::Custom("summary".into()).into(),
             ]],
             ..Default::default()
         };
@@ -491,9 +632,9 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
             .insert("terminal_title".into(), "custom title".into());
         let config = AgentsSidebarConfig {
             rows: vec![vec![
-                AgentSidebarToken::TerminalTitle,
-                AgentSidebarToken::TerminalTitleStripped,
-                AgentSidebarToken::Custom("terminal_title".into()),
+                AgentSidebarToken::TerminalTitle.into(),
+                AgentSidebarToken::TerminalTitleStripped.into(),
+                AgentSidebarToken::Custom("terminal_title".into()).into(),
             ]],
             ..Default::default()
         };
@@ -511,12 +652,12 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
     #[test]
     fn known_agent_override_replaces_default_rows() {
         let mut config = AgentsSidebarConfig {
-            rows: vec![vec![AgentSidebarToken::Workspace]],
+            rows: vec![vec![AgentSidebarToken::Workspace.into()]],
             ..Default::default()
         };
         config
             .rows_by_agent
-            .insert("pi".into(), vec![vec![AgentSidebarToken::Agent]]);
+            .insert("pi".into(), vec![vec![AgentSidebarToken::Agent.into()]]);
         let mut pi = entry();
         pi.agent_label = Some("renamed pi".into());
 
@@ -563,7 +704,7 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
     fn workspace_custom_token_can_replace_git_specific_details() {
         let tokens = std::collections::HashMap::from([("jj_status".into(), "2 changes".into())]);
         let config = SpacesSidebarConfig {
-            rows: vec![vec![SpaceSidebarToken::Custom("jj_status".into())]],
+            rows: vec![vec![SpaceSidebarToken::Custom("jj_status".into()).into()]],
             ..Default::default()
         };
 

@@ -102,7 +102,7 @@ impl App {
     fn git_refresh_demand(&self) -> GitStatusRefreshDemand {
         let mut demand = GitStatusRefreshDemand::default();
         for token in self.state.sidebar_spaces.rows.iter().flatten() {
-            match token.parts().0 {
+            match &token.token {
                 crate::config::SpaceSidebarToken::Branch => demand.branch = true,
                 crate::config::SpaceSidebarToken::GitStatus => demand.ahead_behind = true,
                 _ => {}
@@ -362,7 +362,8 @@ mod tests {
     #[test]
     fn cwd_identity_refresh_runs_once_without_sidebar_git_tokens() {
         let mut config = crate::config::Config::default();
-        config.ui.sidebar.spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+        config.ui.sidebar.spaces.rows =
+            vec![vec![crate::config::SpaceSidebarToken::Workspace.into()]];
         let mut app = test_app(&config);
         app.state.workspaces.push(Workspace::test_new("test"));
         let now = Instant::now();
@@ -378,7 +379,8 @@ mod tests {
     #[test]
     fn due_git_refresh_does_not_start_without_sidebar_consumer() {
         let mut config = crate::config::Config::default();
-        config.ui.sidebar.spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+        config.ui.sidebar.spaces.rows =
+            vec![vec![crate::config::SpaceSidebarToken::Workspace.into()]];
         let mut app = test_app(&config);
         app.state.workspaces.push(Workspace::test_new("test"));
         let now = Instant::now();
@@ -415,7 +417,7 @@ mod tests {
 
         for (token, expected) in cases {
             let mut config = crate::config::Config::default();
-            config.ui.sidebar.spaces.rows = vec![vec![token.clone()]];
+            config.ui.sidebar.spaces.rows = vec![vec![token.clone().into()]];
             let mut app = test_app(&config);
             app.state.workspaces.push(Workspace::test_new("test"));
 
@@ -431,7 +433,8 @@ mod tests {
     #[test]
     fn unnamed_linked_worktree_does_not_force_periodic_branch_refresh() {
         let mut config = crate::config::Config::default();
-        config.ui.sidebar.spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+        config.ui.sidebar.spaces.rows =
+            vec![vec![crate::config::SpaceSidebarToken::Workspace.into()]];
         let mut app = test_app(&config);
         let mut child = Workspace::test_new("test");
         child.custom_name = None;
@@ -450,7 +453,8 @@ mod tests {
     #[test]
     fn custom_named_linked_worktree_does_not_require_branch_refresh() {
         let mut config = crate::config::Config::default();
-        config.ui.sidebar.spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+        config.ui.sidebar.spaces.rows =
+            vec![vec![crate::config::SpaceSidebarToken::Workspace.into()]];
         let mut app = test_app(&config);
         let mut child = Workspace::test_new("custom");
         child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {

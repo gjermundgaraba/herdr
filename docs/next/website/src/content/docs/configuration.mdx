@@ -404,6 +404,13 @@ rows = [
 
 `fg` accepts strict `#RGB` or `#RRGGBB`. `bold` and `dim` accept booleans. Omitted fields preserve the token's contextual style; explicit `false` removes that modifier. Styling applies to one occurrence, so the same token may look different in another row or agent override. A foreground override replaces all semantic foregrounds inside that occurrence: for example, styled `git_status` ahead and behind counts use one color instead of their default green and red. Token styles never change separators or row backgrounds.
 
+Token tables also accept `separator_before`, independently of color and style. Set it to `" "` for a single space, or `""` to join directly to the preceding visible token. If omitted, existing defaults apply: a space after `state_icon` or before `git_status`, and ` · ` otherwise. A separator is never shown before the first visible token, including when earlier tokens are missing, hidden by rules, or omitted for lack of width. The override works in Space and Agent rows, including `rows_by_agent`. Control characters in a separator are ignored. Icons and `git_status` are always kept, so in a narrow sidebar a long separator can push them past the edge, where they are cut off.
+
+```toml
+[ui.sidebar.spaces]
+rows = [["branch", { token = "$git_dirty", fg = "#e5c07b", separator_before = " " }, "git_status"]]
+```
+
 Text-valued tokens also accept up to 16 ordered `rules`. Each rule contains exactly one condition—`equals`, `contains`, `starts_with`, `gt`, or `lt`—and optional `fg`, `bold`, and `dim` overrides:
 
 ```toml

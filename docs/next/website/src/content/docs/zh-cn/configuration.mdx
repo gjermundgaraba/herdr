@@ -400,6 +400,13 @@ rows = [
 
 `fg` 只接受严格的 `#RGB` 或 `#RRGGBB`，`bold` 和 `dim` 接受布尔值。省略字段会保留上下文样式；显式 `false` 会移除对应修饰。样式只作用于当前出现位置。为 `git_status` 设置 `fg` 后，ahead 和 behind 会使用同一种颜色，而不是默认的绿色和红色。token 样式不会改变分隔符或行背景。
 
+令牌表还支持独立于颜色和样式的 `separator_before`。设为 `" "` 表示一个空格，设为 `""` 则直接连接到前一个可见令牌。省略时保留原有规则：`state_icon` 之后或 `git_status` 之前使用空格，其余位置使用 ` · `。即使前面的令牌缺失、被规则隐藏或因宽度不足而省略，第一个可见令牌之前也不会显示分隔符。Space 行、Agent 行和 `rows_by_agent` 均支持此选项。分隔符中的控制字符会被忽略。图标和 `git_status` 始终保留，因此在较窄的侧边栏中，过长的分隔符可能把它们挤出边缘而被截断。
+
+```toml
+[ui.sidebar.spaces]
+rows = [["branch", { token = "$git_dirty", fg = "#e5c07b", separator_before = " " }, "git_status"]]
+```
+
 文本值 token 还可以包含最多 16 条有序的 `rules`。每条规则必须恰好包含一个条件：`equals`、`contains`、`starts_with`、`gt` 或 `lt`，并可选地覆盖 `fg`、`bold` 和 `dim`：
 
 ```toml
