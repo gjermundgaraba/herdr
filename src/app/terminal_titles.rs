@@ -16,7 +16,7 @@ impl App {
             .chain(config.rows_by_agent.values())
             .flatten()
             .flatten()
-            .any(|token| match token.parts().0 {
+            .any(|token| match &token.token {
                 crate::config::AgentSidebarToken::TerminalTitle => changes.raw_changed,
                 crate::config::AgentSidebarToken::TerminalTitleStripped => changes.stripped_changed,
                 _ => false,
@@ -178,7 +178,7 @@ mod tests {
         app.state.active = Some(0);
         app.state.ensure_test_terminals();
         app.state.sidebar_agents.rows = vec![vec![
-            crate::config::AgentSidebarToken::TerminalTitleStripped,
+            crate::config::AgentSidebarToken::TerminalTitleStripped.into(),
         ]];
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
         let terminal_id = app.state.workspaces[0]
@@ -208,11 +208,11 @@ mod tests {
             api_rx,
             event_hub,
         );
-        app.state.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
+        app.state.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent.into()]];
         app.state.sidebar_agents.rows_by_agent.insert(
             "claude".into(),
             vec![vec![
-                crate::config::AgentSidebarToken::TerminalTitleStripped,
+                crate::config::AgentSidebarToken::TerminalTitleStripped.into(),
             ]],
         );
 
@@ -228,7 +228,7 @@ mod tests {
 
         app.state.sidebar_agents.rows_by_agent.insert(
             "claude".into(),
-            vec![vec![crate::config::AgentSidebarToken::TerminalTitle]],
+            vec![vec![crate::config::AgentSidebarToken::TerminalTitle.into()]],
         );
         assert!(app.terminal_title_sidebar_changed(&spinner_only));
     }
