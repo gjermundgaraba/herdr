@@ -26,8 +26,10 @@ mark_unread = "prefix+u"
 `agent_picker` opens the session navigator as a flat list of every agent across
 connected machines, ordered by status priority and then recency, with the top
 row selected: `j`/`k` or `↑`/`↓` move, `/` focuses the search, `Enter` opens
-the selection. `workspace_list` opens the navigator listing only workspaces,
-with the search focused: type to search, and matching panes appear under their
+the selection. Agents whose space carries a token listed in
+`ui.agent_priority_tokens` show the first listed token's value before their
+label. `workspace_list` opens the navigator listing only workspaces, with the
+search focused: type to search, and matching panes appear under their
 workspaces while a search is active. `↑`/`↓` or `ctrl+n`/`ctrl+p` move, `Esc`
 leaves the search and then closes. Both share the navigator's search, status
 filters, and keys. The Goto picker (`prefix+g`) is unchanged.
@@ -42,6 +44,23 @@ skips offline machines, and starts empty with each TUI.
 pane by any means; presenting the pane again clears it as usual. Only an
 acknowledged completion, shown as idle, can be restored. Working, blocked, and
 still-badged agents are left alone.
+
+Leaving moves the restored completion behind existing completions in its
+Priority group. New completions queue after it. The sidebar, agent picker,
+navigation, and mobile list share this order across machines. Revisiting clears
+the badge and keeps the newer position among idle agents. Priority-token
+lifts, status groups, and grouped-space order keep their usual rules. Custom sorts
+apply when the endpoint supplies their definitions. Older endpoints supply
+view membership and an initial order; built-in Priority still merges those
+agents across machines. Spaces retains their supplied order. Queue order is
+kept in memory for each TUI.
+
+During reconnect, agent lists follow the latest endpoint metadata while the
+pane retains its previous frame. Reconnecting entries are dimmed and skipped
+by indexed and next/previous agent navigation. Explicit selections on an
+unavailable remote are rejected. Local selections still reach the runtime so
+they can cancel a pending remote switch. Marking unread still applies to the
+completion shown in the pane.
 
 ## Frontend socket
 

@@ -206,8 +206,12 @@ impl ClientShellState {
             scroll: 0,
             filter: None,
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, &navigator);
+        let rows = render::client_navigator_rows(
+            &self.endpoints,
+            &self.active_endpoint_id,
+            &navigator,
+            &self.config.agent_priority_tokens,
+        );
         let focused_workspace = self
             .snapshot
             .as_deref()
@@ -230,8 +234,12 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(
+            &self.endpoints,
+            &self.active_endpoint_id,
+            navigator,
+            &self.config.agent_priority_tokens,
+        );
         if rows.is_empty() {
             navigator.selected = None;
             return;
@@ -247,8 +255,12 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(
+            &self.endpoints,
+            &self.active_endpoint_id,
+            navigator,
+            &self.config.agent_priority_tokens,
+        );
         let viewport_rows = viewport_rows.max(1);
         navigator.scroll = scroll.min(rows.len().saturating_sub(viewport_rows));
         let selected =
@@ -262,8 +274,12 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Navigator(navigator)) = self.overlay.as_mut() else {
             return;
         };
-        let rows =
-            render::client_navigator_rows(&self.endpoints, &self.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(
+            &self.endpoints,
+            &self.active_endpoint_id,
+            navigator,
+            &self.config.agent_priority_tokens,
+        );
         let Some(selected) =
             super::aggregate_navigation::navigator_selected_index(&rows, navigator)
         else {
@@ -299,6 +315,7 @@ impl ClientShellState {
                     &self.endpoints,
                     &self.active_endpoint_id,
                     navigator,
+                    &self.config.agent_priority_tokens,
                 );
                 super::aggregate_navigation::selected_navigator_target(&rows, navigator)
             }
@@ -726,6 +743,7 @@ impl ClientShellState {
                         &self.endpoints,
                         &self.active_endpoint_id,
                         navigator,
+                        &self.config.agent_priority_tokens,
                     )
                     .last()
                     .map(|row| row.target.clone()),
