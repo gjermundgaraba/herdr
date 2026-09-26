@@ -614,8 +614,10 @@ fn mobile_items(
         endpoints,
         active_endpoint_id,
         config.agent_panel_sort,
+        &config.agent_priority_tokens,
     );
-    let agent_view_label = snapshot.agent_view_label.as_deref();
+    let agent_view_label =
+        super::aggregate_navigation::active_agent_view_label(endpoints, active_endpoint_id);
     if !agents.is_empty() || agent_view_label.is_some() {
         let title = agent_view_label
             .map(|label| format!("agents · {label}"))
