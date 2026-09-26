@@ -88,6 +88,10 @@ impl MetadataTokens {
             .collect()
     }
 
+    pub(crate) fn contains(&self, key: &str) -> bool {
+        self.entries.contains_key(key)
+    }
+
     pub(crate) fn next_expiry(&self) -> Option<Instant> {
         self.entries
             .values()

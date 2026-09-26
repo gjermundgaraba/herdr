@@ -72,12 +72,14 @@ pub(crate) fn apply_agent_view(app: &AppState, entries: &mut Vec<AgentPanelEntry
         crate::app::state::AgentPanelSort::Priority
     ) {
         entries.sort_by_key(|entry| {
-            (
-                std::cmp::Reverse(super::api_helpers::tab_attention_priority(
-                    entry.state,
-                    entry.seen,
-                )),
-                std::cmp::Reverse(entry.last_agent_state_change_seq),
+            crate::space_priority::sort_key(
+                app.workspaces.get(entry.ws_idx).is_some_and(|workspace| {
+                    workspace
+                        .metadata_tokens
+                        .contains(crate::space_priority::TOKEN)
+                }),
+                super::api_helpers::pane_agent_status(entry.state, entry.seen),
+                entry.last_agent_state_change_seq.unwrap_or_default(),
             )
         });
     }
@@ -481,6 +483,71 @@ mod tests {
         let entries = projected_entries(&state);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].agent_kind_label.as_deref(), Some("custom-agent"));
+    }
+
+    #[test]
+    fn priority_space_lifts_done_agent_above_blocked_elsewhere() {
+        let mut state = state_with_agents();
+        state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
+        let set_state = |state: &mut AppState, ws_idx: usize, agent_state, seen| {
+            let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
+            let pane = state.workspaces[ws_idx].tabs[0]
+                .panes
+                .get_mut(&pane_id)
+                .unwrap();
+            pane.seen = seen;
+            let terminal_id = pane.attached_terminal_id.clone();
+            state.terminals.get_mut(&terminal_id).unwrap().state = agent_state;
+        };
+        set_state(&mut state, 0, AgentState::Idle, false);
+        set_state(&mut state, 1, AgentState::Blocked, false);
+        assert_eq!(projected_entries(&state)[0].ws_idx, 1);
+
+        state.workspaces[0].metadata_tokens.patch(
+            std::collections::HashMap::from([(
+                crate::space_priority::TOKEN.to_string(),
+                Some("★".to_string()),
+            )]),
+            None,
+            std::time::Instant::now(),
+        );
+        assert_eq!(projected_entries(&state)[0].ws_idx, 0);
+
+        set_state(&mut state, 0, AgentState::Working, false);
+        assert_eq!(projected_entries(&state)[0].ws_idx, 1);
+    }
+
+    #[test]
+    fn priority_order_queues_waiting_agents_oldest_first() {
+        let mut state = AppState::test_new();
+        state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
+        state.workspaces = vec![
+            Workspace::test_new("new"),
+            Workspace::test_new("unrecorded"),
+            Workspace::test_new("old"),
+        ];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+        for (ws_idx, seq) in [(0, Some(7)), (1, None), (2, Some(3))] {
+            let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
+            let pane = state.workspaces[ws_idx].tabs[0]
+                .panes
+                .get_mut(&pane_id)
+                .unwrap();
+            pane.seen = false;
+            let terminal_id = pane.attached_terminal_id.clone();
+            let terminal = state.terminals.get_mut(&terminal_id).unwrap();
+            terminal.detected_agent = Some(Agent::Claude);
+            terminal.state = AgentState::Idle;
+            terminal.last_agent_state_change_seq = seq;
+        }
+
+        // No recorded change means none since the server started: oldest.
+        let order = projected_entries(&state)
+            .iter()
+            .map(|entry| entry.ws_idx)
+            .collect::<Vec<_>>();
+        assert_eq!(order, [1, 2, 0]);
     }
 
     #[test]

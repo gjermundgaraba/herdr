@@ -16,6 +16,7 @@ pub(crate) struct ClientShellEndpoint {
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
     /// Connection generation that produced `snapshot`. `None` is reserved for local tests.
     pub(crate) snapshot_generation: Option<u64>,
+    /// Client observation and manual requeue order, independent of lifecycle sequences.
     pub(crate) agent_recency: HashMap<String, u64>,
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) agent_view_projection: Option<ClientEndpointAgentViewProjection>,
@@ -604,29 +605,35 @@ impl ClientShellState {
                 .agent_presentation
                 .acknowledge_surface(&mut snapshot, surface, self.outer_focused);
         }
-        let previous = self.endpoints[index].snapshot.as_deref();
-        let mut next_recency = self
-            .endpoints
-            .iter()
-            .flat_map(|endpoint| endpoint.agent_recency.values())
-            .copied()
-            .max()
-            .unwrap_or_default();
         let mut agents = snapshot.agents.iter().collect::<Vec<_>>();
         agents.sort_by_key(|agent| agent.state_change_seq);
         let mut recency = self.endpoints[index].agent_recency.clone();
+        // Equal server sequences represent one event group. Allocate a fresh
+        // client serial only for changed agents in this snapshot, so unchanged
+        // agents retain their recency (including manual unread requeues).
+        let mut changed_group = None;
         for agent in agents {
-            let changed = previous
-                .and_then(|snapshot| {
-                    snapshot
-                        .agents
-                        .iter()
-                        .find(|previous| previous.pane_id == agent.pane_id)
-                })
-                .is_none_or(|previous| previous.state_change_seq != agent.state_change_seq);
+            let changed = boot_changed
+                || self.endpoints[index]
+                    .snapshot
+                    .as_deref()
+                    .and_then(|snapshot| {
+                        snapshot
+                            .agents
+                            .iter()
+                            .find(|previous| previous.pane_id == agent.pane_id)
+                    })
+                    .is_none_or(|previous| previous.state_change_seq != agent.state_change_seq);
             if changed {
-                next_recency = next_recency.saturating_add(1);
-                recency.insert(agent.pane_id.clone(), next_recency);
+                let event_order = match changed_group {
+                    Some((sequence, serial)) if sequence == agent.state_change_seq => serial,
+                    _ => {
+                        let serial = self.next_agent_order_serial();
+                        changed_group = Some((agent.state_change_seq, serial));
+                        serial
+                    }
+                };
+                recency.insert(agent.pane_id.clone(), event_order);
             }
         }
         recency.retain(|pane_id, _| {
@@ -724,7 +731,7 @@ impl ClientShellState {
         let (title, body) = match &target {
             Some(_) => (
                 "Marked unread",
-                "The badge returns when you leave this pane.",
+                "The badge returns and the agent moves back in the queue when you leave this pane.",
             ),
             None => (
                 "Nothing to mark",
@@ -756,13 +763,14 @@ impl ClientShellState {
             self.pending_unread = Some(target);
             return;
         }
-        let Some(endpoint) = self
+        let Some(index) = self
             .endpoints
-            .iter_mut()
-            .find(|endpoint| endpoint.endpoint_id == target.endpoint_id)
+            .iter()
+            .position(|endpoint| endpoint.endpoint_id == target.endpoint_id)
         else {
             return;
         };
+        let endpoint = &mut self.endpoints[index];
         let Some(snapshot) = endpoint.snapshot.as_deref_mut() else {
             return;
         };
@@ -775,6 +783,9 @@ impl ClientShellState {
         {
             return;
         }
+        let event_order = self.next_agent_order_serial();
+        let endpoint = &mut self.endpoints[index];
+        endpoint.agent_recency.insert(target.pane_id, event_order);
         if target.endpoint_id == self.active_endpoint_id {
             self.snapshot = endpoint.snapshot.clone();
         }

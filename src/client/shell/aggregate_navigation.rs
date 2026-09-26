@@ -42,15 +42,52 @@ pub(super) fn cached_endpoint_snapshots(
         })
 }
 
+pub(super) fn active_agent_view_label<'a>(
+    endpoints: &'a [ClientShellEndpoint],
+    active_endpoint_id: &ClientEndpointId,
+) -> Option<&'a str> {
+    cached_endpoint_snapshots(endpoints)
+        .find(|endpoint| endpoint.endpoint_id == active_endpoint_id)
+        .and_then(|endpoint| endpoint.snapshot.agent_view_label.as_deref())
+}
+
 pub(super) struct AggregateAgentRow<'a> {
     pub(super) endpoint: CachedEndpointSnapshot<'a>,
     pub(super) agent: &'a ClientShellAgent,
     pub(super) recency: u64,
 }
 
-pub(super) struct AggregateAgentTarget {
-    pub(super) endpoint_id: ClientEndpointId,
-    pub(super) pane_id: String,
+impl<'a> AggregateAgentRow<'a> {
+    fn new(endpoint: CachedEndpointSnapshot<'a>, agent: &'a ClientShellAgent) -> Self {
+        Self {
+            recency: endpoint
+                .agent_recency
+                .get(&agent.pane_id)
+                .copied()
+                .unwrap_or_default(),
+            endpoint,
+            agent,
+        }
+    }
+}
+
+/// A legacy view supplies membership and an initial order. Without its
+/// definition, the selected built-in sort determines the combined order.
+fn legacy_projected_agents(snapshot: &ClientShellSnapshot) -> Vec<&ClientShellAgent> {
+    if snapshot.agent_view_label.is_some() {
+        snapshot
+            .agent_order
+            .iter()
+            .filter_map(|pane_id| {
+                snapshot
+                    .agents
+                    .iter()
+                    .find(|agent| &agent.pane_id == pane_id)
+            })
+            .collect()
+    } else {
+        snapshot.agents.iter().collect()
+    }
 }
 
 pub(super) fn aggregate_agent_rows<'a>(
@@ -87,15 +124,7 @@ pub(super) fn aggregate_agent_rows<'a>(
                     .snapshot
                     .agents
                     .iter()
-                    .map(move |agent| AggregateAgentRow {
-                        recency: endpoint
-                            .agent_recency
-                            .get(&agent.pane_id)
-                            .copied()
-                            .unwrap_or_default(),
-                        endpoint,
-                        agent,
-                    })
+                    .map(move |agent| AggregateAgentRow::new(endpoint, agent))
             })
             .collect::<Vec<_>>();
         if let Some(view) = view {
@@ -132,40 +161,38 @@ pub(super) fn aggregate_agent_rows<'a>(
 
     let mut rows = cached_endpoint_snapshots(endpoints)
         .flat_map(|endpoint| {
-            super::agent_sidebar::ordered_agent_pane_ids(endpoint.snapshot, sort)
+            legacy_projected_agents(endpoint.snapshot)
                 .into_iter()
-                .filter_map(move |pane_id| {
-                    let agent = endpoint
-                        .snapshot
-                        .agents
-                        .iter()
-                        .find(|agent| agent.pane_id == pane_id)?;
-                    Some(AggregateAgentRow {
-                        recency: endpoint
-                            .agent_recency
-                            .get(&pane_id)
-                            .copied()
-                            .unwrap_or_default(),
-                        endpoint,
-                        agent,
-                    })
-                })
+                .map(move |agent| AggregateAgentRow::new(endpoint, agent))
         })
         .collect::<Vec<_>>();
     sort_aggregate_rows(&mut rows, sort);
     rows
 }
 
-fn sort_aggregate_rows(
-    rows: &mut [AggregateAgentRow<'_>],
+fn sort_aggregate_rows<'a>(
+    rows: &mut [AggregateAgentRow<'a>],
     sort: crate::config::AgentPanelSortConfig,
 ) {
     if sort == crate::config::AgentPanelSortConfig::Priority {
+        // Keyed by endpoint: workspace ids repeat across machines.
+        let mut marked = HashMap::<usize, HashSet<&'a str>>::new();
+        for row in rows.iter() {
+            let snapshot = row.endpoint.snapshot;
+            marked
+                .entry(row.endpoint.endpoint_index)
+                .or_insert_with(|| crate::space_priority::marked_workspaces(snapshot));
+        }
         rows.sort_by_key(|row| {
             (
                 row.endpoint.stale(),
-                std::cmp::Reverse(status_priority(row.agent.agent_status)),
-                std::cmp::Reverse(row.recency),
+                crate::space_priority::sort_key(
+                    marked
+                        .get(&row.endpoint.endpoint_index)
+                        .is_some_and(|marked| marked.contains(row.agent.workspace_id.as_str())),
+                    row.agent.agent_status,
+                    row.recency,
+                ),
             )
         });
     }
@@ -260,18 +287,14 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
     }
 }
 
-pub(super) fn online_agent_targets(
-    endpoints: &[ClientShellEndpoint],
+pub(super) fn online_agent_rows<'a>(
+    endpoints: &'a [ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     sort: crate::config::AgentPanelSortConfig,
-) -> Vec<AggregateAgentTarget> {
+) -> Vec<AggregateAgentRow<'a>> {
     aggregate_agent_rows(endpoints, active_endpoint_id, sort)
         .into_iter()
         .filter(|row| !row.endpoint.stale())
-        .map(|row| AggregateAgentTarget {
-            endpoint_id: row.endpoint.endpoint_id.clone(),
-            pane_id: row.agent.pane_id.clone(),
-        })
         .collect()
 }
 

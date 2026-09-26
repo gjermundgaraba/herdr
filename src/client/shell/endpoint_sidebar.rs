@@ -610,7 +610,6 @@ pub(super) fn render_expanded(
     super::endpoint_agents::render_expanded(
         buffer,
         detail_area,
-        active_snapshot.and_then(|snapshot| snapshot.agent_view_label.as_deref()),
         state.endpoints,
         state.active_endpoint_id,
         config,

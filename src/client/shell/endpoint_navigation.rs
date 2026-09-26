@@ -106,13 +106,11 @@ impl ClientShellState {
         outcome: &mut ClientShellInput,
     ) -> bool {
         use crate::input::KeybindAction;
-        if !self.multi_endpoint_active() {
-            return false;
-        }
         if matches!(
             action,
             KeybindAction::PreviousWorkspace | KeybindAction::NextWorkspace
-        ) {
+        ) && self.multi_endpoint_active()
+        {
             let workspaces = self
                 .endpoints
                 .iter()
@@ -167,7 +165,7 @@ impl ClientShellState {
             action,
             KeybindAction::PreviousAgent | KeybindAction::NextAgent | KeybindAction::FocusAgent(_)
         ) {
-            let agents = super::aggregate_navigation::online_agent_targets(
+            let agents = super::aggregate_navigation::online_agent_rows(
                 &self.endpoints,
                 &self.active_endpoint_id,
                 self.config.agent_panel_sort,
@@ -184,12 +182,14 @@ impl ClientShellState {
                 }
                 KeybindAction::PreviousAgent | KeybindAction::NextAgent => {
                     let focused = self
-                        .snapshot
-                        .as_deref()
+                        .endpoints
+                        .iter()
+                        .find(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
+                        .and_then(|endpoint| endpoint.snapshot.as_deref())
                         .and_then(|snapshot| snapshot.focused_pane_id.as_deref());
-                    let current = agents.iter().position(|target| {
-                        target.endpoint_id == self.active_endpoint_id
-                            && Some(target.pane_id.as_str()) == focused
+                    let current = agents.iter().position(|row| {
+                        row.endpoint.endpoint_id == &self.active_endpoint_id
+                            && Some(row.agent.pane_id.as_str()) == focused
                     });
                     match (current, action) {
                         (Some(index), KeybindAction::PreviousAgent) => {
@@ -202,23 +202,24 @@ impl ClientShellState {
                 }
                 _ => unreachable!("endpoint agent navigation"),
             };
-            let target = &agents[next];
+            let row = &agents[next];
+            let endpoint_id = row.endpoint.endpoint_id.clone();
+            let pane_id = row.agent.pane_id.clone();
+            let scroll = self.agent_scroll;
+            let highlighted = self.pending_workspace_highlight.is_some();
             if self.focus_or_activate(
-                target.endpoint_id.clone(),
-                ClientEndpointFocusTarget::Pane(target.pane_id.clone()),
+                endpoint_id.clone(),
+                ClientEndpointFocusTarget::Pane(pane_id.clone()),
                 outcome,
             ) {
-                if target.endpoint_id == self.active_endpoint_id {
-                    self.reveal_endpoint_agent(
-                        &target.endpoint_id,
-                        &target.pane_id,
-                        self.hits.agent_body.height,
-                    );
+                if endpoint_id == self.active_endpoint_id {
+                    self.reveal_endpoint_agent(&endpoint_id, &pane_id, self.hits.agent_body.height);
                 } else {
-                    self.pending_agent_reveal =
-                        Some((target.endpoint_id.clone(), target.pane_id.clone()));
+                    self.pending_agent_reveal = Some((endpoint_id, pane_id));
                 }
-                outcome.repaint = true;
+                // A focus change on one machine repaints only when the sidebar changes.
+                outcome.repaint |=
+                    highlighted || self.agent_scroll != scroll || self.multi_endpoint_active();
             }
             return true;
         }

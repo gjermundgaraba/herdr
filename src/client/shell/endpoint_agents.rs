@@ -9,49 +9,82 @@ pub(super) fn render_collapsed(
     config: &ClientShellConfig,
     hits: &mut ShellHitMap,
 ) {
-    let rows = agent_rows(endpoints, active_endpoint_id, config);
+    let rows = super::aggregate_navigation::aggregate_agent_rows(
+        endpoints,
+        active_endpoint_id,
+        config.agent_panel_sort,
+    );
+    let federated = endpoints.len() > 1;
     for (index, row) in rows.into_iter().take(area.height as usize).enumerate() {
         let rect = Rect::new(area.x, area.y + index as u16, area.width, 1);
-        if row.agent.focused {
+        let focused = row.endpoint.endpoint_id == active_endpoint_id && row.agent.focused;
+        let stale = row.endpoint.stale();
+        if focused {
             buffer.set_style(rect, Style::default().bg(config.palette.active_row_bg));
         }
-        let initial = row.machine_label.chars().next().unwrap_or('?');
-        put_text(
-            buffer,
-            rect.x,
-            rect.y,
-            rect.width,
-            &format!(
-                "{initial}{}",
-                status_icon(row.agent.status, config.status_indicators)
-            ),
-            Style::default()
-                .fg(if row.stale {
+        let style = Style::default().fg(status_color(row.agent.agent_status, &config.palette));
+        if federated {
+            put_text(
+                buffer,
+                rect.x,
+                rect.y,
+                rect.width,
+                &format!(
+                    "{}{}",
+                    row.endpoint.label.chars().next().unwrap_or('?'),
+                    status_icon(row.agent.agent_status, config.status_indicators)
+                ),
+                style,
+            );
+        } else {
+            put_text(
+                buffer,
+                rect.x,
+                rect.y,
+                rect.width.min(2),
+                &format!("{:<2}", index + 1),
+                Style::default().fg(if focused {
+                    config.palette.text
+                } else {
                     config.palette.overlay0
-                } else {
-                    status_color(row.agent.status, &config.palette)
-                })
-                .add_modifier(if row.stale {
-                    Modifier::DIM
-                } else {
-                    Modifier::empty()
                 }),
-        );
-        hits.endpoint_agents
-            .push((rect, row.endpoint_id, row.agent.pane_id));
+            );
+            put_text(
+                buffer,
+                rect.x.saturating_add(2),
+                rect.y,
+                rect.width.saturating_sub(2),
+                status_icon(row.agent.agent_status, config.status_indicators),
+                style,
+            );
+        }
+        if stale {
+            buffer.set_style(
+                rect,
+                Style::default()
+                    .fg(config.palette.overlay0)
+                    .add_modifier(Modifier::DIM),
+            );
+        }
+        hits.endpoint_agents.push((
+            rect,
+            row.endpoint.endpoint_id.clone(),
+            row.agent.pane_id.clone(),
+        ));
     }
 }
 
 pub(super) fn render_expanded(
     buffer: &mut Buffer,
     area: Rect,
-    agent_view_label: Option<&str>,
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
     agent_scroll: &mut usize,
     hits: &mut ShellHitMap,
 ) {
+    let agent_view_label =
+        super::aggregate_navigation::active_agent_view_label(endpoints, active_endpoint_id);
     if !super::agent_sidebar::render_agent_panel_header(
         buffer,
         area,
@@ -124,7 +157,6 @@ impl ClientShellState {
 
 struct EndpointAgentRow {
     endpoint_id: ClientEndpointId,
-    machine_label: String,
     stale: bool,
     agent: super::agent_sidebar::AgentRow,
 }
@@ -134,28 +166,6 @@ fn agent_rows(
     active_endpoint_id: &ClientEndpointId,
     config: &ClientShellConfig,
 ) -> Vec<EndpointAgentRow> {
-    let mut rendered_rows = endpoints
-        .iter()
-        .filter_map(|endpoint| {
-            endpoint.snapshot.as_deref().map(|snapshot| {
-                snapshot
-                    .agents
-                    .iter()
-                    .filter_map(|agent| {
-                        super::agent_sidebar::agent_row(
-                            snapshot,
-                            &agent.pane_id,
-                            config,
-                            Some(&endpoint.label),
-                        )
-                    })
-                    .map(|agent| ((endpoint.endpoint_id.clone(), agent.pane_id.clone()), agent))
-                    .collect::<Vec<_>>()
-            })
-        })
-        .flatten()
-        .collect::<HashMap<_, _>>();
-
     super::aggregate_navigation::aggregate_agent_rows(
         endpoints,
         active_endpoint_id,
@@ -163,12 +173,15 @@ fn agent_rows(
     )
     .into_iter()
     .filter_map(|row| {
-        let key = (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone());
-        let mut agent = rendered_rows.remove(&key)?;
+        let mut agent = super::agent_sidebar::agent_row(
+            row.endpoint.snapshot,
+            row.agent,
+            config,
+            (endpoints.len() > 1).then_some(row.endpoint.label),
+        )?;
         agent.focused &= row.endpoint.endpoint_id == active_endpoint_id;
         Some(EndpointAgentRow {
             endpoint_id: row.endpoint.endpoint_id.clone(),
-            machine_label: row.endpoint.label.to_owned(),
             stale: row.endpoint.stale(),
             agent,
         })

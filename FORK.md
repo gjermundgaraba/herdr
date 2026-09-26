@@ -33,6 +33,10 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
 - Space groups: the `space_group` workspace metadata token puts runs of
   spaces under collapsible, draggable sidebar headers
   (`src/client/shell/space_groups.rs`)
+- Priority spaces: the `space_priority` workspace metadata token lifts a
+  space's blocked and done agents to the top of the `priority` agent order.
+  That order also queues blocked and done agents oldest state change first
+  (`src/space_priority.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the Micro and Deck plugins in the `herdr-plugins`

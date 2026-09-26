@@ -52,6 +52,7 @@ mod selection;
 mod server;
 mod session;
 mod sound;
+mod space_priority;
 mod terminal;
 mod terminal_effects;
 mod terminal_modes;

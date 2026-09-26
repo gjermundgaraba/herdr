@@ -508,13 +508,13 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     assert_eq!(
         state
             .hits
-            .agents
+            .endpoint_agents
             .first()
-            .map(|(_, pane_id)| pane_id.as_str()),
+            .map(|(_, _, pane_id)| pane_id.as_str()),
         Some("pane_2")
     );
 
-    let first = state.hits.agents[0].0;
+    let first = state.hits.endpoint_agents[0].0;
     let click = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: first.x,
@@ -533,9 +533,9 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     assert_eq!(
         state
             .hits
-            .agents
+            .endpoint_agents
             .first()
-            .map(|(_, pane_id)| pane_id.as_str()),
+            .map(|(_, _, pane_id)| pane_id.as_str()),
         Some("pane_2")
     );
     let body = state.hits.agent_body;
@@ -551,9 +551,9 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     assert_eq!(
         state
             .hits
-            .agents
+            .endpoint_agents
             .first()
-            .map(|(_, pane_id)| pane_id.as_str()),
+            .map(|(_, _, pane_id)| pane_id.as_str()),
         Some("pane_1")
     );
 
@@ -561,9 +561,9 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     let compact = state.compose(106, 30).expect("compact agent sidebar frame");
     let blocked = state
         .hits
-        .agents
+        .endpoint_agents
         .iter()
-        .find(|(_, pane_id)| pane_id == "pane_2")
+        .find(|(_, _, pane_id)| pane_id == "pane_2")
         .expect("blocked compact agent")
         .0;
     let row_start = blocked.y as usize * compact.width as usize + blocked.x as usize;
@@ -596,7 +596,7 @@ fn muted_agent_sidebar_rows_do_not_stack_terminal_faint() {
     state.set_snapshot(Box::new(projected));
     state.set_pane_surface(surface());
     let frame = state.compose(106, 30).expect("agent sidebar frame");
-    let row = state.hits.agents.first().expect("agent row hit").0;
+    let row = state.hits.endpoint_agents.first().expect("agent row hit").0;
     let buffer = frame.to_ratatui_buffer().expect("agent sidebar buffer");
 
     for (label, needle) in [("tab", "second"), ("agent", "reviewer"), ("separator", "·")] {
@@ -704,9 +704,9 @@ fn active_agent_view_controls_sidebar_order_and_focus_indices() {
     assert_eq!(
         state
             .hits
-            .agents
+            .endpoint_agents
             .iter()
-            .map(|(_, pane_id)| pane_id.as_str())
+            .map(|(_, _, pane_id)| pane_id.as_str())
             .collect::<Vec<_>>(),
         vec!["pane_2", "pane_3"]
     );
