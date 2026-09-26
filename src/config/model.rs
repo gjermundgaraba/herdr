@@ -101,6 +101,39 @@ pub enum AgentPanelSortConfig {
     Priority,
 }
 
+/// Most workspace metadata token keys `ui.agent_priority_tokens` may list.
+pub const MAX_AGENT_PRIORITY_TOKENS: usize = 16;
+
+fn deserialize_agent_priority_tokens<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let tokens = Vec::<String>::deserialize(deserializer)?;
+    validate_agent_priority_tokens(&tokens).map_err(de::Error::custom)?;
+    Ok(tokens)
+}
+
+fn validate_agent_priority_tokens(tokens: &[String]) -> Result<(), String> {
+    if tokens.len() > MAX_AGENT_PRIORITY_TOKENS {
+        return Err(format!(
+            "ui.agent_priority_tokens may list at most {MAX_AGENT_PRIORITY_TOKENS} tokens"
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for token in tokens {
+        if !crate::metadata_tokens::is_valid_key(token) {
+            return Err(format!(
+                "invalid ui.agent_priority_tokens key {token:?}: use 1 to {} ASCII letters, digits, underscores, or hyphens",
+                crate::metadata_tokens::MAX_KEY_LEN
+            ));
+        }
+        if !seen.insert(token.as_str()) {
+            return Err(format!("duplicate ui.agent_priority_tokens key {token:?}"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum LegacyAgentPanelScopeConfig {
@@ -1023,6 +1056,12 @@ pub struct UiConfig {
     pub window_title: String,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
+    /// Workspace metadata token keys that lift a space's blocked and done agents
+    /// to the top of the "priority" order while the space carries any of them with
+    /// a non-empty value. The first listed token's value marks the space's agents
+    /// in the agent picker. Default: empty.
+    #[serde(deserialize_with = "deserialize_agent_priority_tokens")]
+    pub agent_priority_tokens: Vec<String>,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
     #[serde(rename = "agent_panel_scope")]
     _legacy_agent_panel_scope: Option<LegacyAgentPanelScopeConfig>,
@@ -1256,6 +1295,7 @@ impl Default for UiConfig {
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
+            agent_priority_tokens: Vec::new(),
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
             sidebar: SidebarConfig::default(),
@@ -1503,6 +1543,37 @@ agent_panel_scope = "current"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.ui.agent_panel_sort, AgentPanelSortConfig::Spaces);
+    }
+
+    #[test]
+    fn agent_priority_tokens_parse_in_order_and_default_empty() {
+        assert!(Config::default().ui.agent_priority_tokens.is_empty());
+
+        let toml = r#"
+[ui]
+agent_priority_tokens = ["lift", "urgent-2"]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.ui.agent_priority_tokens, ["lift", "urgent-2"]);
+    }
+
+    #[test]
+    fn agent_priority_tokens_reject_invalid_duplicate_and_excess_keys() {
+        let parse = |tokens: &str| {
+            toml::from_str::<Config>(&format!("[ui]\nagent_priority_tokens = {tokens}\n"))
+                .unwrap_err()
+                .to_string()
+        };
+        assert!(parse(r#"[""]"#).contains("invalid ui.agent_priority_tokens key \"\""));
+        assert!(parse(r#"["bad.key"]"#).contains("invalid ui.agent_priority_tokens key"));
+        assert!(parse(&format!("[\"{}\"]", "x".repeat(33))).contains("invalid"));
+        assert!(parse(r#"["lift", "lift"]"#).contains("duplicate ui.agent_priority_tokens key"));
+        let many = (0..=MAX_AGENT_PRIORITY_TOKENS)
+            .map(|index| format!("\"t{index}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert!(parse(&format!("[{many}]")).contains("at most 16 tokens"));
+        assert!(toml::from_str::<Config>("[ui]\nagent_priority_tokens = []\n").is_ok());
     }
 
     #[test]

@@ -13,6 +13,17 @@ pub(crate) struct MetadataTokens {
 }
 
 pub(crate) const MAX_SEQUENCE_SOURCES: usize = 32;
+pub(crate) const MAX_KEY_LEN: usize = 32;
+
+/// Whether `key` is a valid metadata token key: 1 to `MAX_KEY_LEN` ASCII
+/// letters, digits, underscores, or hyphens.
+pub(crate) fn is_valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_KEY_LEN
+        && key
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-'))
+}
 
 pub(crate) fn sequence_is_fresh(
     sequences: &HashMap<String, u64>,
@@ -86,6 +97,10 @@ impl MetadataTokens {
             .iter()
             .map(|(key, token)| (key.clone(), token.value.clone()))
             .collect()
+    }
+
+    pub(crate) fn get(&self, key: &str) -> Option<&str> {
+        self.entries.get(key).map(|token| token.value.as_str())
     }
 
     pub(crate) fn next_expiry(&self) -> Option<Instant> {

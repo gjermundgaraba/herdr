@@ -35,6 +35,7 @@ pub(crate) struct ClientShellConfig {
     pub(super) spaces: SpacesSidebarConfig,
     pub(super) agents: crate::config::AgentsSidebarConfig,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
+    pub(super) agent_priority_tokens: Vec<String>,
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
     pub(super) sound_enabled: bool,
     pub(super) toast_delivery: crate::config::ToastDelivery,
@@ -107,7 +108,6 @@ pub(super) struct ShellHitMap {
     pub(super) panes: Vec<PaneHit>,
     pub(super) popup: Option<PaneHit>,
     pub(super) pane_splits: Vec<PaneSplitHit>,
-    pub(super) agents: Vec<(Rect, String)>,
     pub(super) endpoint_agents: Vec<(Rect, ClientEndpointId, String)>,
     pub(super) agent_body: Rect,
     pub(super) agent_scrollbar: Rect,
@@ -384,6 +384,8 @@ pub(super) struct ClientNavigatorRow {
     pub(super) status: Option<crate::api::schema::AgentStatus>,
     pub(super) stale: bool,
     pub(super) current: bool,
+    /// The agent priority token value of the agent's space, shown before the label.
+    pub(super) mark: Option<String>,
     pub(super) target: ClientNavigatorTarget,
 }
 
@@ -934,6 +936,8 @@ pub(crate) struct ClientShellState {
     pub(crate) history: super::history::History,
     /// A completion whose badge is restored once the user leaves its pane.
     pub(super) pending_unread: Option<ClientUnreadTarget>,
+    /// Client event order for real lifecycle changes and manual queue resets.
+    pub(super) agent_order_serial: u64,
     /// Bumped when an in-place snapshot mutation (agent acknowledgement) changes
     /// observed output without a snapshot revision change. Visible to the
     /// frontend observation fingerprint so stale subscriptions never hide the change.
@@ -1148,6 +1152,7 @@ impl ClientShellState {
             visible_endpoint_notice: None,
             history: Default::default(),
             pending_unread: None,
+            agent_order_serial: 0,
             agent_projection_revision: 0,
             outer_focused: None,
             ascii_input_source_active: false,
@@ -1341,6 +1346,11 @@ impl ClientShellState {
         self.copy_feedback_deadline = None;
         self.host_mouse_pixels = None;
         self.dismissed_product_announcement = None;
+    }
+
+    pub(super) fn next_agent_order_serial(&mut self) -> u64 {
+        self.agent_order_serial = self.agent_order_serial.saturating_add(1);
+        self.agent_order_serial
     }
 
     pub(super) fn apply_active_snapshot(

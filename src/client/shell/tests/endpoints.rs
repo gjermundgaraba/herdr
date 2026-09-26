@@ -278,14 +278,15 @@ fn agent_navigation_reveal_is_cancelled_by_another_selection() {
 fn agent_navigation_keeps_scroll_when_target_is_visible() {
     let (mut state, _) = state_with_scrollable_agents();
     let (_, endpoint_id, pane_id) = state.hits.endpoint_agents[1].clone();
-    let targets = super::super::aggregate_navigation::online_agent_targets(
+    let rows = super::super::aggregate_navigation::online_agent_rows(
         &state.endpoints,
         &state.active_endpoint_id,
         state.config.agent_panel_sort,
+        &state.config.agent_priority_tokens,
     );
-    let index = targets
+    let index = rows
         .iter()
-        .position(|target| target.endpoint_id == endpoint_id && target.pane_id == pane_id)
+        .position(|row| row.endpoint.endpoint_id == &endpoint_id && row.agent.pane_id == pane_id)
         .unwrap();
     let scroll = state.agent_scroll;
     assert!(state.handle_endpoint_navigation(
@@ -337,6 +338,39 @@ fn switching_machines_preserves_aggregate_agent_scroll_and_visible_rows() {
 }
 
 #[test]
+fn keyboard_agent_navigation_reveals_online_rows_after_stale_spaces_rows() {
+    for action in [
+        crate::input::KeybindAction::FocusAgent(0),
+        crate::input::KeybindAction::NextAgent,
+    ] {
+        let (mut state, remote) = state_with_scrollable_agents();
+        state.config.agent_panel_sort = crate::config::AgentPanelSortConfig::Spaces;
+        state.mark_endpoint_disconnected(&ClientEndpointId::Local);
+        state.agent_scroll = 0;
+        state.compose(100, 14).expect("stale spaces list");
+        assert!(state
+            .hits
+            .endpoint_agents
+            .iter()
+            .all(|(_, endpoint, _)| endpoint.is_local()));
+        let mut outcome = ClientShellInput::default();
+        assert!(state.handle_endpoint_navigation(action, &mut outcome));
+        assert!(matches!(outcome.actions.as_slice(),
+            [ClientShellAction::ActivateEndpoint {
+                endpoint_id, target: Some(ClientEndpointFocusTarget::Pane(pane)),
+            }] if endpoint_id == &remote && pane == "pane_1"));
+        // The target is revealed once the machine switch lands.
+        assert!(state.activate_endpoint_projection(&remote));
+        state.compose(100, 14).expect("online target revealed");
+        assert!(state
+            .hits
+            .endpoint_agents
+            .iter()
+            .any(|(_, endpoint, pane)| endpoint == &remote && pane == "pane_1"));
+    }
+}
+
+#[test]
 fn local_agent_click_can_cancel_a_pending_remote_switch() {
     for reconnecting in [false, true] {
         let (mut state, remote) = state_with_scrollable_agents();
@@ -358,12 +392,11 @@ fn local_agent_click_can_cancel_a_pending_remote_switch() {
             row: rect.y,
             modifiers: KeyModifiers::NONE,
         })]);
-        assert!(
-            matches!(outcome.actions.as_slice(), [ClientShellAction::ActivateEndpoint {
-            endpoint_id: ClientEndpointId::Local,
-            target: Some(ClientEndpointFocusTarget::Pane(target)),
-        }] if target == &pane_id)
-        );
+        assert!(matches!(outcome.actions.as_slice(),
+            [ClientShellAction::ActivateEndpoint {
+                endpoint_id: ClientEndpointId::Local,
+                target: Some(ClientEndpointFocusTarget::Pane(target)),
+            }] if target == &pane_id));
     }
 }
 
@@ -1357,6 +1390,114 @@ fn legacy_custom_views_keep_v1_per_endpoint_projection() {
 }
 
 #[test]
+fn mixed_legacy_fallback_priority_merges_agents_across_endpoints() {
+    use crate::config::{AgentPanelSortConfig, AgentSidebarToken};
+
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let remote = remote_profile();
+    let remote_id = ClientEndpointId::Ssh(remote.id.clone());
+    state.config.agent_panel_sort = AgentPanelSortConfig::Priority;
+    state.config.agents.rows = vec![vec![
+        AgentSidebarToken::Machine.into(),
+        AgentSidebarToken::Agent.into(),
+    ]];
+    let mut third = remote_profile();
+    third.id = ProfileId::parse("fedcba9876543210fedcba9876543210").unwrap();
+    third.label = "Other".into();
+    let third_id = ClientEndpointId::Ssh(third.id.clone());
+    state.set_endpoint_catalog(&[remote, third]);
+    state.set_endpoint_status(&remote_id, ClientEndpointStatus::Online);
+    state.set_endpoint_status(&third_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agent_view_label = Some("legacy".into());
+    local.agent_order = vec!["pane_2".into(), "pane_1".into()];
+    let mut second_idle = agent("local second idle", AgentStatus::Idle, 1);
+    second_idle.pane_id = "pane_2".into();
+    second_idle.focused = false;
+    let mut excluded = agent("excluded blocked", AgentStatus::Blocked, 1);
+    excluded.pane_id = "pane_3".into();
+    excluded.focused = false;
+    local.agents = vec![
+        agent("local first idle", AgentStatus::Idle, 1),
+        second_idle,
+        excluded,
+    ];
+    let pane_template = local.panes[0].clone();
+    local.panes = local
+        .agents
+        .iter()
+        .map(|agent| ClientShellPane {
+            pane_id: agent.pane_id.clone(),
+            focused: agent.focused,
+            ..pane_template.clone()
+        })
+        .collect();
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agents = vec![agent("remote blocked", AgentStatus::Blocked, 1)];
+    state.set_endpoint_snapshot(&remote_id, Box::new(remote));
+    let mut third = snapshot();
+    third.boot_id = "third-boot".into();
+    third.agents = vec![agent("other working", AgentStatus::Working, 1)];
+    state.set_endpoint_snapshot(&third_id, Box::new(third));
+
+    for rows in [
+        aggregate_navigation::aggregate_agent_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            AgentPanelSortConfig::Priority,
+            &state.config.agent_priority_tokens,
+        ),
+        aggregate_navigation::online_agent_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            AgentPanelSortConfig::Priority,
+            &state.config.agent_priority_tokens,
+        ),
+    ] {
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[0].endpoint.endpoint_id, &remote_id);
+        assert_eq!(rows[1].endpoint.endpoint_id, &third_id);
+        assert!(rows[2..]
+            .iter()
+            .all(|row| row.endpoint.endpoint_id.is_local()
+                && row.agent.agent_status == AgentStatus::Idle));
+    }
+    let frame = state.compose(100, 28).expect("mixed legacy fallback frame");
+    let text = frame
+        .cells
+        .chunks(frame.width as usize)
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let blocked = text
+        .find("Build · remote blocked")
+        .expect("remote blocked row");
+    let working = text
+        .find("Other · other working")
+        .expect("third endpoint row");
+    assert!(
+        blocked < working && working < text.find("Local · local").expect("local idle row"),
+        "frame: {text}"
+    );
+    assert!(!text.contains("excluded blocked"));
+    let mut outcome = ClientShellInput::default();
+    assert!(
+        state.handle_endpoint_navigation(crate::input::KeybindAction::FocusAgent(0), &mut outcome)
+    );
+    assert!(matches!(outcome.actions.as_slice(),
+        [ClientShellAction::ActivateEndpoint { endpoint_id, target: Some(ClientEndpointFocusTarget::Pane(pane)) }]
+        if endpoint_id == &remote_id && pane == "pane_1"));
+}
+
+#[test]
 fn selected_custom_sort_orders_rendering_and_indexed_navigation() {
     use crate::api::schema::{
         AgentStatus, AgentViewBuiltinSortField, AgentViewSort, AgentViewSortField,
@@ -1485,11 +1626,209 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
         &state.endpoints,
         &state.active_endpoint_id,
         crate::config::AgentPanelSortConfig::Priority,
+        &state.config.agent_priority_tokens,
     )
     .into_iter()
     .map(|row| row.agent.name.as_deref().expect("agent name"))
     .collect::<Vec<_>>();
     assert_eq!(names, ["pane two", "pane nine", "tab nine"]);
+}
+
+/// Deliver snapshots with the completion projection a live server sends beside
+/// them, which reports each Done agent as completed work.
+pub(super) trait CompletedSnapshots {
+    fn set_snapshot_with_completions(&mut self, snapshot: Box<ClientShellSnapshot>);
+    fn set_endpoint_snapshot_with_completions(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        snapshot: Box<ClientShellSnapshot>,
+    );
+}
+
+impl CompletedSnapshots for ClientShellState {
+    fn set_snapshot_with_completions(&mut self, snapshot: Box<ClientShellSnapshot>) {
+        let endpoint_id = self.active_endpoint_id.clone();
+        self.set_endpoint_snapshot_with_completions(&endpoint_id, snapshot);
+    }
+
+    fn set_endpoint_snapshot_with_completions(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        snapshot: Box<ClientShellSnapshot>,
+    ) {
+        let completions = crate::protocol::endpoint::EndpointAgentCompletions {
+            boot_id: snapshot.boot_id.clone(),
+            revision: snapshot.revision,
+            completions: snapshot
+                .agents
+                .iter()
+                .filter(|agent| agent.agent_status == crate::api::schema::AgentStatus::Done)
+                .map(|agent| (agent.pane_id.clone(), agent.state_change_seq))
+                .collect(),
+        };
+        self.endpoints
+            .iter_mut()
+            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
+            .expect("endpoint")
+            .agent_presentation
+            .receive_completions(None, completions);
+        self.set_endpoint_snapshot(endpoint_id, snapshot);
+    }
+}
+
+#[test]
+fn priority_order_lifts_token_spaces_and_queues_waiting_agents() {
+    use crate::api::schema::AgentStatus;
+
+    let mut snapshot = snapshot();
+    let mut other = snapshot.workspaces[0].clone();
+    other.workspace_id = "ws_2".into();
+    other.number = 2;
+    other.focused = false;
+    snapshot.workspaces.push(other);
+    snapshot.workspaces[1].tokens = vec![("lift".into(), "★".into())];
+    let placed = |name: &str, workspace: &str, status, seq| {
+        let mut agent = agent(name, status, seq);
+        agent.workspace_id = workspace.into();
+        agent.pane_id = format!("{workspace}:{name}");
+        agent.focused = false;
+        agent
+    };
+    snapshot.agents = vec![
+        placed("blocked elsewhere", "ws_1", AgentStatus::Blocked, 5),
+        placed("priority new done", "ws_2", AgentStatus::Done, 3),
+        placed("priority working", "ws_2", AgentStatus::Working, 9),
+        placed("priority old done", "ws_2", AgentStatus::Done, 1),
+        placed("priority blocked", "ws_2", AgentStatus::Blocked, 2),
+        placed("working elsewhere", "ws_1", AgentStatus::Working, 8),
+    ];
+    // Waiting agents queue oldest first; working agents show newest first.
+    let expected = [
+        "priority blocked",
+        "priority old done",
+        "priority new done",
+        "blocked elsewhere",
+        "priority working",
+        "working elsewhere",
+    ];
+
+    // Reconcile the snapshot through endpoint state before checking either
+    // surface. The initial empty snapshot lets done agents arrive unread.
+    let mut config = Config::default();
+    config.ui.agent_priority_tokens = vec!["lift".into()];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let mut empty = snapshot.clone();
+    empty.agents.clear();
+    state.set_snapshot(Box::new(empty));
+    state.set_snapshot_with_completions(Box::new(snapshot));
+    let sidebar = aggregate_navigation::online_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        crate::config::AgentPanelSortConfig::Priority,
+        &state.config.agent_priority_tokens,
+    );
+    let sidebar_names = sidebar
+        .iter()
+        .map(|row| row.agent.pane_id.split_once(':').expect("placed pane id").1)
+        .collect::<Vec<_>>();
+    assert_eq!(sidebar_names, expected);
+
+    let names = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        crate::config::AgentPanelSortConfig::Priority,
+        &state.config.agent_priority_tokens,
+    )
+    .into_iter()
+    .map(|row| row.agent.name.as_deref().expect("agent name"))
+    .collect::<Vec<_>>();
+    assert_eq!(names, expected);
+
+    // Without configured tokens, the space's waiting agents are not lifted.
+    let names = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        crate::config::AgentPanelSortConfig::Priority,
+        &[],
+    )
+    .into_iter()
+    .map(|row| row.agent.name.as_deref().expect("agent name"))
+    .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "priority blocked",
+            "blocked elsewhere",
+            "priority old done",
+            "priority new done",
+            "priority working",
+            "working elsewhere",
+        ]
+    );
+}
+
+#[test]
+fn agent_picker_shows_the_first_configured_priority_token() {
+    use crate::api::schema::AgentStatus;
+
+    let mut snapshot = snapshot();
+    let mut marked = snapshot.workspaces[0].clone();
+    marked.workspace_id = "ws_2".into();
+    marked.number = 2;
+    marked.label = "urgent".into();
+    marked.focused = false;
+    marked.tokens = vec![
+        ("unlisted".into(), "x".into()),
+        ("urgent".into(), "!".into()),
+        ("lift".into(), "★".into()),
+    ];
+    snapshot.workspaces.push(marked);
+    let mut priority = agent("priority idle", AgentStatus::Idle, 2);
+    priority.pane_id = "pane_2".into();
+    priority.workspace_id = "ws_2".into();
+    priority.focused = false;
+    snapshot.agents = vec![agent("blocked", AgentStatus::Blocked, 1), priority];
+    let mut config = Config::default();
+    config.ui.agent_priority_tokens = vec!["lift".into(), "urgent".into()];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.config.theme_runtime.auto_switch = false;
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.open_navigator(NavigatorLayout::Agents);
+
+    let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_ref() else {
+        panic!("navigator");
+    };
+    let rows = aggregate_navigation::navigator_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        navigator,
+        &state.config.agent_priority_tokens,
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| (row.label.as_str(), row.mark.as_deref()))
+            .collect::<Vec<_>>(),
+        [
+            ("client-shell: blocked", None),
+            ("urgent: priority idle", Some("★"))
+        ]
+    );
+
+    // The top row is selected, so the marked row keeps the mark's colour.
+    let frame = state.compose(160, 48).expect("navigator");
+    let (rect, _) = state
+        .hits
+        .navigator_rows
+        .iter()
+        .find(|(_, target)| {
+            matches!(target, ClientNavigatorTarget::Pane { pane_id, .. } if pane_id == "pane_2")
+        })
+        .expect("marked row");
+    let mark = cell_symbol_position(&frame, *rect, "★ urgent: priority idle");
+    let buffer = frame.to_ratatui_buffer().expect("buffer");
+    assert_eq!(buffer[mark].fg, state.config.palette.yellow);
+    assert_eq!(buffer[(mark.0 + 2, mark.1)].fg, state.config.palette.text);
 }
 
 #[test]
@@ -1939,6 +2278,315 @@ fn reconnect_same_endpoint_accepts_new_generation_surface_revision() {
     }
 }
 
+fn state_with_reconnecting_agents(remote: bool) -> (ClientShellState, ClientEndpointId) {
+    use crate::config::{AgentPanelSortConfig, AgentSidebarToken, StatusIndicatorStyle};
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.config.agent_panel_sort = AgentPanelSortConfig::Priority;
+    state.config.status_indicators = StatusIndicatorStyle::Symbols;
+    state.config.agents.rows = vec![vec![
+        AgentSidebarToken::StateIcon.into(),
+        AgentSidebarToken::Agent.into(),
+    ]];
+    let endpoint_id = if remote {
+        let profile = remote_profile();
+        let id = ClientEndpointId::Ssh(profile.id.clone());
+        state.set_endpoint_catalog(&[profile]);
+        state.set_endpoint_status(&id, ClientEndpointStatus::Online);
+        id
+    } else {
+        ClientEndpointId::Local
+    };
+    let mut previous = snapshot();
+    previous.agents = (1..=3)
+        .map(|index| {
+            let mut agent = agent(&format!("previous {index}"), AgentStatus::Blocked, index);
+            agent.pane_id = format!("pane_{index}");
+            agent.focused = index == 1;
+            agent
+        })
+        .collect();
+    let pane_template = previous.panes[0].clone();
+    previous.panes = previous
+        .agents
+        .iter()
+        .map(|agent| ClientShellPane {
+            pane_id: agent.pane_id.clone(),
+            focused: agent.focused,
+            ..pane_template.clone()
+        })
+        .collect();
+    state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 4, Box::new(previous));
+    assert!(state.activate_endpoint_projection(&endpoint_id));
+    state.set_pane_surface(surface());
+    state.outer_focused = Some(false);
+    state.mark_endpoint_disconnected(&endpoint_id);
+
+    let mut replacement = snapshot();
+    replacement.revision = 2;
+    replacement.focused_pane_id = Some("pane_4".into());
+    replacement.panes[0].pane_id = "pane_4".into();
+    replacement.panes[0].label = None;
+    let mut working = agent("latest working", AgentStatus::Working, 8);
+    working.pane_id = "pane_4".into();
+    let mut blocked = agent("latest blocked", AgentStatus::Blocked, 9);
+    blocked.pane_id = "pane_2".into();
+    blocked.focused = false;
+    replacement.agents = vec![working, blocked];
+    let pane_template = replacement.panes[0].clone();
+    replacement.panes = replacement
+        .agents
+        .iter()
+        .map(|agent| ClientShellPane {
+            pane_id: agent.pane_id.clone(),
+            focused: agent.focused,
+            ..pane_template.clone()
+        })
+        .collect();
+    state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 5, Box::new(replacement));
+    (state, endpoint_id)
+}
+
+fn reconnect_agent_navigator() -> ClientNavigatorOverlay {
+    ClientNavigatorOverlay {
+        layout: NavigatorLayout::Agents,
+        query: TextEditor::new("", false),
+        search_focused: false,
+        selected: None,
+        scroll: 0,
+        filter: None,
+    }
+}
+
+#[test]
+fn reconnect_agent_cache_updates_metadata_order_and_picker_focus() {
+    use crate::config::AgentPanelSortConfig;
+
+    let (state, _) = state_with_reconnecting_agents(true);
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        AgentPanelSortConfig::Priority,
+        &state.config.agent_priority_tokens,
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.agent.pane_id.as_str())
+            .collect::<Vec<_>>(),
+        ["pane_2", "pane_4"]
+    );
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.agent.agent_status)
+            .collect::<Vec<_>>(),
+        [AgentStatus::Blocked, AgentStatus::Working]
+    );
+    assert!(rows.iter().all(|row| row.endpoint.stale()));
+    assert!(aggregate_navigation::online_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        AgentPanelSortConfig::Priority,
+        &state.config.agent_priority_tokens
+    )
+    .is_empty());
+    let picker = aggregate_navigation::navigator_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        &reconnect_agent_navigator(),
+        &state.config.agent_priority_tokens,
+    );
+    assert_eq!(picker.len(), 2);
+    assert!(picker[0].label.contains("latest blocked"));
+    assert!(picker[1].label.contains("latest working"));
+    assert!(picker.iter().all(|row| row.stale));
+    assert!(!picker[0].current);
+    assert!(picker[1].current);
+}
+
+#[test]
+fn reconnect_agent_rendering_retains_pane_until_coherent_activation() {
+    for remote in [false, true] {
+        let (mut state, endpoint_id) = state_with_reconnecting_agents(remote);
+        assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+        assert_eq!(state.pane_surface.as_ref().unwrap().projection_revision, 1);
+        for collapsed in [false, true] {
+            state.sidebar_collapsed = collapsed;
+            let frame = state
+                .compose(106, 28)
+                .expect("retained pane with latest list");
+            let buffer = frame.to_ratatui_buffer().unwrap();
+            let text = frame
+                .cells
+                .iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>();
+            assert!(text.contains("LIVE"), "retained pane: {text}");
+            assert_eq!(
+                state
+                    .hits
+                    .endpoint_agents
+                    .iter()
+                    .map(|(_, _, pane)| pane.as_str())
+                    .collect::<Vec<_>>(),
+                ["pane_2", "pane_4"]
+            );
+            let rect = state.hits.endpoint_agents[0].0;
+            let icon = (rect.x..rect.right())
+                .map(|x| &buffer[(x, rect.y)])
+                .find(|cell| cell.symbol() == "×")
+                .expect("cached blocked icon");
+            assert_eq!(icon.fg, state.config.palette.overlay0);
+            assert!(icon.modifier.contains(Modifier::DIM));
+            if collapsed && endpoint_id.is_local() {
+                let number = &buffer[(rect.x, rect.y)];
+                assert_eq!(number.fg, state.config.palette.overlay0);
+                assert!(number.modifier.contains(Modifier::DIM));
+            }
+            if !collapsed {
+                assert!(text.contains("latest blocked"));
+                assert!(text.contains("latest working"));
+                assert!(!text.contains("previous"));
+            }
+        }
+        state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+        assert!(state.activate_endpoint_projection(&endpoint_id));
+        assert!(state.compose(106, 28).is_none());
+        let mut replacement_surface = surface();
+        replacement_surface.projection_revision = 2;
+        replacement_surface.panes[0].pane_id = "pane_4".into();
+        state.set_pane_surface(replacement_surface);
+        assert!(state.compose(106, 28).is_some());
+    }
+}
+
+fn assert_reconnect_agent_selection(outcome: &ClientShellInput, endpoint_id: &ClientEndpointId) {
+    if endpoint_id.is_local() {
+        assert!(matches!(
+            outcome.actions.as_slice(),
+            [ClientShellAction::ActivateEndpoint {
+                endpoint_id: ClientEndpointId::Local,
+                target: Some(ClientEndpointFocusTarget::Pane(pane)),
+            }] if pane == "pane_2"
+        ));
+    } else {
+        assert!(outcome.actions.is_empty());
+    }
+}
+
+#[test]
+fn reconnect_desktop_agent_selection_routes_local_and_rejects_remote() {
+    for remote in [false, true] {
+        let (mut state, endpoint_id) = state_with_reconnecting_agents(remote);
+        state.compose(106, 28).unwrap();
+        let rect = state.hits.endpoint_agents[0].0;
+        let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+        assert_reconnect_agent_selection(&outcome, &endpoint_id);
+    }
+}
+
+#[test]
+fn reconnect_picker_agent_selection_routes_local_and_rejects_remote() {
+    for remote in [false, true] {
+        let (mut state, endpoint_id) = state_with_reconnecting_agents(remote);
+        let navigator = reconnect_agent_navigator();
+        let rows = aggregate_navigation::navigator_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            &navigator,
+            &state.config.agent_priority_tokens,
+        );
+        state.overlay = Some(ClientShellOverlay::Navigator(ClientNavigatorOverlay {
+            selected: Some(rows[0].target.clone()),
+            ..navigator
+        }));
+        let mut outcome = ClientShellInput::default();
+        state.accept_navigator_selection(&mut outcome);
+        assert_reconnect_agent_selection(&outcome, &endpoint_id);
+        assert_eq!(state.overlay.is_none(), endpoint_id.is_local());
+    }
+}
+
+#[test]
+fn reconnect_mobile_agent_selection_routes_local_and_rejects_remote() {
+    for remote in [false, true] {
+        let (mut state, endpoint_id) = state_with_reconnecting_agents(remote);
+        state.mode = ClientShellMode::Navigate;
+        state.compose(44, 40).expect("cached mobile agent list");
+        let mobile_agents = state
+            .hits
+            .mobile_targets
+            .iter()
+            .filter_map(|(rect, target)| match target {
+                ClientMobileTarget::Agent {
+                    endpoint_id: selected,
+                    pane_id,
+                } => {
+                    assert_eq!(selected, &endpoint_id);
+                    Some((*rect, pane_id.clone()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            mobile_agents
+                .iter()
+                .map(|(_, pane)| pane.as_str())
+                .collect::<Vec<_>>(),
+            ["pane_2", "pane_4"]
+        );
+        let rect = mobile_agents[0].0;
+        let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x,
+            row: rect.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+        assert_reconnect_agent_selection(&outcome, &endpoint_id);
+        assert_eq!(
+            state.mode,
+            if remote {
+                ClientShellMode::Navigate
+            } else {
+                ClientShellMode::Terminal
+            }
+        );
+    }
+}
+
+#[test]
+fn agent_navigation_uses_cached_focus_only_when_endpoint_is_online() {
+    for remote in [false, true] {
+        let (mut state, endpoint_id) = state_with_reconnecting_agents(remote);
+        for action in [
+            crate::input::KeybindAction::FocusAgent(0),
+            crate::input::KeybindAction::NextAgent,
+            crate::input::KeybindAction::PreviousAgent,
+        ] {
+            let mut outcome = ClientShellInput::default();
+            assert!(state.handle_endpoint_navigation(action, &mut outcome));
+            assert!(outcome.actions.is_empty());
+        }
+        state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+        for (action, pane) in [
+            (crate::input::KeybindAction::FocusAgent(1), "pane_4"),
+            (crate::input::KeybindAction::NextAgent, "pane_2"),
+            (crate::input::KeybindAction::PreviousAgent, "pane_2"),
+        ] {
+            let mut outcome = ClientShellInput::default();
+            assert!(state.handle_endpoint_navigation(action, &mut outcome));
+            assert!(matches!(outcome.actions.as_slice(),
+                [ClientShellAction::Endpoint { endpoint_id: selected, request, .. }]
+                if selected == &endpoint_id && matches!(&request.method, crate::api::schema::Method::PaneFocus(target) if target.pane_id == pane)));
+        }
+        assert_eq!(state.snapshot.as_ref().unwrap().revision, 1);
+        assert_eq!(state.pane_surface.as_ref().unwrap().projection_revision, 1);
+    }
+}
+
 #[test]
 fn reconnect_snapshot_waits_for_coherent_activation_before_replacing_projection() {
     let (mut state, endpoint_id) = state_with_remote();
@@ -2087,8 +2735,12 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     else {
         panic!("expected navigator");
     };
-    let rows =
-        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator);
+    let rows = render::client_navigator_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        navigator,
+        &state.config.agent_priority_tokens,
+    );
     let machines = rows
         .iter()
         .filter(|row| matches!(row.target, ClientNavigatorTarget::Machine { .. }))
@@ -2147,8 +2799,12 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     else {
         panic!("expected navigator");
     };
-    let rows =
-        render::client_navigator_rows(&local.endpoints, &local.active_endpoint_id, navigator);
+    let rows = render::client_navigator_rows(
+        &local.endpoints,
+        &local.active_endpoint_id,
+        navigator,
+        &local.config.agent_priority_tokens,
+    );
     assert!(rows
         .iter()
         .all(|row| !matches!(row.target, ClientNavigatorTarget::Machine { .. })));
@@ -2175,8 +2831,12 @@ fn navigator_keeps_saved_machine_visible_before_metadata_arrives() {
         panic!("expected navigator");
     };
 
-    let rows =
-        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator);
+    let rows = render::client_navigator_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        navigator,
+        &state.config.agent_priority_tokens,
+    );
 
     assert!(rows.iter().any(|row| {
         matches!(
@@ -2207,16 +2867,21 @@ fn navigator_machine_selection_opens_its_remembered_view() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator)
-            .into_iter()
-            .find(|row| {
-                matches!(
-                    &row.target,
-                    ClientNavigatorTarget::Machine { endpoint_id: target } if target == &endpoint_id
-                )
-            })
-            .map(|row| row.target)
-            .expect("remote machine row")
+        render::client_navigator_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            navigator,
+            &state.config.agent_priority_tokens,
+        )
+        .into_iter()
+        .find(|row| {
+            matches!(
+                &row.target,
+                ClientNavigatorTarget::Machine { endpoint_id: target } if target == &endpoint_id
+            )
+        })
+        .map(|row| row.target)
+        .expect("remote machine row")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);
@@ -2244,19 +2909,24 @@ fn navigator_foreign_pane_selection_activates_its_endpoint() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator)
-            .iter()
-            .find(|row| {
-                matches!(
-                    &row.target,
-                    ClientNavigatorTarget::Pane {
-                        endpoint_id: target_endpoint,
-                        pane_id,
-                    } if target_endpoint == &endpoint_id && pane_id == "pane_1"
-                )
-            })
-            .map(|row| row.target.clone())
-            .expect("remote pane row")
+        render::client_navigator_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            navigator,
+            &state.config.agent_priority_tokens,
+        )
+        .iter()
+        .find(|row| {
+            matches!(
+                &row.target,
+                ClientNavigatorTarget::Pane {
+                    endpoint_id: target_endpoint,
+                    pane_id,
+                } if target_endpoint == &endpoint_id && pane_id == "pane_1"
+            )
+        })
+        .map(|row| row.target.clone())
+        .expect("remote pane row")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);
@@ -2378,8 +3048,12 @@ fn cached_offline_navigator_and_mobile_targets_are_dimmed_and_disabled() {
         else {
             panic!("expected navigator");
         };
-        let rows =
-            render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator);
+        let rows = render::client_navigator_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            navigator,
+            &state.config.agent_priority_tokens,
+        );
         let machine = rows
             .iter()
             .find(|row| {
@@ -2574,19 +3248,24 @@ fn navigator_foreign_workspace_heading_keeps_the_workspace_target() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator)
-            .iter()
-            .find(|row| {
-                matches!(
-                    &row.target,
-                    ClientNavigatorTarget::Workspace {
-                        endpoint_id: target_endpoint,
-                        workspace_id,
-                    } if target_endpoint == &endpoint_id && workspace_id == "ws_1"
-                )
-            })
-            .map(|row| row.target.clone())
-            .expect("remote workspace heading")
+        render::client_navigator_rows(
+            &state.endpoints,
+            &state.active_endpoint_id,
+            navigator,
+            &state.config.agent_priority_tokens,
+        )
+        .iter()
+        .find(|row| {
+            matches!(
+                &row.target,
+                ClientNavigatorTarget::Workspace {
+                    endpoint_id: target_endpoint,
+                    workspace_id,
+                } if target_endpoint == &endpoint_id && workspace_id == "ws_1"
+            )
+        })
+        .map(|row| row.target.clone())
+        .expect("remote workspace heading")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);

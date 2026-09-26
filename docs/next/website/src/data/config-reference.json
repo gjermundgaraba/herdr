@@ -1075,6 +1075,12 @@
           ]
         },
         {
+          "key": "ui.agent_priority_tokens",
+          "type": "list of strings",
+          "default": "[]",
+          "description": "Workspace metadata token keys, set by plugins, that lift a space in the \"priority\" agent order. While a space carries any listed token with a non-empty value, its blocked and done agents come before every other agent, and the agent picker shows the first listed token's value before them. Empty lifts nothing. At most 16 distinct keys of ASCII letters, digits, underscores, and hyphens."
+        },
+        {
           "key": "ui.status_indicators",
           "type": "enum",
           "default": "\"dots\"",

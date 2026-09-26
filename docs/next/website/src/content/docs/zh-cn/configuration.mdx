@@ -355,6 +355,16 @@ status_indicators = "symbols"
 
 这些符号是静态的，因此该选项不会启用旋转动画。
 
+`agent_panel_sort = "priority"` 按待处理顺序排列 agent：blocked、done、working、idle、unknown。blocked 和 done 的 agent 按最早到最新排队，因此等待最久的 agent 排在最前；working 和 idle 的 agent 按最新优先显示。`agent_priority_tokens` 列出在该顺序中提升空间的工作区元数据令牌键。只要某个空间以非空值带有任一列出的令牌，该空间中 blocked 和 done 的 agent 就排在所有其他 agent 之前；其 working 和 idle 的 agent 保持原有位置。此类令牌由插件通过 `workspace.report_metadata` 设置；例如，一个为你标记为紧急的空间设置 `space_priority` 的插件：
+
+```toml
+[ui]
+agent_panel_sort = "priority"
+agent_priority_tokens = ["space_priority"]
+```
+
+agent 选择器会在 agent 标签前显示该空间按列出顺序带有的第一个令牌的值。默认列表为空，因此不会提升任何空间。最多可指定 16 个不重复的键，键由 ASCII 字母、数字、下划线和连字符组成。`spaces` 顺序会忽略这些令牌。
+
 ### 侧边栏行布局
 
 展开的桌面侧边栏会将 `rows` 中的每个内层数组渲染为一行。以下是完整的默认布局：

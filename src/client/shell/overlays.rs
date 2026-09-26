@@ -39,6 +39,7 @@ pub(crate) fn render_client_overlay(
     s: &ClientShellSnapshot,
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
+    priority_tokens: &[String],
     k: &LiveKeybindConfig,
     p: &Palette,
 ) -> Option<OverlayRender> {
@@ -65,7 +66,7 @@ pub(crate) fn render_client_overlay(
         ClientShellOverlay::ConfirmClose(v) => render_confirm_close_overlay(b, v, p),
         ClientShellOverlay::Help(v) => render_help_overlay(b, v, k, p),
         ClientShellOverlay::Navigator(v) => {
-            render_navigator_overlay(b, v, endpoints, active_endpoint_id, p)
+            render_navigator_overlay(b, v, endpoints, active_endpoint_id, priority_tokens, p)
         }
         ClientShellOverlay::Settings(v) => {
             settings_overlay::render_settings_overlay(b, v, s.integration_updates_available, p)
@@ -692,6 +693,7 @@ fn render_navigator_overlay(
     n: &ClientNavigatorOverlay,
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
+    priority_tokens: &[String],
     p: &Palette,
 ) -> Option<OverlayRender> {
     let a = b.area;
@@ -716,7 +718,12 @@ fn render_navigator_overlay(
         " Go to ",
         Style::default().fg(p.accent).bg(p.panel_bg),
     );
-    let rows = super::aggregate_navigation::navigator_rows(endpoints, active_endpoint_id, n);
+    let rows = super::aggregate_navigation::navigator_rows(
+        endpoints,
+        active_endpoint_id,
+        n,
+        priority_tokens,
+    );
     let search = if n.search_focused {
         " / ".to_owned()
     } else if let Some(f) = n.filter {
@@ -865,7 +872,15 @@ fn render_navigator_overlay(
         let current = if r.current { "◆ " } else { "" };
         let status = r.status.map(status_dot).unwrap_or_default();
         let status_separator = if status.is_empty() { "" } else { " " };
-        let label = format!("{indent}{current}{status}{status_separator}{}", r.label);
+        let mark = r
+            .mark
+            .as_deref()
+            .map(|mark| format!("{mark} "))
+            .unwrap_or_default();
+        let label = format!(
+            "{indent}{current}{status}{status_separator}{mark}{}",
+            r.label
+        );
         let st = if r.status.is_none() {
             st.add_modifier(Modifier::BOLD)
         } else {
@@ -949,6 +964,24 @@ fn render_navigator_overlay(
                     meta_style,
                 );
             }
+        }
+        if let Some(mark) = r.mark.as_deref() {
+            let x = rect.x.saturating_add(display_width(&format!(
+                "{indent}{current}{status}{status_separator}"
+            )));
+            let end = rect.right().saturating_sub(columns);
+            put_text(
+                b,
+                x,
+                rect.y,
+                display_width(mark).min(end.saturating_sub(x)),
+                mark,
+                if r.stale || ix == selected {
+                    st
+                } else {
+                    st.fg(p.yellow)
+                },
+            );
         }
         let machine_status = match &r.target {
             ClientNavigatorTarget::Machine { endpoint_id } if !endpoint_id.is_local() => endpoints

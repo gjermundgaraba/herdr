@@ -11,6 +11,7 @@ const NESTED_HERDR_MESSAGES: [&str; 6] = [
     "recursion detected. base case not found. aborting.",
 ];
 
+mod agent_priority;
 mod agent_resume;
 mod agent_view_eval;
 mod api;
@@ -335,6 +336,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Agent panel ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
+
+# Workspace metadata token keys that lift a space's blocked and done agents to the
+# top of the "priority" order while the space carries any of them with a non-empty
+# value. The agent picker marks those agents with the value of the first listed
+# token the space carries. Plugins set such tokens; empty lifts nothing.
+# agent_priority_tokens = []
 
 # Agent status indicators: "dots" preserves the compact color marks; "symbols" uses
 # distinct static glyphs for blocked, working, done, idle, and unknown states.
