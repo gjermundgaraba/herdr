@@ -30,6 +30,9 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   history, and the unread hold
 - The `agent.prompt` method in the client command lane
   (`CLIENT_SHELL_METHODS` in `src/server/client_commands.rs`)
+- Space groups: the `space_group` workspace metadata token puts runs of
+  spaces under collapsible, draggable sidebar headers
+  (`src/client/shell/space_groups.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the Micro and Deck plugins in the `herdr-plugins`

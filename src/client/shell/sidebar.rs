@@ -1,3 +1,4 @@
+use super::super::space_groups::{self, SidebarRow};
 use super::*;
 use ratatui::{
     text::Line,
@@ -226,7 +227,7 @@ pub(crate) fn render_sidebar(
             .add_modifier(Modifier::BOLD),
     );
 
-    let entries = workspace_entries(snapshot, state.collapsed_groups);
+    let entries = space_groups::sidebar_rows(snapshot, state.collapsed_groups);
     let body = Rect::new(
         workspace_area.x,
         workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
@@ -238,7 +239,10 @@ pub(crate) fn render_sidebar(
     hits.workspace_body = body;
     let row_heights = entries
         .iter()
-        .map(|entry| {
+        .map(|row| {
+            let SidebarRow::Workspace(entry) = row else {
+                return 1;
+            };
             snapshot
                 .workspaces
                 .get(entry.index)
@@ -259,10 +263,10 @@ pub(crate) fn render_sidebar(
     let gaps = entries
         .iter()
         .enumerate()
-        .map(|(index, _)| {
-            entries
-                .get(index + 1)
-                .map_or(0, |next| u16::from(!next.indented) * config.spaces.row_gap)
+        .map(|(index, row)| {
+            entries.get(index + 1).map_or(0, |next| {
+                space_groups::gap_between(row, next, config.spaces.row_gap)
+            })
         })
         .collect::<Vec<_>>();
     let mut metrics = super::scroll::list_scroll_metrics(
@@ -272,10 +276,9 @@ pub(crate) fn render_sidebar(
         *state.workspace_scroll,
     );
     if !body.is_empty() && std::mem::take(state.reveal_focused_workspace) {
-        if let Some(target) = entries
-            .iter()
-            .position(|entry| snapshot.workspaces[entry.index].focused)
-        {
+        if let Some(target) = entries.iter().position(|row| {
+            matches!(row, SidebarRow::Workspace(entry) if snapshot.workspaces[entry.index].focused)
+        }) {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
                 &row_heights,
                 &gaps,
@@ -299,7 +302,27 @@ pub(crate) fn render_sidebar(
     let show_scrollbar = metrics.max_offset_from_bottom > 0 && body.width > 1;
     let content_width = body.width.saturating_sub(u16::from(show_scrollbar));
     let mut y = body.y;
-    for (entry_position, entry) in entries.iter().enumerate().skip(*state.workspace_scroll) {
+    for (entry_position, row) in entries.iter().enumerate().skip(*state.workspace_scroll) {
+        let entry = match row {
+            SidebarRow::Workspace(entry) => entry,
+            SidebarRow::Marker(marker) => {
+                if y >= body.bottom() {
+                    break;
+                }
+                let rect = Rect::new(body.x, y, content_width, 1);
+                space_groups::render_marker(
+                    buffer,
+                    rect,
+                    marker,
+                    snapshot,
+                    &ClientEndpointId::Local,
+                    config,
+                    hits,
+                );
+                y = y.saturating_add(1 + gaps[entry_position]);
+                continue;
+            }
+        };
         let Some(workspace) = snapshot.workspaces.get(entry.index) else {
             continue;
         };
@@ -349,10 +372,7 @@ pub(crate) fn render_sidebar(
             indented: entry.indented,
             group_toggle,
         });
-        let gap = entries
-            .get(entry_position + 1)
-            .map_or(0, |next| u16::from(!next.indented) * config.spaces.row_gap);
-        y = y.saturating_add(row_height + gap);
+        y = y.saturating_add(row_height + gaps[entry_position]);
     }
 
     if show_scrollbar {
@@ -455,7 +475,7 @@ pub(crate) fn render_sidebar(
     );
 }
 
-pub(crate) fn workspace_entries(
+pub(crate) fn worktree_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
 ) -> Vec<WorkspaceEntry> {

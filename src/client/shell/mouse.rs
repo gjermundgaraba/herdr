@@ -508,6 +508,9 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
+    /// The nearest drop position for a dragged space or space group. A group
+    /// header or divider stands for the first space of its run, so the drop
+    /// line above a run sits above its header instead of on it.
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
@@ -518,19 +521,36 @@ impl ClientShellState {
         {
             return None;
         }
-        let mut slots = self
+        let markers = self
             .hits
-            .workspaces
+            .markers
             .iter()
-            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.indented)
-            .map(|hit| (Some(hit.workspace_id.clone()), hit.rect.y.saturating_sub(1)))
+            .filter(|hit| hit.endpoint_id == self.active_endpoint_id)
+            .collect::<Vec<_>>();
+        let mut slots = markers
+            .iter()
+            .filter_map(|hit| Some((hit.member_ids.first()?.clone(), hit.rect.y)))
+            .chain(
+                self.hits
+                    .workspaces
+                    .iter()
+                    .filter(|hit| {
+                        hit.endpoint_id == self.active_endpoint_id
+                            && !hit.indented
+                            && !markers
+                                .iter()
+                                .any(|marker| marker.rect.y == hit.rect.y.saturating_sub(1))
+                    })
+                    .map(|hit| (hit.workspace_id.clone(), hit.rect.y)),
+            )
+            .map(|(workspace_id, top)| (Some(workspace_id), top.saturating_sub(1)))
             .collect::<Vec<_>>();
         let snapshot = self.snapshot.as_deref()?;
         let empty_collapsed_groups = HashSet::new();
         let collapsed_groups = self
             .collapsed_groups_for_endpoint(&self.active_endpoint_id)
             .unwrap_or(&empty_collapsed_groups);
-        let entries = render::workspace_entries(snapshot, collapsed_groups);
+        let entries = space_groups::workspace_entries(snapshot, collapsed_groups);
         let last_hit = self
             .hits
             .workspaces
@@ -551,11 +571,17 @@ impl ClientShellState {
                     .get(entry.index)
                     .map(|workspace| workspace.workspace_id.clone())
             });
-            let row = last_hit.rect.bottom();
+            // Below the last drawn row, which may be a collapsed group's header.
+            let row = markers
+                .iter()
+                .map(|hit| hit.rect.bottom())
+                .fold(last_hit.rect.bottom(), u16::max);
             if row < self.hits.new_workspace.y {
                 slots.push((before, row));
             }
         }
+        slots.sort_by_key(|(_, row)| *row);
+        slots.dedup_by(|later, earlier| later.0 == earlier.0);
         slots
             .into_iter()
             .enumerate()
@@ -1174,11 +1200,16 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return;
                 }
-                Some(ClientChromeDrag::Workspace { .. }) => {
+                Some(ClientChromeDrag::Workspace { .. } | ClientChromeDrag::SpaceGroup { .. }) => {
                     let target = self.workspace_drop_target_at(point);
-                    if let Some(ClientChromeDrag::Workspace {
-                        target: current, ..
-                    }) = self.chrome_drag.as_mut()
+                    if let Some(
+                        ClientChromeDrag::Workspace {
+                            target: current, ..
+                        }
+                        | ClientChromeDrag::SpaceGroup {
+                            target: current, ..
+                        },
+                    ) = self.chrome_drag.as_mut()
                     {
                         *current = target;
                     }
@@ -1207,6 +1238,22 @@ impl ClientShellState {
                 }
                 return;
             }
+            if let Some(press) = self.group_press.as_ref() {
+                let delta = mouse
+                    .column
+                    .abs_diff(press.start_column)
+                    .max(mouse.row.abs_diff(press.start_row));
+                if delta >= 1 && press.endpoint_id == self.active_endpoint_id {
+                    if let Some(target) = self.workspace_drop_target_at(point) {
+                        self.chrome_drag = Some(ClientChromeDrag::SpaceGroup {
+                            member_ids: press.member_ids.clone(),
+                            target: Some(target),
+                        });
+                        outcome.repaint = true;
+                    }
+                }
+                return;
+            }
             if let Some(press) = self.tab_press.as_ref() {
                 let delta = mouse
                     .column
@@ -1228,6 +1275,7 @@ impl ClientShellState {
         if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
             if let Some(drag) = self.chrome_drag.take() {
                 self.workspace_press = None;
+                self.group_press = None;
                 self.tab_press = None;
                 match drag {
                     ClientChromeDrag::Tab {
@@ -1273,6 +1321,26 @@ impl ClientShellState {
                                 before_workspace_id.as_deref(),
                             ) {
                                 self.push_endpoint_method(method, outcome);
+                            }
+                        }
+                        outcome.repaint = true;
+                    }
+                    ClientChromeDrag::SpaceGroup { member_ids, target } => {
+                        if let Some((before_workspace_id, _)) = target {
+                            // Dropping a run onto itself changes nothing.
+                            if !before_workspace_id
+                                .as_ref()
+                                .is_some_and(|before| member_ids.contains(before))
+                            {
+                                self.push_endpoint_method(
+                                    crate::api::schema::Method::WorkspaceMoveBlock(
+                                        crate::api::schema::WorkspaceMoveBlockParams {
+                                            workspace_ids: member_ids,
+                                            before_workspace_id,
+                                        },
+                                    ),
+                                    outcome,
+                                );
                             }
                         }
                         outcome.repaint = true;
@@ -1341,6 +1409,12 @@ impl ClientShellState {
             }
             if let Some(press) = self.workspace_press.take() {
                 self.finish_endpoint_workspace_press(press, outcome);
+                return;
+            }
+            if let Some(press) = self.group_press.take() {
+                self.toggle_collapsed_group(&press.endpoint_id, press.key);
+                outcome.repaint = true;
+                self.persist_chrome_preferences(outcome);
                 return;
             }
             if let Some(press) = self.tab_press.take() {
@@ -1908,6 +1982,7 @@ impl ClientShellState {
                 self.word_selection_gesture = None;
                 let previous_pane_click = self.last_pane_click.take();
                 self.workspace_press = None;
+                self.group_press = None;
                 self.tab_press = None;
                 self.chrome_drag = None;
                 if super::contains(self.hits.sidebar_divider, point)
@@ -2082,6 +2157,24 @@ impl ClientShellState {
                     });
                 if let Some(workspace_press) = workspace_press {
                     self.workspace_press = Some(workspace_press);
+                    return;
+                }
+                let group_press = self
+                    .hits
+                    .markers
+                    .iter()
+                    .find(|hit| super::contains(hit.rect, point))
+                    .and_then(|hit| {
+                        Some(ClientGroupPress {
+                            endpoint_id: hit.endpoint_id.clone(),
+                            key: hit.key.clone()?,
+                            member_ids: hit.member_ids.clone(),
+                            start_column: mouse.column,
+                            start_row: mouse.row,
+                        })
+                    });
+                if let Some(group_press) = group_press {
+                    self.group_press = Some(group_press);
                     return;
                 }
                 let tab_press = self
