@@ -1,4 +1,5 @@
 use super::render::{display_width, put_right_text, put_text, ShellRenderState};
+use super::space_groups::{self, SidebarRow};
 use super::*;
 
 fn collapsed_groups_for_endpoint<'a>(
@@ -268,6 +269,10 @@ pub(super) fn render_expanded(
 
     enum Row {
         Endpoint(usize),
+        Marker {
+            endpoint: usize,
+            marker: space_groups::Marker,
+        },
         Workspace {
             endpoint: usize,
             entry: WorkspaceEntry,
@@ -283,11 +288,17 @@ pub(super) fn render_expanded(
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
             rows.extend(
-                super::sidebar::workspace_entries(snapshot, collapsed_groups)
+                space_groups::sidebar_rows(snapshot, collapsed_groups)
                     .into_iter()
-                    .map(|entry| Row::Workspace {
-                        endpoint: endpoint_index,
-                        entry,
+                    .map(|row| match row {
+                        SidebarRow::Marker(marker) => Row::Marker {
+                            endpoint: endpoint_index,
+                            marker,
+                        },
+                        SidebarRow::Workspace(entry) => Row::Workspace {
+                            endpoint: endpoint_index,
+                            entry,
+                        },
                     }),
             );
         }
@@ -304,7 +315,7 @@ pub(super) fn render_expanded(
     let row_heights = rows
         .iter()
         .map(|row| match row {
-            Row::Endpoint(_) => 1,
+            Row::Endpoint(_) | Row::Marker { .. } => 1,
             Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
@@ -345,6 +356,13 @@ pub(super) fn render_expanded(
                     entry,
                 }),
             ) if endpoint == next_endpoint => u16::from(!entry.indented) * config.spaces.row_gap,
+            (
+                Row::Workspace { endpoint, .. },
+                Some(Row::Marker {
+                    endpoint: next_endpoint,
+                    ..
+                }),
+            ) if endpoint == next_endpoint => config.spaces.row_gap,
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -372,7 +390,7 @@ pub(super) fn render_expanded(
                         }
                     })
             }
-            Row::Endpoint(_) => false,
+            Row::Endpoint(_) | Row::Marker { .. } => false,
         });
         if let Some(selected_row) = selected_row {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
@@ -428,6 +446,42 @@ pub(super) fn render_expanded(
                     ),
                     endpoint_id: endpoint.endpoint_id.clone(),
                 });
+                y = y
+                    .saturating_add(1)
+                    .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
+            }
+            Row::Marker { endpoint, marker } => {
+                if y >= body.bottom() {
+                    break;
+                }
+                let endpoint = &state.endpoints[*endpoint];
+                let Some(snapshot) = endpoint.snapshot.as_deref() else {
+                    continue;
+                };
+                let rect = Rect::new(body.x, y, content_width, 1);
+                let nested = Rect::new(
+                    rect.x.saturating_add(2),
+                    rect.y,
+                    rect.width.saturating_sub(2),
+                    1,
+                );
+                space_groups::render_marker(
+                    buffer,
+                    nested,
+                    marker,
+                    snapshot,
+                    &endpoint.endpoint_id,
+                    config,
+                    hits,
+                );
+                if endpoint.status != ClientEndpointStatus::Online {
+                    buffer.set_style(
+                        rect,
+                        Style::default()
+                            .fg(palette.overlay0)
+                            .add_modifier(Modifier::DIM),
+                    );
+                }
                 y = y
                     .saturating_add(1)
                     .saturating_add(gaps.get(row_index).copied().unwrap_or(0));

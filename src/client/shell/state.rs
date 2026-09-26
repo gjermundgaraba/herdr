@@ -98,6 +98,7 @@ pub(super) enum ClientMobileTarget {
 pub(super) struct ShellHitMap {
     pub(super) machines: Vec<MachineHit>,
     pub(super) workspaces: Vec<WorkspaceHit>,
+    pub(super) markers: Vec<super::space_groups::MarkerHit>,
     pub(super) workspace_body: Rect,
     pub(super) workspace_scrollbar: Rect,
     pub(super) workspace_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -192,6 +193,15 @@ pub(super) struct ClientWorkspacePress {
     pub(super) start_row: u16,
 }
 
+/// A press on a space group header: a click toggles it, a drag moves the run.
+pub(super) struct ClientGroupPress {
+    pub(super) endpoint_id: ClientEndpointId,
+    pub(super) key: String,
+    pub(super) member_ids: Vec<String>,
+    pub(super) start_column: u16,
+    pub(super) start_row: u16,
+}
+
 pub(super) struct ClientTabPress {
     pub(super) tab_id: String,
     pub(super) workspace_id: String,
@@ -227,6 +237,10 @@ pub(super) enum ClientChromeDrag {
     },
     Workspace {
         source_workspace_id: String,
+        target: Option<(Option<String>, u16)>,
+    },
+    SpaceGroup {
+        member_ids: Vec<String>,
         target: Option<(Option<String>, u16)>,
     },
     PaneSplit {
@@ -897,6 +911,7 @@ pub(crate) struct ClientShellState {
     pub(super) last_sidebar_divider_click: Option<std::time::Instant>,
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
+    pub(super) group_press: Option<ClientGroupPress>,
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
@@ -1070,6 +1085,7 @@ impl ClientShellState {
             last_sidebar_divider_click: None,
             chrome_drag: None,
             workspace_press: None,
+            group_press: None,
             tab_press: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             remote_collapsed_groups,
@@ -1205,14 +1221,19 @@ impl ClientShellState {
         snapshot: &ClientShellSnapshot,
     ) -> Vec<WorkspaceEntry> {
         let empty_collapsed_groups = HashSet::new();
+        space_groups::workspace_entries(
+            snapshot,
+            self.sidebar_collapsed_groups()
+                .unwrap_or(&empty_collapsed_groups),
+        )
+    }
+
+    /// Collapse state the sidebar applies; the mobile list shows everything.
+    fn sidebar_collapsed_groups(&self) -> Option<&HashSet<String>> {
         if self.mobile_layout_active() {
-            render::workspace_entries(snapshot, &empty_collapsed_groups)
+            None
         } else {
-            render::workspace_entries(
-                snapshot,
-                self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
-                    .unwrap_or(&empty_collapsed_groups),
-            )
+            self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
         }
     }
 
@@ -1226,9 +1247,17 @@ impl ClientShellState {
             return;
         }
         let target = self.snapshot.as_deref().and_then(|snapshot| {
-            self.navigation_workspace_entries(snapshot)
-                .iter()
-                .position(|entry| snapshot.workspaces[entry.index].workspace_id == workspace_id)
+            let empty_collapsed_groups = HashSet::new();
+            space_groups::sidebar_rows(
+                snapshot,
+                self.sidebar_collapsed_groups()
+                    .unwrap_or(&empty_collapsed_groups),
+            )
+            .iter()
+            .position(|row| {
+                matches!(row, space_groups::SidebarRow::Workspace(entry)
+                    if snapshot.workspaces[entry.index].workspace_id == workspace_id)
+            })
         });
         if let Some(target) = target {
             self.workspace_scroll = target.min(self.hits.workspace_max_scroll);
@@ -1261,6 +1290,7 @@ impl ClientShellState {
         self.popup_terminal_id = None;
         self.chrome_drag = None;
         self.workspace_press = None;
+        self.group_press = None;
         self.tab_press = None;
         self.workspace_scroll = 0;
         self.agent_scroll = 0;
@@ -1720,6 +1750,7 @@ impl ClientShellState {
             self.reset_copy_pipeline();
             self.chrome_drag = None;
             self.workspace_press = None;
+            self.group_press = None;
             self.tab_press = None;
             if self.pane_mouse_gesture.as_ref().is_some_and(|gesture| {
                 gesture.hit.popup && previous_popup.as_deref() == Some(gesture.hit.pane_id.as_str())
