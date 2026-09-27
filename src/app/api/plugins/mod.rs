@@ -3,6 +3,7 @@ mod env;
 mod manifest;
 mod panes;
 mod runtime;
+mod workspace_actions;
 
 use super::responses::{encode_error, encode_success};
 use crate::api::schema::{
@@ -16,6 +17,7 @@ use crate::app::App;
 pub(super) use manifest::normalize_plugin_id;
 use manifest::{
     effective_platforms, ensure_platform_supported, normalize_action_id, normalize_plugin_source,
+    platform_supported,
 };
 
 #[cfg(test)]

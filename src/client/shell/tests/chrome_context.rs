@@ -378,6 +378,80 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
+fn workspace_menu_invokes_plugin_actions_on_the_clicked_workspace() {
+    let mut snapshot = snapshot();
+    let mut other = snapshot.workspaces[0].clone();
+    other.workspace_id = "ws_2".into();
+    other.number = 2;
+    other.label = "other".into();
+    other.focused = false;
+    snapshot.workspaces.push(other);
+    snapshot.workspace_actions = vec![crate::protocol::ClientShellPluginAction {
+        plugin_id: "example.priority".into(),
+        action_id: "toggle".into(),
+        title: "Toggle space priority".into(),
+    }];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(snapshot));
+    state.set_pane_surface(surface());
+    state.compose(106, 20).expect("composed frame");
+
+    let workspace = state
+        .hits
+        .workspaces
+        .iter()
+        .find(|hit| hit.workspace_id == "ws_2")
+        .expect("second workspace row")
+        .rect;
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: workspace.x + 2,
+        row: workspace.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    state.compose(106, 20).expect("workspace context menu");
+    let (index, labels) = match state.overlay.as_ref() {
+        Some(ClientShellOverlay::ContextMenu(menu)) => {
+            let items = menu.items();
+            let plugin_items = items
+                .iter()
+                .enumerate()
+                .filter(|(_, item)| matches!(item.action, ClientContextMenuAction::PluginAction(_)))
+                .collect::<Vec<_>>();
+            (
+                plugin_items.first().expect("plugin action item").0,
+                plugin_items
+                    .iter()
+                    .map(|(_, item)| item.label.to_owned())
+                    .collect::<Vec<_>>(),
+            )
+        }
+        _ => panic!("workspace context menu"),
+    };
+    assert_eq!(labels, ["Toggle space priority"]);
+
+    let row = state.hits.context_menu_rows[index].0;
+    let outcome =
+        state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: row.x + 1,
+            row: row.y,
+            modifiers: KeyModifiers::empty(),
+        })]);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("plugin menu item should use the endpoint API");
+    };
+    let crate::api::schema::Method::PluginActionInvoke(params) = &request.method else {
+        panic!("plugin menu item should invoke the plugin action");
+    };
+    assert_eq!(params.action_id, "toggle");
+    assert_eq!(params.plugin_id.as_deref(), Some("example.priority"));
+    let context = params.context.as_ref().expect("invocation context");
+    assert_eq!(context.workspace_id.as_deref(), Some("ws_2"));
+    assert_eq!(context.invocation_source.as_deref(), Some("context_menu"));
+}
+
+#[test]
 fn global_menu_opens_from_sidebar_and_routes_client_actions() {
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot()));
