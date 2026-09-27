@@ -37,6 +37,9 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   space's blocked and done agents to the top of the `priority` agent order.
   That order also queues blocked and done agents oldest state change first
   (`src/space_priority.rs`)
+- Space context menu items: plugin actions with the `workspace` context appear
+  in a space's right-click menu and run against the clicked space
+  (`src/app/api/plugins/workspace_actions.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the Micro and Deck plugins in the `herdr-plugins`

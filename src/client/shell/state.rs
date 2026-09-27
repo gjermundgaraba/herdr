@@ -563,6 +563,8 @@ pub(super) enum ClientContextMenuAction {
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
+    /// Index into the menu target's `plugin_actions`.
+    PluginAction(usize),
 }
 
 #[derive(Debug)]
@@ -573,6 +575,7 @@ pub(super) enum ClientContextMenuTarget {
         is_linked_worktree: bool,
         has_worktree_children: bool,
         collapsed: bool,
+        plugin_actions: Vec<crate::protocol::ClientShellPluginAction>,
     },
     Tab {
         tab_id: String,
@@ -595,8 +598,8 @@ pub(super) struct ClientContextMenuOverlay {
     pub(super) highlighted: usize,
 }
 
-pub(super) struct ClientContextMenuItem {
-    pub(super) label: &'static str,
+pub(super) struct ClientContextMenuItem<'a> {
+    pub(super) label: &'a str,
     pub(super) action: ClientContextMenuAction,
 }
 
