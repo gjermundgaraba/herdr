@@ -971,6 +971,17 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
+    /// Runnable plugin actions for a space's context menu. Optional so older
+    /// servers still produce valid snapshots.
+    #[serde(default)]
+    pub workspace_actions: Vec<ClientShellPluginAction>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientShellPluginAction {
+    pub plugin_id: String,
+    pub action_id: String,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2888,6 +2899,11 @@ mod tests {
                 binding_labels: vec!["prefix+z".into()],
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
+            }],
+            workspace_actions: vec![ClientShellPluginAction {
+                plugin_id: "example.plugin".into(),
+                action_id: "toggle".into(),
+                title: "Toggle".into(),
             }],
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();

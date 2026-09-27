@@ -1,11 +1,11 @@
 use super::*;
 
 impl ClientContextMenuOverlay {
-    pub(super) fn items(&self) -> Vec<ClientContextMenuItem> {
+    pub(super) fn items(&self) -> Vec<ClientContextMenuItem<'_>> {
         use ClientContextMenuAction as Action;
 
         let item = |label, action| ClientContextMenuItem { label, action };
-        match &self.target {
+        let mut items: Vec<ClientContextMenuItem<'_>> = match &self.target {
             ClientContextMenuTarget::Workspace { is_git: false, .. } => {
                 vec![item("Rename", Action::Rename), item("Close", Action::Close)]
             }
@@ -75,7 +75,16 @@ impl ClientContextMenuOverlay {
                 ]);
                 items
             }
+        };
+        if let ClientContextMenuTarget::Workspace { plugin_actions, .. } = &self.target {
+            items.extend(plugin_actions.iter().enumerate().map(|(index, action)| {
+                ClientContextMenuItem {
+                    label: &action.title,
+                    action: Action::PluginAction(index),
+                }
+            }));
         }
+        items
     }
 }
 
@@ -116,6 +125,7 @@ impl ClientShellState {
                 is_linked_worktree: worktree.is_some_and(|worktree| worktree.is_linked_worktree),
                 has_worktree_children,
                 collapsed,
+                plugin_actions: snapshot.workspace_actions.clone(),
             },
             x,
             y,
@@ -192,9 +202,16 @@ impl ClientShellState {
             return;
         };
         match menu.target {
-            ClientContextMenuTarget::Workspace { workspace_id, .. } => {
-                self.activate_workspace_context_action(workspace_id, action, outcome)
-            }
+            ClientContextMenuTarget::Workspace {
+                workspace_id,
+                plugin_actions,
+                ..
+            } => self.activate_workspace_context_action(
+                workspace_id,
+                plugin_actions,
+                action,
+                outcome,
+            ),
             ClientContextMenuTarget::Tab {
                 tab_id,
                 workspace_id,
@@ -220,6 +237,7 @@ impl ClientShellState {
     fn activate_workspace_context_action(
         &mut self,
         workspace_id: String,
+        plugin_actions: Vec<crate::protocol::ClientShellPluginAction>,
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
@@ -282,6 +300,24 @@ impl ClientShellState {
                     let endpoint_id = self.active_endpoint_id.clone();
                     self.toggle_collapsed_group(&endpoint_id, key);
                     self.persist_chrome_preferences(outcome);
+                }
+            }
+            ClientContextMenuAction::PluginAction(index) => {
+                if let Some(plugin_action) = plugin_actions.into_iter().nth(index) {
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::PluginActionInvoke(
+                            crate::api::schema::PluginActionInvokeParams {
+                                action_id: plugin_action.action_id,
+                                plugin_id: Some(plugin_action.plugin_id),
+                                context: Some(crate::api::schema::PluginInvocationContext {
+                                    workspace_id: Some(workspace_id),
+                                    invocation_source: Some("context_menu".to_owned()),
+                                    ..Default::default()
+                                }),
+                            },
+                        ),
+                        outcome,
+                    );
                 }
             }
             _ => {}

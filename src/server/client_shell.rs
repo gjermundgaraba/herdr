@@ -263,6 +263,7 @@ pub(super) fn snapshot_with_completions(
         panes,
         agents,
         commands: app.client_shell_command_manifest(),
+        workspace_actions: app.client_shell_workspace_actions(),
     };
     (shell, completions)
 }
