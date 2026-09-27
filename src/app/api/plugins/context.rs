@@ -7,7 +7,13 @@ impl App {
         provided: Option<PluginInvocationContext>,
         correlation_id: &str,
     ) -> PluginInvocationContext {
-        let mut context = self.current_plugin_context(correlation_id);
+        let mut context = provided
+            .as_ref()
+            .and_then(|provided| provided.workspace_id.as_deref())
+            .and_then(|workspace_id| {
+                self.plugin_context_for_workspace_id(workspace_id, correlation_id)
+            })
+            .unwrap_or_else(|| self.current_plugin_context(correlation_id));
         if let Some(provided) = provided {
             context.workspace_id = provided.workspace_id.or(context.workspace_id);
             context.workspace_label = provided.workspace_label.or(context.workspace_label);
