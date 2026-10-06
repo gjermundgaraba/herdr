@@ -95,9 +95,10 @@ action = "apply"
 冒号、下划线和连字符。
 
 动作 id、窗格 id 和链接处理器 id 是插件内部的本地 id。它们可以使用
-ASCII 字母、数字、冒号、下划线和连字符,但不能用点。每种 id 在插件内
-必须唯一。当需要全局唯一名称时,Herdr 会把动作 id 限定为
-`plugin.id.action` 的形式。
+ASCII 字母、数字、冒号、下划线和连字符,但不能用点。动作 id 和窗格 id
+共享同一命名空间,动作不能复用窗格的 id;链接处理器 id 之间必须唯一。
+当需要全局唯一名称时,Herdr 会把动作 id 和窗格 id 限定为
+`plugin.id.entrypoint` 的形式。
 
 用 `platforms = ["linux", "macos", "windows"]` 声明插件可以运行的平台。
 构建命令、启动钩子、动作、事件钩子、窗格和链接处理器也可以声明自己的
@@ -262,7 +263,7 @@ shell 插件可以从各个环境变量读取常用 id,或解析上下文 JSON �
 `placement = "popup"` 会打开一个会话级模态终端弹窗,而不改变平铺布局。
 可以在清单或 open 请求中指定可选的 `width` 和 `height`;省略时默认为终端大小的一半,数字表示外层终端单元格数,`"80%"` 这样的字符串表示终端区域的百分比。
 弹窗会接收包括 Escape 在内的所有终端输入,并在命令退出或发送 `popup.close` 请求时关闭。
-小于弹窗最小尺寸的值会限制为最小值。
+小于弹窗最小尺寸的值会限制为最小值。其他 placement 会忽略 `width` 和 `height`。
 
 如果某个插件窗格应始终是临时的,可直接在入口点上声明 placement:
 
@@ -291,15 +292,20 @@ argv 命令。
 
 ## 按键绑定
 
-把某个键绑定到已安装的插件动作:
+使用已安装插件入口（动作或窗格）的完全限定 ID 绑定按键：
 
 ```toml
 [[keys.command]]
 key = "prefix+l"
-type = "plugin_action"
+type = "plugin"
 command = "example.layout.apply"
 description = "apply layout"
 ```
+
+Herdr 会保留发起调用的窗格及选中文本的上下文。窗格使用清单中的默认值打开。
+可选的 `width` 和 `height` 会覆盖弹窗尺寸，在其他 placement 下则会被忽略，
+与 `plugin.pane.open` 请求的行为一致。
+详见[自定义命令按键绑定](./configuration#自定义命令按键绑定)。
 
 ## 链接处理器
 

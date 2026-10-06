@@ -1,156 +1,279 @@
 use ratatui::layout::Direction;
 
-use super::super::responses::{encode_error, encode_success};
+use super::entrypoint::plugin_error;
 use crate::api::schema::{
-    InstalledPluginInfo, PluginInvocationContext, PluginManifestPane, PluginPaneInfo,
-    PluginPaneOpenParams, PluginPanePlacement, ResponseResult,
+    ErrorBody, InstalledPluginInfo, PluginInvocationContext, PluginManifestPane, PluginPaneInfo,
+    PluginPaneOpenParams, PluginPanePlacement, ResponseResult, SplitDirection,
 };
 use crate::app::App;
+use crate::layout::PaneId;
+
+pub(super) enum PluginPaneInvocation {
+    Api,
+    // Selection has already been validated and read by command dispatch.
+    Keybinding { selected_text: Option<String> },
+}
+
+enum PaneTarget {
+    Popup,
+    Overlay,
+    Split {
+        workspace: usize,
+        pane: PaneId,
+        zoomed: bool,
+        direction: Direction,
+    },
+    Tab {
+        workspace: usize,
+    },
+}
+
+struct PaneLaunch {
+    plugin_id: String,
+    pane: PluginManifestPane,
+    cwd: std::path::PathBuf,
+    env: Vec<(String, String)>,
+}
 
 impl App {
-    pub(super) fn open_plugin_popup_pane(
+    /// Open a resolved pane entrypoint. Request sizes apply only to popups.
+    pub(super) fn open_plugin_pane(
         &mut self,
-        id: String,
+        plugin: InstalledPluginInfo,
+        mut pane: PluginManifestPane,
         params: PluginPaneOpenParams,
-        plugin: &InstalledPluginInfo,
-        pane: PluginManifestPane,
-    ) -> String {
-        let context = self.current_plugin_context("plugin-pane");
-        let cwd = self.plugin_pane_cwd(plugin, params.cwd);
-        let extra_env =
-            match self.plugin_pane_launch_env(plugin, &pane.id, &cwd, params.env, &context) {
-                Ok(env) => env,
-                Err((code, message)) => return encode_error(id, &code, message),
-            };
-        let width = params.width.or(pane.width);
-        let height = params.height.or(pane.height);
-        if let Err(err) = self.spawn_popup_argv_command(
-            &pane.command,
-            Some(cwd),
-            extra_env,
-            crate::app::popup::PopupGeometry { width, height },
-        ) {
-            return encode_error(id, "plugin_pane_open_failed", err.to_string());
-        }
-        let Some(popup) = self.state.popup_pane.as_ref() else {
-            return encode_error(id, "plugin_pane_open_failed", "plugin popup disappeared");
+        invocation: PluginPaneInvocation,
+    ) -> Result<ResponseResult, ErrorBody> {
+        let PluginPaneOpenParams {
+            placement,
+            width,
+            height,
+            workspace_id,
+            target_pane_id,
+            direction,
+            cwd,
+            focus,
+            env,
+            ..
+        } = params;
+        let target = self.resolve_plugin_pane_target(
+            placement.unwrap_or(pane.placement),
+            workspace_id.as_deref(),
+            target_pane_id.as_deref(),
+            direction,
+        )?;
+        let correlation_id = match invocation {
+            PluginPaneInvocation::Api => "plugin-pane",
+            PluginPaneInvocation::Keybinding { .. } => "keybinding",
         };
+        let mut context = match target {
+            PaneTarget::Popup | PaneTarget::Overlay => self.current_plugin_context(correlation_id),
+            PaneTarget::Split {
+                workspace, pane, ..
+            } => self.plugin_context_for_pane(workspace, pane, correlation_id),
+            PaneTarget::Tab { workspace } => {
+                self.plugin_context_for_workspace(workspace, correlation_id)
+            }
+        };
+        if let PluginPaneInvocation::Keybinding { selected_text } = invocation {
+            context.invocation_source = Some("keybinding".to_owned());
+            context.selected_text = selected_text;
+        }
+        pane.command[0] = crate::plugin_command::program_for_cwd(
+            &pane.command[0],
+            std::path::Path::new(&plugin.plugin_root),
+        )
+        .display()
+        .to_string();
+        let cwd = cwd
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(&plugin.plugin_root));
+        let env = self
+            .plugin_pane_launch_env(&plugin, &pane.id, &cwd, env, &context)
+            .map_err(|(code, message)| plugin_error(&code, message))?;
+        let geometry = crate::app::popup::PopupGeometry {
+            width: width.or(pane.width),
+            height: height.or(pane.height),
+        };
+        let launch = PaneLaunch {
+            plugin_id: plugin.plugin_id,
+            pane,
+            cwd,
+            env,
+        };
+        match target {
+            PaneTarget::Popup => self.open_plugin_popup_pane(geometry, launch),
+            PaneTarget::Overlay => self.open_plugin_overlay_pane(launch),
+            PaneTarget::Split {
+                workspace,
+                pane,
+                zoomed,
+                direction,
+            } => self.open_plugin_split_pane(workspace, pane, zoomed, direction, focus, launch),
+            PaneTarget::Tab { workspace } => self.open_plugin_tab(workspace, focus, launch),
+        }
+    }
+
+    fn resolve_plugin_pane_target(
+        &self,
+        placement: PluginPanePlacement,
+        workspace_id: Option<&str>,
+        target_pane_id: Option<&str>,
+        direction: Option<SplitDirection>,
+    ) -> Result<PaneTarget, ErrorBody> {
+        match placement {
+            PluginPanePlacement::Popup | PluginPanePlacement::Overlay => {
+                if placement == PluginPanePlacement::Popup && self.state.popup_pane.is_some() {
+                    return Err(plugin_error("ui_busy", "a popup pane is already open"));
+                }
+                if workspace_id.is_some() || target_pane_id.is_some() || direction.is_some() {
+                    return Err(plugin_error(
+                        "invalid_params",
+                        "overlay and popup plugin panes target the active pane",
+                    ));
+                }
+                Ok(if placement == PluginPanePlacement::Popup {
+                    PaneTarget::Popup
+                } else {
+                    PaneTarget::Overlay
+                })
+            }
+            PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
+                if workspace_id.is_some() {
+                    return Err(plugin_error(
+                        "invalid_params",
+                        "split and zoomed plugin panes target an existing pane; use target_pane_id",
+                    ));
+                }
+                let (workspace, pane) = if let Some(id) = target_pane_id {
+                    self.parse_pane_id(id).ok_or_else(|| {
+                        plugin_error("pane_not_found", format!("pane {id} not found"))
+                    })?
+                } else {
+                    self.state
+                        .active
+                        .and_then(|workspace| {
+                            self.state
+                                .workspaces
+                                .get(workspace)
+                                .and_then(|ws| ws.focused_pane_id())
+                                .map(|pane| (workspace, pane))
+                        })
+                        .ok_or_else(|| plugin_error("no_active_pane", "no active pane"))?
+                };
+                Ok(PaneTarget::Split {
+                    workspace,
+                    pane,
+                    zoomed: placement == PluginPanePlacement::Zoomed,
+                    direction: match direction.unwrap_or(SplitDirection::Right) {
+                        SplitDirection::Right => Direction::Horizontal,
+                        SplitDirection::Down => Direction::Vertical,
+                    },
+                })
+            }
+            PluginPanePlacement::Tab => {
+                if target_pane_id.is_some() || direction.is_some() {
+                    return Err(plugin_error(
+                        "invalid_params",
+                        "tab plugin panes support workspace_id but not target_pane_id or direction",
+                    ));
+                }
+                let workspace = match workspace_id {
+                    Some(id) => self.parse_workspace_id(id).ok_or_else(|| {
+                        plugin_error("workspace_not_found", "workspace not found")
+                    })?,
+                    None => self.state.active.ok_or_else(|| {
+                        plugin_error("no_active_workspace", "no active workspace")
+                    })?,
+                };
+                Ok(PaneTarget::Tab { workspace })
+            }
+        }
+    }
+
+    fn open_plugin_popup_pane(
+        &mut self,
+        geometry: crate::app::popup::PopupGeometry,
+        launch: PaneLaunch,
+    ) -> Result<ResponseResult, ErrorBody> {
+        let PaneLaunch { pane, cwd, env, .. } = launch;
+        self.spawn_popup_argv_command(&pane.command, Some(cwd), env, geometry)
+            .map_err(|err| plugin_error("plugin_pane_open_failed", err.to_string()))?;
+        let popup =
+            self.state.popup_pane.as_ref().ok_or_else(|| {
+                plugin_error("plugin_pane_open_failed", "plugin popup disappeared")
+            })?;
         if let Some(terminal) = self.state.terminals.get_mut(&popup.terminal_id) {
             terminal.set_manual_label(pane.title);
         }
-        encode_success(id, ResponseResult::Ok {})
+        Ok(ResponseResult::Ok {})
     }
 
-    pub(super) fn open_plugin_overlay_pane(
+    fn open_plugin_overlay_pane(
         &mut self,
-        id: String,
-        params: PluginPaneOpenParams,
-        plugin: &InstalledPluginInfo,
-        pane: PluginManifestPane,
-    ) -> String {
-        let context = self.current_plugin_context("plugin-pane");
-        let cwd = self.plugin_pane_cwd(plugin, params.cwd);
-        let extra_env =
-            match self.plugin_pane_launch_env(plugin, &pane.id, &cwd, params.env, &context) {
-                Ok(env) => env,
-                Err((code, message)) => return encode_error(id, &code, message),
-            };
-        let (ws_idx, new_pane) = match self.spawn_overlay_argv_command(
-            &pane.command,
-            Some(cwd),
-            extra_env,
-            Vec::new(),
-        ) {
-            Ok(result) => result,
-            Err(err) => return encode_error(id, "plugin_pane_open_failed", err.to_string()),
-        };
+        launch: PaneLaunch,
+    ) -> Result<ResponseResult, ErrorBody> {
+        let PaneLaunch {
+            plugin_id,
+            pane,
+            cwd,
+            env,
+        } = launch;
+        let (ws_idx, new_pane) = self
+            .spawn_overlay_argv_command(&pane.command, Some(cwd), env, Vec::new())
+            .map_err(|err| plugin_error("plugin_pane_open_failed", err.to_string()))?;
         let layout_tab_idx = self
             .overlay_panes
             .get(&new_pane.pane_id)
             .map(|overlay| overlay.tab_idx);
-        self.finish_plugin_pane_open(
-            id,
-            ws_idx,
-            None,
-            layout_tab_idx,
-            new_pane,
-            plugin.plugin_id.clone(),
-            pane,
-        )
+        self.finish_plugin_pane_open(ws_idx, None, layout_tab_idx, new_pane, plugin_id, pane)
     }
 
-    pub(super) fn open_plugin_split_pane(
+    fn open_plugin_split_pane(
         &mut self,
-        id: String,
-        params: PluginPaneOpenParams,
-        plugin: &InstalledPluginInfo,
-        pane: PluginManifestPane,
-        placement: PluginPanePlacement,
-    ) -> String {
-        let target_pane_id = params
-            .target_pane_id
-            .clone()
-            .or_else(|| self.current_public_pane_id());
-        let Some(target_pane_id) = target_pane_id else {
-            return encode_error(id, "no_active_pane", "no active pane");
-        };
-        let Some((ws_idx, target_pane)) = self.parse_pane_id(&target_pane_id) else {
-            return encode_error(
-                id,
-                "pane_not_found",
-                format!("pane {target_pane_id} not found"),
-            );
-        };
-        let context = self.plugin_context_for_pane(ws_idx, target_pane, "plugin-pane");
-        let cwd = self.plugin_pane_cwd(plugin, params.cwd);
-        let extra_env =
-            match self.plugin_pane_launch_env(plugin, &pane.id, &cwd, params.env, &context) {
-                Ok(env) => env,
-                Err((code, message)) => return encode_error(id, &code, message),
-            };
-        let direction = match params
-            .direction
-            .unwrap_or(crate::api::schema::SplitDirection::Right)
-        {
-            crate::api::schema::SplitDirection::Right => Direction::Horizontal,
-            crate::api::schema::SplitDirection::Down => Direction::Vertical,
-        };
+        ws_idx: usize,
+        target_pane: PaneId,
+        zoomed: bool,
+        direction: Direction,
+        focus: bool,
+        launch: PaneLaunch,
+    ) -> Result<ResponseResult, ErrorBody> {
+        let PaneLaunch {
+            plugin_id,
+            pane,
+            cwd,
+            env,
+        } = launch;
         let (rows, cols) = self.state.estimate_pane_size();
         let previous_focus = self.state.current_pane_focus_target();
-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
-            return encode_error(id, "workspace_not_found", "workspace not found");
-        };
-        let result = ws.split_pane_argv_command(
-            target_pane,
-            direction,
-            rows.max(4),
-            cols.max(10),
-            Some(cwd),
-            &pane.command,
-            extra_env,
-            self.state.pane_scrollback_limit_bytes,
-            self.state.host_terminal_theme,
-            self.state.host_terminal_appearance,
-            params.focus || placement == PluginPanePlacement::Zoomed,
-        );
-        let (tab_idx, new_pane) = match result {
-            Some(Ok(result)) => result,
-            Some(Err(err)) => return encode_error(id, "plugin_pane_open_failed", err.to_string()),
-            None => {
-                return encode_error(
-                    id,
-                    "pane_not_found",
-                    format!("pane {target_pane_id} not found"),
-                )
-            }
-        };
-        if params.focus || placement == PluginPanePlacement::Zoomed {
+        let ws = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .ok_or_else(|| plugin_error("workspace_not_found", "workspace not found"))?;
+        let (tab_idx, new_pane) = ws
+            .split_pane_argv_command(
+                target_pane,
+                direction,
+                rows.max(4),
+                cols.max(10),
+                Some(cwd),
+                &pane.command,
+                env,
+                self.state.pane_scrollback_limit_bytes,
+                self.state.host_terminal_theme,
+                self.state.host_terminal_appearance,
+                focus || zoomed,
+            )
+            .ok_or_else(|| plugin_error("pane_not_found", "target pane not found"))?
+            .map_err(|err| plugin_error("plugin_pane_open_failed", err.to_string()))?;
+        if focus || zoomed {
             self.state.switch_workspace_tab(ws_idx, tab_idx);
             self.state
                 .record_pane_focus_change(previous_focus, ws_idx, new_pane.pane_id);
             self.state.mode = crate::app::Mode::Terminal;
         }
-        if placement == PluginPanePlacement::Zoomed {
+        if zoomed {
             if let Some(tab) = self
                 .state
                 .workspaces
@@ -160,60 +283,41 @@ impl App {
                 tab.zoomed = true;
             }
         }
-        self.finish_plugin_pane_open(
-            id,
-            ws_idx,
-            None,
-            Some(tab_idx),
-            new_pane,
-            plugin.plugin_id.clone(),
-            pane,
-        )
+        self.finish_plugin_pane_open(ws_idx, None, Some(tab_idx), new_pane, plugin_id, pane)
     }
 
-    pub(super) fn open_plugin_tab(
+    fn open_plugin_tab(
         &mut self,
-        id: String,
-        params: PluginPaneOpenParams,
-        plugin: &InstalledPluginInfo,
-        pane: PluginManifestPane,
-    ) -> String {
-        let ws_idx = match params.workspace_id.as_deref() {
-            Some(workspace_id) => match self.parse_workspace_id(workspace_id) {
-                Some(ws_idx) => ws_idx,
-                None => return encode_error(id, "workspace_not_found", "workspace not found"),
-            },
-            None => match self.state.active {
-                Some(ws_idx) => ws_idx,
-                None => return encode_error(id, "no_active_workspace", "no active workspace"),
-            },
-        };
-        let cwd = self.plugin_pane_cwd(plugin, params.cwd);
-        let context = self.plugin_context_for_workspace(ws_idx, "plugin-pane");
-        let extra_env =
-            match self.plugin_pane_launch_env(plugin, &pane.id, &cwd, params.env, &context) {
-                Ok(env) => env,
-                Err((code, message)) => return encode_error(id, &code, message),
-            };
-        let (rows, cols) = self.state.estimate_pane_size();
-        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
-            return encode_error(id, "workspace_not_found", "workspace not found");
-        };
-        let (tab_idx, terminal, runtime) = match ws.create_tab_argv_command(
-            rows.max(4),
-            cols.max(10),
+        ws_idx: usize,
+        focus: bool,
+        launch: PaneLaunch,
+    ) -> Result<ResponseResult, ErrorBody> {
+        let PaneLaunch {
+            plugin_id,
+            pane,
             cwd,
-            &pane.command,
-            extra_env,
-            self.state.pane_scrollback_limit_bytes,
-            self.state.host_terminal_theme,
-            self.state.host_terminal_appearance,
-        ) {
-            Ok(result) => result,
-            Err(err) => return encode_error(id, "plugin_pane_open_failed", err.to_string()),
-        };
+            env,
+        } = launch;
+        let (rows, cols) = self.state.estimate_pane_size();
+        let ws = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .ok_or_else(|| plugin_error("workspace_not_found", "workspace not found"))?;
+        let (tab_idx, terminal, runtime) = ws
+            .create_tab_argv_command(
+                rows.max(4),
+                cols.max(10),
+                cwd,
+                &pane.command,
+                env,
+                self.state.pane_scrollback_limit_bytes,
+                self.state.host_terminal_theme,
+                self.state.host_terminal_appearance,
+            )
+            .map_err(|err| plugin_error("plugin_pane_open_failed", err.to_string()))?;
         let pane_id = ws.tabs[tab_idx].root_pane;
-        if params.focus {
+        if focus {
             self.state.switch_workspace_tab(ws_idx, tab_idx);
             self.state.mode = crate::app::Mode::Terminal;
         }
@@ -223,12 +327,11 @@ impl App {
             runtime,
         };
         self.finish_plugin_pane_open(
-            id,
             ws_idx,
             Some(tab_idx),
             Some(tab_idx),
             new_pane,
-            plugin.plugin_id.clone(),
+            plugin_id,
             pane,
         )
     }
@@ -271,14 +374,13 @@ impl App {
 
     fn finish_plugin_pane_open(
         &mut self,
-        id: String,
         ws_idx: usize,
         created_tab_idx: Option<usize>,
         layout_tab_idx: Option<usize>,
         new_pane: crate::workspace::NewPane,
         plugin_id: String,
         pane_manifest: PluginManifestPane,
-    ) -> String {
+    ) -> Result<ResponseResult, ErrorBody> {
         let entrypoint = pane_manifest.id.clone();
         let mut terminal = new_pane.terminal;
         terminal.set_manual_label(pane_manifest.title.clone());
@@ -305,7 +407,10 @@ impl App {
         }
         self.schedule_session_save();
         let Some(pane) = self.pane_info(ws_idx, new_pane.pane_id) else {
-            return encode_error(id, "plugin_pane_open_failed", "plugin pane disappeared");
+            return Err(plugin_error(
+                "plugin_pane_open_failed",
+                "plugin pane disappeared",
+            ));
         };
         self.emit_event(crate::api::schema::EventEnvelope {
             event: crate::api::schema::EventKind::PaneCreated,
@@ -314,32 +419,13 @@ impl App {
         if let Some(tab_idx) = layout_tab_idx {
             self.emit_layout_updated_event(ws_idx, tab_idx);
         }
-        encode_success(
-            id,
-            ResponseResult::PluginPaneOpened {
-                plugin_pane: PluginPaneInfo {
-                    plugin_id,
-                    entrypoint,
-                    pane,
-                },
+        Ok(ResponseResult::PluginPaneOpened {
+            plugin_pane: PluginPaneInfo {
+                plugin_id,
+                entrypoint,
+                pane,
             },
-        )
-    }
-
-    fn plugin_pane_cwd(
-        &self,
-        plugin: &InstalledPluginInfo,
-        override_cwd: Option<String>,
-    ) -> std::path::PathBuf {
-        override_cwd
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from(&plugin.plugin_root))
-    }
-
-    fn current_public_pane_id(&self) -> Option<String> {
-        let ws_idx = self.state.active?;
-        let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
-        self.public_pane_id(ws_idx, pane_id)
+        })
     }
 }
 

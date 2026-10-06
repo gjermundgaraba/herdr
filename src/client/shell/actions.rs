@@ -203,28 +203,29 @@ impl ClientShellState {
                 outcome.actions.push(ClientShellAction::Keybind(action));
             }
             crate::input::KeybindMatch::Command(command) => {
-                let action = command.action.into();
                 let resolved_labels = command.bindings.labels();
-                let command_id = self.snapshot.as_deref().and_then(|snapshot| {
-                    if let Some(candidate) = snapshot.commands.iter().find(|candidate| {
-                        candidate.command_id == command.command && candidate.action == action
-                    }) {
-                        return Some(candidate.command_id.clone());
+                // The server advertises what each command does; plugin bindings
+                // that open a popup pane advertise as popups.
+                let candidate = self.snapshot.as_deref().and_then(|snapshot| {
+                    if let Some(candidate) = snapshot
+                        .commands
+                        .iter()
+                        .find(|candidate| candidate.command_id == command.command)
+                    {
+                        return Some(candidate);
                     }
                     let mut candidates = snapshot.commands.iter().filter(|candidate| {
-                        candidate.action == action
-                            && !resolved_labels.is_empty()
+                        !resolved_labels.is_empty()
                             && resolved_labels
                                 .iter()
                                 .all(|label| candidate.binding_labels.contains(label))
                     });
                     let candidate = candidates.next()?;
-                    candidates
-                        .next()
-                        .is_none()
-                        .then(|| candidate.command_id.clone())
+                    candidates.next().is_none().then_some(candidate)
                 });
-                let Some(command_id) = command_id else {
+                let Some((command_id, action)) =
+                    candidate.map(|candidate| (candidate.command_id.clone(), candidate.action))
+                else {
                     self.set_endpoint_error(
                         "custom command is not available on this endpoint; reload configuration",
                     );
@@ -234,15 +235,17 @@ impl ClientShellState {
                 let Some(snapshot) = self.snapshot.as_deref() else {
                     return;
                 };
-                let selection = (action == crate::protocol::ClientShellCommandAction::PluginAction)
-                    .then(|| {
-                        let selection = self.selection.as_ref()?;
-                        if !selection.is_visible() {
-                            return None;
-                        }
-                        if snapshot.focused_pane_id.as_deref() != Some(selection.pane_id.as_str()) {
-                            return None;
-                        }
+                // Every command carries the visible selection; the server reads
+                // it only for plugin bindings.
+                let selection = self
+                    .selection
+                    .as_ref()
+                    .filter(|selection| {
+                        selection.is_visible()
+                            && snapshot.focused_pane_id.as_deref()
+                                == Some(selection.pane_id.as_str())
+                    })
+                    .and_then(|selection| {
                         let content_revision = self
                             .pane_surface
                             .as_ref()?
@@ -263,8 +266,7 @@ impl ClientShellState {
                             },
                             content_revision: Some(content_revision),
                         })
-                    })
-                    .flatten();
+                    });
                 let params = crate::api::schema::CommandInvokeParams {
                     command_id,
                     workspace_id: snapshot.focused_workspace_id.clone(),

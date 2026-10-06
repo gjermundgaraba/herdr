@@ -226,17 +226,23 @@ Windows では、代わりに `command = "powershell.exe -NoLogo"` のような�
 
 `type = "shell"` はバックグラウンドでデタッチ実行します。
 
-`type = "plugin_action"` はインストール済みプラグインのアクション id を呼び出します。アクション id がグローバルに一意でない場合は修飾 id を使ってください:
+`type = "plugin"` はインストール済みプラグインのエントリーポイント（マニフェストで宣言されたアクションまたはペイン）を実行します。コマンドには完全修飾 ID `plugin_id.entrypoint` を指定します:
 
 ```toml
 [[keys.command]]
-key = "prefix+l"
-type = "plugin_action"
-command = "example.layout.apply"
-description = "apply layout"
+key = "prefix+s"
+type = "plugin"
+command = "gjermundgaraba.clankersnip.palette"
+description = "snippets"
 ```
 
 任意で `description` を指定できます。指定すると、キーバインドヘルプパネル（`prefix+?` で開く）に、デフォルトの `'custom command'` ラベルの代わりに表示されます。
+
+Herdr は呼び出し元のペインと選択テキストをプラグインコンテキストに含めます。ペインのエントリーポイントは、マニフェストの placement、コマンド、サイズで開きます。
+任意の `width` と `height` は、ターミナルセル数または割合の文字列でポップアップのサイズを上書きします。アクションやポップアップ以外の placement では無視されます。
+
+Herdr はバインドの実行時に対象を解決し、形式が不正な対象、未修飾の対象、存在しない対象はその時点でエラーとして報告します。
+不明な `type` は設定の診断メッセージを生成し、そのバインドだけが無効になります。
 
 カスタムコマンドは、利用可能な場合に `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID`、`HERDR_ACTIVE_PANE_CWD` を受け取ります。Herdr が検出できる場合、シェルコマンドはフォーカス中のペインの作業ディレクトリから実行されます。
 

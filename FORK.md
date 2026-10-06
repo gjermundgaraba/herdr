@@ -41,6 +41,10 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
 - Space context menu items: plugin actions with the `workspace` context appear
   in a space's right-click menu and run against the clicked space
   (`src/app/api/plugins/workspace_actions.rs`)
+- `type = "plugin"` keybindings run any manifest entrypoint, opening panes
+  directly with the originating pane and selection as context. Actions and
+  panes share one id namespace and one resolver
+  (`src/app/api/plugins/entrypoint.rs`, `keybind.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the Micro and Deck plugins in the `herdr-plugins`

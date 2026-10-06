@@ -107,8 +107,9 @@ colon, underscore, and hyphen.
 
 Action ids, pane ids, and link handler ids are local ids inside the plugin.
 They may use ASCII letters, digits, colon, underscore, and hyphen, but not
-dots. Each id type must be unique inside a plugin. Herdr qualifies action ids
-as `plugin.id.action` when it needs a globally unique name.
+dots. Action and pane ids share one namespace, so no action may reuse a pane
+id; link handler ids must be unique among themselves. Herdr qualifies action
+and pane ids as `plugin.id.entrypoint` when it needs a globally unique name.
 
 Actions of enabled plugins that list `"workspace"` in `contexts` also appear
 at the end of a space's right-click menu, under their `title`. Choosing one
@@ -300,7 +301,7 @@ open request; omit them for the default half-size popup, use numbers for outer
 terminal-cell dimensions, or use strings like `"80%"` for a percentage of the
 terminal area. It receives all terminal input, including Escape, and closes
 when the command exits or a `popup.close` request is sent. Dimensions smaller
-than the popup minimum are clamped.
+than the popup minimum are clamped. Other placements ignore `width` and `height`.
 
 Declare the placement directly on a plugin pane entrypoint when the pane should
 always be transient:
@@ -335,15 +336,21 @@ must still be valid Windows argv commands.
 
 ## Keybindings
 
-Bind a key to an installed plugin action:
+Bind a key to an installed plugin entrypoint, an action or a pane, by its fully
+qualified ID:
 
 ```toml
 [[keys.command]]
 key = "prefix+l"
-type = "plugin_action"
+type = "plugin"
 command = "example.layout.apply"
 description = "apply layout"
 ```
+
+Herdr preserves the originating pane and selection context. A pane opens with
+its manifest defaults; optional `width` and `height` override popup dimensions
+and are ignored for other placements, just as in `plugin.pane.open` requests.
+See [custom command keybindings](./configuration#custom-command-keybindings).
 
 ## Link handlers
 

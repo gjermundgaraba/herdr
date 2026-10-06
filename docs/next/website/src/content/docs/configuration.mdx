@@ -229,18 +229,28 @@ instead. Exit the shell to close the popup and restore the tiled terminal view.
 
 `type = "shell"` runs detached in the background.
 
-`type = "plugin_action"` invokes an installed plugin action id. Use the
-qualified id when action ids are not globally unique:
+`type = "plugin"` runs an installed plugin entrypoint: an action or a pane
+declared in the plugin manifest. The command is its fully qualified
+`plugin_id.entrypoint`:
 
 ```toml
 [[keys.command]]
-key = "prefix+l"
-type = "plugin_action"
-command = "example.layout.apply"
-description = "apply layout"
+key = "prefix+s"
+type = "plugin"
+command = "gjermundgaraba.clankersnip.palette"
+description = "snippets"
 ```
 
 `description` is optional. When set, it appears in the keybind help panel (opened with `prefix+?`) instead of the default `'custom command'` label.
+
+Herdr captures the originating pane and selected text as plugin context. A pane
+entrypoint opens with its manifest placement, command, and dimensions; optional
+`width` and `height` override popup dimensions, in terminal cells or percentage
+strings, and are ignored for actions and non-popup placements.
+
+Herdr resolves the target when the binding runs and reports a malformed,
+unqualified, or missing target as an error then. An unknown `type` produces a
+config diagnostic and disables only that binding.
 
 Custom commands receive `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ACTIVE_WORKSPACE_ID`, `HERDR_ACTIVE_TAB_ID`, `HERDR_ACTIVE_PANE_ID`, and `HERDR_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Herdr can detect it.
 

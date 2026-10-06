@@ -115,7 +115,10 @@ pub enum CommandKeybindType {
     Shell,
     Pane,
     Popup,
-    PluginAction,
+    Plugin,
+    /// An unrecognized type disables only its own binding.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -130,9 +133,9 @@ pub struct CommandKeybindConfig {
     pub action_type: CommandKeybindType,
     /// Optional user-defined description for this custom command.
     pub description: Option<String>,
-    /// Optional popup width as cells or a percentage string when type = "popup".
+    /// Optional popup width for "popup", or for "plugin" targeting a popup pane: integer cells or a percentage string.
     pub width: Option<PopupSize>,
-    /// Optional popup height as cells or a percentage string when type = "popup".
+    /// Optional popup height for "popup", or for "plugin" targeting a popup pane: integer cells or a percentage string.
     pub height: Option<PopupSize>,
 }
 
@@ -154,7 +157,7 @@ pub enum CustomCommandAction {
     Shell,
     Pane,
     Popup,
-    PluginAction,
+    Plugin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -841,6 +844,20 @@ fn append_custom_command_bindings(
             diagnostics.push(diag);
             continue;
         }
+        let action = match command.action_type {
+            CommandKeybindType::Shell => CustomCommandAction::Shell,
+            CommandKeybindType::Pane => CustomCommandAction::Pane,
+            CommandKeybindType::Popup => CustomCommandAction::Popup,
+            CommandKeybindType::Plugin => CustomCommandAction::Plugin,
+            CommandKeybindType::Unknown => {
+                let diag = format!(
+                    "unknown custom command type: keys.command[{index}].type; disabling custom command"
+                );
+                warn!(message = %diag, "config diagnostic");
+                diagnostics.push(diag);
+                continue;
+            }
+        };
 
         let bindings = parse_action_bindings(
             &key_field,
@@ -853,13 +870,10 @@ fn append_custom_command_bindings(
             continue;
         }
 
-        let action = match command.action_type {
-            CommandKeybindType::Shell => CustomCommandAction::Shell,
-            CommandKeybindType::Pane => CustomCommandAction::Pane,
-            CommandKeybindType::Popup => CustomCommandAction::Popup,
-            CommandKeybindType::PluginAction => CustomCommandAction::PluginAction,
-        };
-        let (width, height) = if action == CustomCommandAction::Popup {
+        let (width, height) = if matches!(
+            action,
+            CustomCommandAction::Popup | CustomCommandAction::Plugin
+        ) {
             (command.width, command.height)
         } else {
             if command.width.is_some() || command.height.is_some() {
@@ -2466,6 +2480,55 @@ height = "80%"
             keybinds.custom_commands[0].height,
             Some(PopupSize::Percent(80))
         );
+    }
+
+    #[test]
+    fn custom_plugin_command_preserves_popup_size_overrides() {
+        let config: Config = toml::from_str(
+            r#"
+[[keys.command]]
+key = "prefix+s"
+command = "gjermundgaraba.clankersnip.palette"
+type = "plugin"
+width = 90
+height = "80%"
+"#,
+        )
+        .unwrap();
+        assert!(config.collect_diagnostics().is_empty());
+        let bindings = config.keybinds();
+        let binding = &bindings.custom_commands[0];
+        assert_eq!(binding.action, CustomCommandAction::Plugin);
+        assert_eq!(binding.command, "gjermundgaraba.clankersnip.palette");
+        assert_eq!(binding.width, Some(PopupSize::Cells(90)));
+        assert_eq!(binding.height, Some(PopupSize::Percent(80)));
+    }
+
+    #[test]
+    fn unknown_custom_command_type_disables_only_that_binding() {
+        let config: Config = toml::from_str(
+            r#"
+[update]
+version_check = false
+
+[[keys.command]]
+key = "prefix+s"
+command = "example.plugin.palette"
+type = "plugin_pane"
+
+[[keys.command]]
+key = "prefix+s"
+command = "echo valid"
+"#,
+        )
+        .unwrap();
+        assert!(!config.update.version_check);
+        let diagnostics = config.collect_diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].contains("unknown custom command type: keys.command[0].type"));
+        let bindings = config.keybinds();
+        assert_eq!(bindings.custom_commands.len(), 1);
+        assert_eq!(bindings.custom_commands[0].command, "echo valid");
     }
 
     #[test]

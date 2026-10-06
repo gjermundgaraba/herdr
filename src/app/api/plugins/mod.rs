@@ -1,5 +1,7 @@
 mod context;
+mod entrypoint;
 mod env;
+mod keybind;
 mod manifest;
 mod panes;
 mod runtime;
@@ -7,10 +9,10 @@ mod workspace_actions;
 
 use super::responses::{encode_error, encode_success};
 use crate::api::schema::{
-    InstalledPluginInfo, PaneLinkActivateParams, PluginActionInfo, PluginActionInvokeParams,
-    PluginActionListParams, PluginLinkParams, PluginListParams, PluginLogListParams,
-    PluginManifestAction, PluginManifestLinkHandler, PluginPaneCloseParams, PluginPaneFocusParams,
-    PluginPaneInfo, PluginPaneOpenParams, PluginPanePlacement, PluginSetEnabledParams,
+    ErrorBody, InstalledPluginInfo, PaneLinkActivateParams, PluginActionInfo,
+    PluginActionInvokeParams, PluginActionListParams, PluginLinkParams, PluginListParams,
+    PluginLogListParams, PluginManifestAction, PluginManifestLinkHandler, PluginPaneCloseParams,
+    PluginPaneFocusParams, PluginPaneInfo, PluginPaneOpenParams, PluginSetEnabledParams,
     PluginUnlinkParams, ResponseResult,
 };
 use crate::app::App;
@@ -21,7 +23,7 @@ use manifest::{
 };
 
 #[cfg(test)]
-use crate::api::schema::{PluginCommandStatus, PluginInvocationContext};
+use crate::api::schema::{PluginCommandStatus, PluginInvocationContext, PluginPanePlacement};
 pub(crate) use manifest::load_plugin_manifest;
 #[cfg(test)]
 use runtime::{read_capped_plugin_output, MAX_PLUGIN_COMMANDS_IN_FLIGHT};
@@ -185,23 +187,10 @@ impl App {
             return encode_error(id, "plugin_registry_load_failed", err.to_string());
         }
         let (plugin, action) =
-            match self.find_plugin_action(params.plugin_id.as_deref(), &params.action_id) {
+            match self.resolve_plugin_action(params.plugin_id.as_deref(), &params.action_id) {
                 Ok(pair) => pair,
-                Err((code, message)) => return encode_error(id, code, message),
+                Err(error) => return encode_error(id, &error.code, error.message),
             };
-        if !plugin.enabled {
-            return encode_error(
-                id,
-                "plugin_disabled",
-                format!("plugin {} is disabled", plugin.plugin_id),
-            );
-        }
-        if let Err((code, message)) = ensure_platform_supported(
-            effective_platforms(&action.platforms, &plugin.platforms),
-            &format!("action '{}'", action.qualified_id()),
-        ) {
-            return encode_error(id, code, message);
-        }
         let context = self.merge_plugin_context(params.context, &id);
         let log = match self.start_plugin_command(
             &plugin,
@@ -222,39 +211,6 @@ impl App {
                 log,
             },
         )
-    }
-
-    pub(crate) fn invoke_plugin_action_from_keybind(
-        &mut self,
-        action_id: String,
-        selected_text: Option<String>,
-    ) -> Result<(), String> {
-        self.refresh_installed_plugins()
-            .map_err(|err| format!("failed to load plugin registry: {err}"))?;
-        let (plugin, action) = self
-            .find_plugin_action(None, &action_id)
-            .map_err(|(_, message)| message)?;
-        if !plugin.enabled {
-            return Err(format!("plugin {} is disabled", plugin.plugin_id));
-        }
-        ensure_platform_supported(
-            effective_platforms(&action.platforms, &plugin.platforms),
-            &action.qualified_id(),
-        )
-        .map_err(|(_, message)| message)?;
-        let mut context = self.current_plugin_context("keybinding");
-        context.invocation_source = Some("keybinding".to_string());
-        context.selected_text = selected_text;
-        self.start_plugin_command(
-            &plugin,
-            Some(action.action_id),
-            None,
-            action.command,
-            &context,
-            None,
-        )
-        .map(|_| ())
-        .map_err(|(_, message)| message)
     }
 
     fn read_checked_pane_link<T>(
@@ -443,108 +399,21 @@ impl App {
         if let Err(err) = self.refresh_installed_plugins() {
             return encode_error(id, "plugin_registry_load_failed", err.to_string());
         }
-        let Some(plugin_id) = normalize_plugin_id(&params.plugin_id) else {
-            return invalid_plugin_id(id);
-        };
-        let Some(plugin) = self.state.installed_plugins.get(&plugin_id).cloned() else {
-            return encode_error(id, "plugin_not_found", "plugin not found");
-        };
-        if !plugin_manifest_available(&plugin) {
-            return encode_error(
-                id,
-                "plugin_manifest_unavailable",
-                format!("plugin {plugin_id} manifest is unavailable"),
-            );
-        }
-        if !plugin.enabled {
-            return encode_error(
-                id,
-                "plugin_disabled",
-                format!("plugin {plugin_id} is disabled"),
-            );
-        }
-        let Some(entrypoint) = normalize_action_id(&params.entrypoint) else {
-            return encode_error(id, "invalid_plugin_entrypoint", "invalid entrypoint id");
-        };
-        let Some(mut pane) = plugin
-            .panes
-            .iter()
-            .find(|pane| pane.id == entrypoint)
-            .cloned()
-        else {
-            return encode_error(
-                id,
-                "plugin_pane_not_found",
-                format!("plugin pane entrypoint '{entrypoint}' not found"),
-            );
-        };
-        if let Err((code, message)) = ensure_platform_supported(
-            effective_platforms(&pane.platforms, &plugin.platforms),
-            "plugin pane",
-        ) {
-            return encode_error(id, code, message);
-        }
-        pane.command[0] = crate::plugin_command::program_for_cwd(
-            &pane.command[0],
-            std::path::Path::new(&plugin.plugin_root),
-        )
-        .display()
-        .to_string();
-        let placement = params.placement.unwrap_or(pane.placement);
-        if placement != PluginPanePlacement::Popup
-            && (params.width.is_some() || params.height.is_some())
-        {
-            return encode_error(
-                id,
-                "invalid_params",
-                "width and height are only supported when placement is popup",
-            );
-        }
-        if placement == PluginPanePlacement::Popup && self.state.popup_pane.is_some() {
-            return encode_error(id, "ui_busy", "a popup pane is already open");
-        }
-        match placement {
-            PluginPanePlacement::Overlay | PluginPanePlacement::Popup => {
-                if params.workspace_id.is_some()
-                    || params.target_pane_id.is_some()
-                    || params.direction.is_some()
-                {
-                    return encode_error(
-                        id,
-                        "invalid_params",
-                        "overlay and popup plugin panes target the active pane",
-                    );
-                }
-            }
-            PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
-                if params.workspace_id.is_some() {
-                    return encode_error(
-                        id,
-                        "invalid_params",
-                        "split and zoomed plugin panes target an existing pane; use target_pane_id",
-                    );
-                }
-            }
-            PluginPanePlacement::Tab => {
-                if params.target_pane_id.is_some() || params.direction.is_some() {
-                    return encode_error(
-                        id,
-                        "invalid_params",
-                        "tab plugin panes support workspace_id but not target_pane_id or direction",
-                    );
-                }
-            }
-        }
-
-        match placement {
-            PluginPanePlacement::Overlay => {
-                self.open_plugin_overlay_pane(id, params, &plugin, pane)
-            }
-            PluginPanePlacement::Popup => self.open_plugin_popup_pane(id, params, &plugin, pane),
-            PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
-                self.open_plugin_split_pane(id, params, &plugin, pane, placement)
-            }
-            PluginPanePlacement::Tab => self.open_plugin_tab(id, params, &plugin, pane),
+        let result = self
+            .resolve_plugin_entrypoint(&params.plugin_id, &params.entrypoint)
+            .and_then(|(plugin, entrypoint)| match entrypoint {
+                entrypoint::PluginEntrypoint::Pane(pane) => Ok((plugin, pane)),
+                entrypoint::PluginEntrypoint::Action(action) => Err(entrypoint::plugin_error(
+                    "plugin_entrypoint_not_found",
+                    format!("{} is an action, not a pane", action.qualified_id()),
+                )),
+            })
+            .and_then(|(plugin, pane)| {
+                self.open_plugin_pane(plugin, pane, params, panes::PluginPaneInvocation::Api)
+            });
+        match result {
+            Ok(result) => encode_success(id, result),
+            Err(error) => encode_error(id, &error.code, error.message),
         }
     }
 
@@ -602,64 +471,44 @@ impl App {
         encode_success(id, ResponseResult::PluginPaneClosed { pane_id })
     }
 
-    fn find_plugin_action(
+    /// Resolve an action by qualified ids, or by a bare action id that only
+    /// one installed plugin declares.
+    fn resolve_plugin_action(
         &self,
         plugin_id: Option<&str>,
         action_id: &str,
-    ) -> Result<(crate::api::schema::InstalledPluginInfo, PluginActionInfo), (&'static str, String)>
-    {
-        if let Some(plugin_id) = plugin_id {
-            let plugin_id = normalize_plugin_id(plugin_id)
-                .ok_or_else(|| ("invalid_plugin_id", "invalid plugin id".to_string()))?;
-            let action_id = normalize_action_id(action_id)
-                .ok_or_else(|| ("invalid_plugin_action_id", "invalid action id".to_string()))?;
-            let plugin = self
-                .state
-                .installed_plugins
-                .get(&plugin_id)
-                .ok_or_else(|| ("plugin_not_found", "plugin not found".to_string()))?
-                .clone();
-            if !plugin_manifest_available(&plugin) {
-                return Err((
-                    "plugin_manifest_unavailable",
-                    format!("plugin {plugin_id} manifest is unavailable"),
-                ));
+    ) -> Result<(InstalledPluginInfo, PluginActionInfo), ErrorBody> {
+        let (plugin_id, action_id) = match plugin_id {
+            Some(plugin_id) => (plugin_id.to_owned(), action_id.to_owned()),
+            None => {
+                let action_id = action_id.trim();
+                let matches = manifest_actions(&self.state.installed_plugins)
+                    .filter(|action| {
+                        action.action_id == action_id || action.qualified_id() == action_id
+                    })
+                    .collect::<Vec<_>>();
+                match matches.as_slice() {
+                    [action] => (action.plugin_id.clone(), action.action_id.clone()),
+                    [] => {
+                        return Err(entrypoint::plugin_error(
+                            "plugin_entrypoint_not_found",
+                            "plugin action not found",
+                        ))
+                    }
+                    _ => {
+                        return Err(entrypoint::plugin_error(
+                            "ambiguous_plugin_action",
+                            "plugin action id matches more than one action; include plugin_id",
+                        ))
+                    }
+                }
             }
-            let action_info = plugin
-                .actions
-                .iter()
-                .find(|a| a.id == action_id)
-                .map(|a| manifest_action_info(&plugin_id, &plugin.platforms, a))
-                .ok_or_else(|| {
-                    (
-                        "plugin_action_not_found",
-                        "plugin action not found".to_string(),
-                    )
-                })?;
-            return Ok((plugin, action_info));
-        }
-
-        let action_id = action_id.trim();
-        let matches = manifest_actions(&self.state.installed_plugins)
-            .filter(|action| action.action_id == action_id || action.qualified_id() == action_id)
-            .collect::<Vec<_>>();
-        match matches.as_slice() {
-            [action] => {
-                let plugin = self
-                    .state
-                    .installed_plugins
-                    .get(&action.plugin_id)
-                    .cloned()
-                    .ok_or_else(|| ("plugin_not_found", "plugin not found".to_string()))?;
-                Ok((plugin, action.clone()))
-            }
-            [] => Err((
-                "plugin_action_not_found",
-                "plugin action not found".to_string(),
-            )),
-            _ => Err((
-                "ambiguous_plugin_action",
-                "plugin action id matches more than one action; include plugin_id".to_string(),
+        };
+        match self.resolve_plugin_entrypoint(&plugin_id, &action_id)? {
+            (plugin, entrypoint::PluginEntrypoint::Action(action)) => Ok((plugin, action)),
+            (_, entrypoint::PluginEntrypoint::Pane(pane)) => Err(entrypoint::plugin_error(
+                "plugin_entrypoint_not_found",
+                format!("{plugin_id}.{} is a pane, not an action", pane.id),
             )),
         }
     }
@@ -880,7 +729,7 @@ mod tests {
         assert_eq!(response["error"]["code"], "stale_target");
     }
 
-    fn test_app() -> App {
+    pub(super) fn test_app() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         App::new(
             &crate::config::Config::default(),
@@ -897,7 +746,19 @@ mod tests {
             .result
     }
 
-    fn unique_temp_path(name: &str) -> std::path::PathBuf {
+    pub(super) fn plugin_keybinding(command: &str) -> crate::config::CustomCommandKeybind {
+        crate::config::CustomCommandKeybind {
+            bindings: crate::config::ActionKeybinds::prefix("z"),
+            label: "prefix+z".into(),
+            command: command.into(),
+            action: crate::config::CustomCommandAction::Plugin,
+            description: None,
+            width: None,
+            height: None,
+        }
+    }
+
+    pub(super) fn unique_temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -1304,24 +1165,6 @@ platforms = ["linux", "macos", "windows"]
 "#,
                 "plugin_requires_newer_herdr",
             ),
-            (
-                "plugin-non-popup-size",
-                r#"
-id = "example.non-popup-size"
-name = "Non Popup Size"
-version = "0.1.0"
-min_herdr_version = "0.6.10"
-platforms = ["linux", "macos", "windows"]
-
-[[panes]]
-id = "board"
-title = "Board"
-placement = "split"
-width = "80%"
-command = ["echo", "board"]
-"#,
-                "invalid_plugin_pane_size",
-            ),
         ];
 
         for (name, manifest, expected_code) in cases {
@@ -1362,7 +1205,7 @@ command = ["echo", "b"]
         );
 
         let result = load_plugin_manifest(&root.display().to_string(), true);
-        assert!(matches!(result, Err(("duplicate_plugin_action_id", _))));
+        assert!(matches!(result, Err(("duplicate_plugin_entrypoint_id", _))));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1415,7 +1258,36 @@ command = ["echo", "b"]
         );
 
         let result = load_plugin_manifest(&root.display().to_string(), true);
-        assert!(matches!(result, Err(("duplicate_plugin_pane_id", _))));
+        assert!(matches!(result, Err(("duplicate_plugin_entrypoint_id", _))));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn link_rejects_action_and_pane_sharing_an_id() {
+        let root = unique_temp_path("plugin-shared-entrypoint");
+        write_manifest_content(
+            &root,
+            r#"
+id = "example.shared-entrypoint"
+name = "Shared Entrypoint"
+version = "0.1.0"
+min_herdr_version = "0.6.10"
+platforms = ["linux", "macos", "windows"]
+
+[[actions]]
+id = "palette"
+title = "Palette action"
+command = ["echo", "a"]
+
+[[panes]]
+id = "palette"
+title = "Palette pane"
+command = ["echo", "b"]
+"#,
+        );
+
+        let result = load_plugin_manifest(&root.display().to_string(), true);
+        assert!(matches!(result, Err(("duplicate_plugin_entrypoint_id", _))));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1520,55 +1392,184 @@ platforms = ["linux", "macos"]
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[test]
-    fn plugin_pane_open_requires_installed_plugin() {
-        let mut app = test_app();
-        let response = app.handle_api_request(Request {
-            id: "pane-open".into(),
-            method: Method::PluginPaneOpen(PluginPaneOpenParams {
-                plugin_id: "example.missing".into(),
-                entrypoint: "ui".into(),
-                placement: Some(PluginPanePlacement::Split),
-                width: None,
-                height: None,
-                workspace_id: None,
-                target_pane_id: None,
-                direction: None,
-                cwd: None,
-                focus: false,
-                env: std::collections::HashMap::new(),
-            }),
-        });
-        let value: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(value["error"]["code"], "plugin_not_found");
+    fn pane_open_params() -> PluginPaneOpenParams {
+        PluginPaneOpenParams {
+            plugin_id: "example.worktree-bootstrap".into(),
+            entrypoint: "board".into(),
+            placement: None,
+            width: None,
+            height: None,
+            workspace_id: None,
+            target_pane_id: None,
+            direction: None,
+            cwd: None,
+            focus: false,
+            env: Default::default(),
+        }
     }
 
     #[test]
-    fn plugin_pane_open_rejects_popup_size_for_non_popup_placement() {
-        let mut app = test_app();
-        let root = unique_temp_path("plugin-pane-non-popup-size-param");
+    fn plugin_pane_open_validation_matrix() {
+        type Setup = fn(&mut InstalledPluginInfo, &mut PluginPaneOpenParams);
+        let root = unique_temp_path("plugin-pane-validation");
         write_manifest(&root);
-        link_manifest(&mut app, &root);
-
-        let response = app.handle_api_request(Request {
-            id: "pane-open-size".into(),
-            method: Method::PluginPaneOpen(PluginPaneOpenParams {
-                plugin_id: "example.worktree-bootstrap".into(),
-                entrypoint: "board".into(),
-                placement: Some(PluginPanePlacement::Split),
-                width: Some(crate::popup_size::PopupSize::Percent(80)),
-                height: None,
-                workspace_id: None,
-                target_pane_id: None,
-                direction: Some(crate::api::schema::SplitDirection::Right),
-                cwd: None,
-                focus: false,
-                env: std::collections::HashMap::new(),
+        let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
+        let cases: [(&str, Setup); 8] = [
+            ("invalid_plugin_id", |_, params| {
+                params.plugin_id = "bad plugin".into()
             }),
-        });
+            ("plugin_not_found", |_, params| {
+                params.plugin_id = "example.missing".into()
+            }),
+            ("invalid_plugin_entrypoint", |_, params| {
+                params.entrypoint = "bad entrypoint".into()
+            }),
+            ("plugin_entrypoint_not_found", |_, params| {
+                params.entrypoint = "missing".into()
+            }),
+            ("plugin_entrypoint_not_found", |_, params| {
+                params.entrypoint = "bootstrap".into()
+            }),
+            ("plugin_disabled", |plugin, _| plugin.enabled = false),
+            ("plugin_manifest_unavailable", |plugin, _| {
+                plugin.warnings.push("manifest unavailable: test".into())
+            }),
+            ("platform_unsupported", |plugin, _| {
+                plugin.panes[0].platforms = Some(Vec::new())
+            }),
+        ];
+        for (expected, setup) in cases {
+            let mut app = test_app();
+            let mut plugin = installed.clone();
+            let mut params = pane_open_params();
+            setup(&mut plugin, &mut params);
+            app.state
+                .installed_plugins
+                .insert(plugin.plugin_id.clone(), plugin);
+            let response = app.handle_plugin_pane_open("pane-open-validation".into(), params);
+            let error: crate::api::schema::ErrorResponse =
+                serde_json::from_str(&response).expect(&response);
+            assert_eq!(error.error.code, expected);
+            assert!(app.state.popup_pane.is_none());
+            assert!(app.state.plugin_panes.is_empty());
+            assert!(app.state.plugin_command_logs.is_empty());
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
 
-        let value: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(value["error"]["code"], "invalid_params");
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pane_sizes_are_ignored_outside_popups_from_manifest_api_and_keybinding() {
+        let root = unique_temp_path("plugin-pane-non-popup-size");
+        write_manifest_content(
+            &root,
+            r#"
+id = "example.worktree-bootstrap"
+name = "Worktree Bootstrap"
+version = "0.1.0"
+min_herdr_version = "0.6.10"
+platforms = ["linux", "macos", "windows"]
+
+[[panes]]
+id = "board"
+title = "Board"
+placement = "split"
+width = "80%"
+height = 12
+command = ["sh", "-c", "exit 0"]
+"#,
+        );
+        let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
+        for from_keybinding in [false, true] {
+            let mut app = test_app();
+            app.state.workspaces = vec![crate::workspace::Workspace::test_new("target")];
+            app.state.ensure_test_terminals();
+            app.state.active = Some(0);
+            app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
+            app.state
+                .installed_plugins
+                .insert(installed.plugin_id.clone(), installed.clone());
+            let width = Some(crate::popup_size::PopupSize::Percent(80));
+            if from_keybinding {
+                let mut binding = plugin_keybinding("example.worktree-bootstrap.board");
+                binding.width = width;
+                app.invoke_plugin_from_keybind(&binding, None).unwrap();
+            } else {
+                let mut params = pane_open_params();
+                params.width = width;
+                let response = app.handle_plugin_pane_open("pane-open-size".into(), params);
+                assert!(matches!(
+                    response_result(&response),
+                    ResponseResult::PluginPaneOpened { .. }
+                ));
+            }
+            assert!(app.state.popup_pane.is_none());
+            assert_eq!(app.state.plugin_panes.len(), 1);
+            for (_, runtime) in app.terminal_runtimes.drain() {
+                runtime.shutdown();
+            }
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn plugin_pane_api_context_follows_explicit_split_and_workspace_targets() {
+        let root = unique_temp_path("plugin-pane-explicit-target");
+        write_manifest(&root);
+        let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
+        for placement in [PluginPanePlacement::Split, PluginPanePlacement::Tab] {
+            let mut app = test_app();
+            app.state.workspaces = vec![
+                crate::workspace::Workspace::test_new("active"),
+                crate::workspace::Workspace::test_new("explicit-target"),
+            ];
+            app.state.ensure_test_terminals();
+            app.state.active = Some(0);
+            let target_pane = app.state.workspaces[1].tabs[0].root_pane;
+            let target_id = app.public_pane_id(1, target_pane).unwrap();
+            let workspace_id = app.public_workspace_id(1);
+            let mut params = pane_open_params();
+            params.placement = Some(placement);
+            if placement == PluginPanePlacement::Split {
+                params.target_pane_id = Some(target_id.clone());
+            } else {
+                params.workspace_id = Some(workspace_id.clone());
+            }
+            let mut plugin = installed.clone();
+            plugin.panes[0].command = vec![
+                "sh".into(),
+                "-c".into(),
+                "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > context.json; : > ready".into(),
+            ];
+            app.state
+                .installed_plugins
+                .insert(plugin.plugin_id.clone(), plugin);
+            let response = app.handle_plugin_pane_open("explicit-target".into(), params);
+            let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&response)
+            else {
+                panic!("expected opened pane: {response}");
+            };
+            assert_eq!(plugin_pane.pane.workspace_id, workspace_id);
+            assert_eq!(app.state.active, Some(0));
+            tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                while !root.join("ready").exists() {
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("pane did not finish writing context");
+            let context: PluginInvocationContext =
+                serde_json::from_str(&std::fs::read_to_string(root.join("context.json")).unwrap())
+                    .unwrap();
+            assert_eq!(context.workspace_id.as_deref(), Some(workspace_id.as_str()));
+            assert_eq!(context.focused_pane_id.as_deref(), Some(target_id.as_str()));
+            assert_eq!(context.invocation_source.as_deref(), Some("api"));
+            for (_, runtime) in app.terminal_runtimes.drain() {
+                runtime.shutdown();
+            }
+            std::fs::remove_file(root.join("ready")).unwrap();
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1780,7 +1781,7 @@ command = ["sh", "-c", '"$HERDR_BIN_PATH" --list >/dev/null; printf "%s\n" "$?" 
 "#,
             );
             link_manifest(&mut app, &plugin_root);
-            app.invoke_plugin_action_from_keybind("example.update.probe".into(), None)
+            app.invoke_plugin_from_keybind(&plugin_keybinding("example.update.probe"), None)
                 .unwrap();
             let action_status = read_capture_when_ready(&plugin_root.join("action-status"), || {
                 app.drain_all_internal_events();
@@ -2597,7 +2598,10 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
 
         make_stale(&mut app);
         assert!(app
-            .invoke_plugin_action_from_keybind("bootstrap".into(), None)
+            .invoke_plugin_from_keybind(
+                &plugin_keybinding("example.worktree-bootstrap.bootstrap"),
+                None,
+            )
             .unwrap_err()
             .contains("disabled"));
 

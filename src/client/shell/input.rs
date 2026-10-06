@@ -552,7 +552,25 @@ impl ClientShellState {
             outcome.repaint = true;
             return None;
         }
-        if self.mode != ClientShellMode::Copy
+        let binding = match self.mode {
+            ClientShellMode::Terminal => {
+                crate::input::resolve_direct_binding(&self.config.keybinds.keybinds, key)
+            }
+            ClientShellMode::Prefix
+                if !self.config.keybinds.matches_prefix(key) && key.code != KeyCode::Esc =>
+            {
+                crate::input::resolve_prefix_binding(&self.config.keybinds.keybinds, key)
+            }
+            _ => None,
+        };
+        // Commands send the selection as invocation context, so keep it through
+        // prefix entry and command dispatch. Other keys clear it.
+        let preserves_selection = matches!(&binding, Some(crate::input::KeybindMatch::Command(_)))
+            || (self.mode == ClientShellMode::Terminal
+                && binding.is_none()
+                && self.config.keybinds.matches_prefix(key));
+        if !preserves_selection
+            && self.mode != ClientShellMode::Copy
             && self.copy_or_terminal_mode() != ClientShellMode::Copy
             && self.selection.take().is_some()
         {
@@ -563,9 +581,7 @@ impl ClientShellState {
 
         match self.mode {
             ClientShellMode::Terminal => {
-                if let Some(binding) =
-                    crate::input::resolve_direct_binding(&self.config.keybinds.keybinds, key)
-                {
+                if let Some(binding) = binding {
                     self.record_binding(binding, outcome);
                     return None;
                 }
@@ -594,9 +610,7 @@ impl ClientShellState {
                     outcome.repaint = true;
                     return None;
                 }
-                if let Some(binding) =
-                    crate::input::resolve_prefix_binding(&self.config.keybinds.keybinds, key)
-                {
+                if let Some(binding) = binding {
                     self.mode = return_mode;
                     outcome.repaint = true;
                     self.record_binding(binding, outcome);

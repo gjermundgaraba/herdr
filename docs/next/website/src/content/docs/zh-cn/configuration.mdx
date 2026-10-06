@@ -226,17 +226,23 @@ height = "80%"
 
 `type = "shell"` 会在后台分离运行。
 
-`type = "plugin_action"` 会调用已安装插件的动作 id。当动作 id 并非全局唯一时，请使用限定 id：
+`type = "plugin"` 会运行已安装插件的入口：插件清单中声明的动作或窗格。命令使用完全限定的 `plugin_id.entrypoint`：
 
 ```toml
 [[keys.command]]
-key = "prefix+l"
-type = "plugin_action"
-command = "example.layout.apply"
-description = "apply layout"
+key = "prefix+s"
+type = "plugin"
+command = "gjermundgaraba.clankersnip.palette"
+description = "snippets"
 ```
 
 可以提供可选的 `description`。指定后，该描述会在按键绑定帮助面板（通过 `prefix+?` 打开）中显示，替代默认的 `'custom command'` 标签。
+
+Herdr 会将发起调用的窗格及选中文本作为插件上下文。窗格入口使用清单中的 placement、命令和尺寸打开。
+可选的 `width` 和 `height` 会覆盖弹窗尺寸，可以使用终端单元格数或百分比字符串；对动作和非弹窗 placement 会被忽略。
+
+Herdr 在执行绑定时解析目标，格式错误、未限定或不存在的目标会在那时报告错误。
+未知的 `type` 会产生配置诊断，并只禁用该绑定。
 
 在相应值可用时，自定义命令会收到 `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID` 和 `HERDR_ACTIVE_PANE_CWD`。当 Herdr 能检测到聚焦窗格的工作目录时，shell 命令会从该目录运行。
 

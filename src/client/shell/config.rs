@@ -231,7 +231,7 @@ impl ClientShellConfig {
                                 crate::config::CommandKeybindType::Popup
                             }
                             crate::protocol::ClientShellCommandAction::PluginAction => {
-                                crate::config::CommandKeybindType::PluginAction
+                                crate::config::CommandKeybindType::Plugin
                             }
                             crate::protocol::ClientShellCommandAction::Unknown => return None,
                         };
