@@ -1,61 +1,47 @@
-use crate::api::schema::{EventData, PluginInvocationContext};
+use super::entrypoint::plugin_error;
+use crate::api::schema::{ErrorBody, EventData, PluginInvocationContext};
 use crate::app::App;
 
 impl App {
-    pub(super) fn merge_plugin_context(
+    /// Context for an invocation target. The most specific id supplies it,
+    /// so a menu or key invocation describes what it targets, not what has
+    /// focus; less specific ids must agree. Without ids, focus supplies it.
+    pub(super) fn plugin_context_for_target(
         &self,
-        provided: Option<PluginInvocationContext>,
+        workspace_id: Option<&str>,
+        tab_id: Option<&str>,
+        pane_id: Option<&str>,
         correlation_id: &str,
-    ) -> PluginInvocationContext {
-        // The most specific provided target supplies the context, so a menu
-        // or key invocation describes what it targets, not what has focus.
-        let mut context = provided
-            .as_ref()
-            .and_then(|provided| {
-                provided
-                    .focused_pane_id
-                    .as_deref()
-                    .and_then(|pane_id| {
-                        self.plugin_context_for_public_pane_id(pane_id, correlation_id)
-                    })
-                    .or_else(|| {
-                        provided.tab_id.as_deref().and_then(|tab_id| {
-                            self.plugin_context_for_tab_id(tab_id, correlation_id)
-                        })
-                    })
-                    .or_else(|| {
-                        provided.workspace_id.as_deref().and_then(|workspace_id| {
-                            self.plugin_context_for_workspace_id(workspace_id, correlation_id)
-                        })
-                    })
-            })
-            .unwrap_or_else(|| self.current_plugin_context(correlation_id));
-        if let Some(provided) = provided {
-            context.workspace_id = provided.workspace_id.or(context.workspace_id);
-            context.workspace_label = provided.workspace_label.or(context.workspace_label);
-            context.workspace_cwd = provided.workspace_cwd.or(context.workspace_cwd);
-            context.worktree = provided.worktree.or(context.worktree);
-            context.tab_id = provided.tab_id.or(context.tab_id);
-            context.tab_label = provided.tab_label.or(context.tab_label);
-            context.focused_pane_id = provided.focused_pane_id.or(context.focused_pane_id);
-            context.focused_pane_cwd = provided.focused_pane_cwd.or(context.focused_pane_cwd);
-            context.focused_pane_agent = provided.focused_pane_agent.or(context.focused_pane_agent);
-            context.focused_pane_status =
-                provided.focused_pane_status.or(context.focused_pane_status);
-            context.focused_pane_foreground_cwd = provided
-                .focused_pane_foreground_cwd
-                .or(context.focused_pane_foreground_cwd);
-            context.focused_pane_agent_session = provided
-                .focused_pane_agent_session
-                .or(context.focused_pane_agent_session);
-            context.selected_text = provided.selected_text.or(context.selected_text);
-            context.invocation_source = provided.invocation_source.or(context.invocation_source);
-            context.correlation_id = provided.correlation_id.or(context.correlation_id);
-            context.clicked_url = provided.clicked_url.or(context.clicked_url);
-            context.link_handler_id = provided.link_handler_id.or(context.link_handler_id);
-            context.client_id = provided.client_id.or(context.client_id);
+    ) -> Result<PluginInvocationContext, ErrorBody> {
+        let context = if let Some(pane_id) = pane_id {
+            self.plugin_context_for_public_pane_id(pane_id, correlation_id)
+                .ok_or_else(|| {
+                    plugin_error("pane_not_found", format!("pane not found: {pane_id}"))
+                })?
+        } else if let Some(tab_id) = tab_id {
+            self.plugin_context_for_tab_id(tab_id, correlation_id)
+                .ok_or_else(|| plugin_error("tab_not_found", format!("tab not found: {tab_id}")))?
+        } else if let Some(workspace_id) = workspace_id {
+            self.plugin_context_for_workspace_id(workspace_id, correlation_id)
+                .ok_or_else(|| {
+                    plugin_error(
+                        "workspace_not_found",
+                        format!("workspace not found: {workspace_id}"),
+                    )
+                })?
+        } else {
+            self.current_plugin_context(correlation_id)
+        };
+        let disagrees = |provided: Option<&str>, actual: &Option<String>| {
+            provided.is_some_and(|provided| actual.as_deref() != Some(provided))
+        };
+        if disagrees(workspace_id, &context.workspace_id) || disagrees(tab_id, &context.tab_id) {
+            return Err(plugin_error(
+                "target_mismatch",
+                "target ids do not name the same space, tab, and pane",
+            ));
         }
-        context
+        Ok(context)
     }
 
     /// Adds what an invoked plugin would otherwise query next: the invoking
@@ -470,24 +456,21 @@ mod tests {
     }
 
     #[test]
-    fn provided_targets_supply_context_most_specific_first() {
+    fn targets_supply_context_most_specific_first() {
         let app = app_with_unfocused_target();
         let target_tab = app.public_tab_id(1, 1).unwrap();
         let target_pane = app
             .public_pane_id(1, app.state.workspaces[1].tabs[1].root_pane)
             .unwrap();
         let workspace_id = app.public_workspace_id(1);
-        for provided in [
-            PluginInvocationContext {
-                focused_pane_id: Some(target_pane.clone()),
-                ..Default::default()
-            },
-            PluginInvocationContext {
-                tab_id: Some(target_tab.clone()),
-                ..Default::default()
-            },
+        for (tab_id, pane_id) in [
+            (None, Some(target_pane.as_str())),
+            (Some(target_tab.as_str()), Some(target_pane.as_str())),
+            (Some(target_tab.as_str()), None),
         ] {
-            let context = app.merge_plugin_context(Some(provided), "menu");
+            let context = app
+                .plugin_context_for_target(Some(&workspace_id), tab_id, pane_id, "menu")
+                .unwrap();
             assert_eq!(context.workspace_id.as_deref(), Some(workspace_id.as_str()));
             assert_eq!(context.workspace_label.as_deref(), Some("Target"));
             assert_eq!(context.tab_id.as_deref(), Some(target_tab.as_str()));
@@ -495,6 +478,28 @@ mod tests {
                 context.focused_pane_id.as_deref(),
                 Some(target_pane.as_str())
             );
+        }
+    }
+
+    #[test]
+    fn targets_reject_unknown_and_disagreeing_ids() {
+        let app = app_with_unfocused_target();
+        let target_pane = app
+            .public_pane_id(1, app.state.workspaces[1].tabs[1].root_pane)
+            .unwrap();
+        let focused_workspace = app.public_workspace_id(0);
+        for (workspace_id, pane_id, code) in [
+            (None, "missing", "pane_not_found"),
+            (
+                Some(focused_workspace.as_str()),
+                target_pane.as_str(),
+                "target_mismatch",
+            ),
+        ] {
+            let error = app
+                .plugin_context_for_target(workspace_id, None, Some(pane_id), "menu")
+                .unwrap_err();
+            assert_eq!(error.code, code);
         }
     }
 

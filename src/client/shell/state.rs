@@ -629,8 +629,8 @@ pub(super) enum ClientContextMenuAction {
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
-    /// Index into the menu target's `plugin_actions`.
-    PluginAction(usize),
+    /// Index into the menu's `plugin_entries`.
+    PluginEntry(usize),
 }
 
 #[derive(Debug)]
@@ -642,7 +642,6 @@ pub(super) enum ClientContextMenuTarget {
         has_worktree_children: bool,
         close_group: bool,
         collapsed: bool,
-        plugin_actions: Vec<crate::protocol::ClientShellPluginAction>,
     },
     Tab {
         tab_id: String,
@@ -654,12 +653,16 @@ pub(super) enum ClientContextMenuTarget {
         source_pane_id: Option<String>,
         has_manual_label: bool,
         right_click_passthrough: bool,
+        /// The visible selection in this pane, sent to selection entries.
+        selection: Option<crate::api::schema::PaneSelectionReadParams>,
     },
 }
 
 #[derive(Debug)]
 pub(super) struct ClientContextMenuOverlay {
     pub(super) target: ClientContextMenuTarget,
+    /// Plugin entries whose contexts match the target.
+    pub(super) plugin_entries: Vec<crate::protocol::ClientShellPluginEntry>,
     pub(super) x: u16,
     pub(super) y: u16,
     pub(super) highlighted: usize,
