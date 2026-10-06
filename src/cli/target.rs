@@ -300,7 +300,16 @@ fn validate_machine_command(args: &[String]) -> Result<(), String> {
         "status" => subcommand == "server",
         "plugin" => matches!(
             subcommand,
-            "link" | "unlink" | "enable" | "disable" | "list" | "action" | "log" | "logs" | "pane"
+            "link"
+                | "unlink"
+                | "enable"
+                | "disable"
+                | "list"
+                | "action"
+                | "invoke"
+                | "log"
+                | "logs"
+                | "pane"
         ),
         "server" => matches!(
             subcommand,

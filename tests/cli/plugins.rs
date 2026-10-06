@@ -89,11 +89,8 @@ fn named_sessions_share_live_plugin_registry() {
             "--session",
             "alpha",
             "plugin",
-            "action",
             "invoke",
-            "run",
-            "--plugin",
-            "example.first",
+            "example.first.run",
         ],
     );
     assert_eq!(disabled.status.code(), Some(1));
@@ -724,16 +721,7 @@ mv "$HERDR_PLUGIN_ROOT/result-$kind.tmp" "$HERDR_PLUGIN_ROOT/result-$kind"
         let action = run_named_cli_json(
             &config_home,
             &runtime_dir,
-            &[
-                "--session",
-                "beta",
-                "plugin",
-                "action",
-                "invoke",
-                "read",
-                "--plugin",
-                "example.live",
-            ],
+            &["--session", "beta", "plugin", "invoke", "example.live.read"],
         );
         assert_eq!(action["result"]["type"], "plugin_action_invoked");
         let pane = run_cli_json(
@@ -904,17 +892,7 @@ command = ["sh", "-c", "sleep 5"]
         "example.layout"
     );
 
-    let invoked = run_cli_json(
-        &socket_path,
-        &[
-            "plugin",
-            "action",
-            "invoke",
-            "apply",
-            "--plugin",
-            "example.layout",
-        ],
-    );
+    let invoked = run_cli_json(&socket_path, &["plugin", "invoke", "example.layout.apply"]);
     assert_eq!(invoked["result"]["type"], "plugin_action_invoked");
     assert_eq!(invoked["result"]["action"]["action_id"], "apply");
 

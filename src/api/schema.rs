@@ -241,8 +241,8 @@ pub enum Method {
     PluginDisable(PluginSetEnabledParams),
     #[serde(rename = "plugin.action.list")]
     PluginActionList(PluginActionListParams),
-    #[serde(rename = "plugin.action.invoke")]
-    PluginActionInvoke(PluginActionInvokeParams),
+    #[serde(rename = "plugin.invoke")]
+    PluginInvoke(PluginInvokeParams),
     #[serde(rename = "plugin.log.list")]
     PluginLogList(PluginLogListParams),
     #[serde(rename = "plugin.pane.open")]
