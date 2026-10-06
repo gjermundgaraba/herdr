@@ -45,6 +45,13 @@ pub struct WorkspaceMoveBlockParams {
     pub before_workspace_id: Option<String>,
 }
 
+/// Puts a space's worktree family in a group, or takes it out with `null`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct WorkspaceSetGroupParams {
+    pub workspace_id: String,
+    pub group: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WorkspaceReportMetadataParams {
     pub workspace_id: String,
@@ -77,6 +84,13 @@ pub struct WorkspaceInfo {
     pub tokens: HashMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<WorkspaceWorktreeInfo>,
+    /// The space group of the space's worktree family.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// The family checkout whose group a linked worktree shares; absent for
+    /// the checkout itself and spaces outside a family.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub family_anchor_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

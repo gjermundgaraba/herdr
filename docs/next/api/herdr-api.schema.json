@@ -464,6 +464,9 @@
                 "pane_id": {
                   "type": "string"
                 },
+                "tab_id": {
+                  "type": "string"
+                },
                 "type": {
                   "const": "pane_closed",
                   "type": "string"
@@ -475,7 +478,8 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id"
+                "workspace_id",
+                "tab_id"
               ],
               "type": "object"
             },
@@ -606,6 +610,9 @@
                 "pane_id": {
                   "type": "string"
                 },
+                "tab_id": {
+                  "type": "string"
+                },
                 "type": {
                   "const": "pane_exited",
                   "type": "string"
@@ -617,7 +624,37 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id"
+                "workspace_id",
+                "tab_id"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The shell reported a new working directory (OSC 7).",
+              "properties": {
+                "cwd": {
+                  "type": "string"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "tab_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "pane_cwd_changed",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_id",
+                "workspace_id",
+                "tab_id",
+                "cwd"
               ],
               "type": "object"
             },
@@ -751,6 +788,7 @@
             "pane_moved",
             "pane_output_changed",
             "pane_exited",
+            "pane_cwd_changed",
             "pane_agent_detected",
             "pane_agent_status_changed",
             "layout_updated"
@@ -1082,8 +1120,22 @@
             "agent_status": {
               "$ref": "#/schemas/event/$defs/AgentStatus"
             },
+            "family_anchor_id": {
+              "description": "The family checkout whose group a linked worktree shares; absent for\nthe checkout itself and spaces outside a family.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "focused": {
               "type": "boolean"
+            },
+            "group": {
+              "description": "The space group of the space's worktree family.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "label": {
               "type": "string"
@@ -4085,6 +4137,18 @@
             {
               "properties": {
                 "type": {
+                  "const": "pane.cwd_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
                   "const": "pane.agent_detected",
                   "type": "string"
                 }
@@ -4595,6 +4659,24 @@
           ],
           "type": "object"
         },
+        "WorkspaceSetGroupParams": {
+          "description": "Puts a space's worktree family in a group, or takes it out with `null`.",
+          "properties": {
+            "group": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "workspace_id"
+          ],
+          "type": "object"
+        },
         "WorkspaceTarget": {
           "properties": {
             "workspace_id": {
@@ -5097,6 +5179,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/WorkspaceReportMetadataParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "workspace.set_group",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/WorkspaceSetGroupParams"
             }
           },
           "required": [
@@ -7281,6 +7379,9 @@
                 "pane_id": {
                   "type": "string"
                 },
+                "tab_id": {
+                  "type": "string"
+                },
                 "type": {
                   "const": "pane_closed",
                   "type": "string"
@@ -7292,7 +7393,8 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id"
+                "workspace_id",
+                "tab_id"
               ],
               "type": "object"
             },
@@ -7423,6 +7525,9 @@
                 "pane_id": {
                   "type": "string"
                 },
+                "tab_id": {
+                  "type": "string"
+                },
                 "type": {
                   "const": "pane_exited",
                   "type": "string"
@@ -7434,7 +7539,37 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id"
+                "workspace_id",
+                "tab_id"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The shell reported a new working directory (OSC 7).",
+              "properties": {
+                "cwd": {
+                  "type": "string"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "tab_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "pane_cwd_changed",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_id",
+                "workspace_id",
+                "tab_id",
+                "cwd"
               ],
               "type": "object"
             },
@@ -7583,6 +7718,7 @@
             "pane_moved",
             "pane_output_changed",
             "pane_exited",
+            "pane_cwd_changed",
             "pane_agent_detected",
             "pane_agent_status_changed",
             "layout_updated"
@@ -10794,8 +10930,22 @@
             "agent_status": {
               "$ref": "#/schemas/success_response/$defs/AgentStatus"
             },
+            "family_anchor_id": {
+              "description": "The family checkout whose group a linked worktree shares; absent for\nthe checkout itself and spaces outside a family.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "focused": {
               "type": "boolean"
+            },
+            "group": {
+              "description": "The space group of the space's worktree family.",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "label": {
               "type": "string"

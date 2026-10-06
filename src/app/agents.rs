@@ -6,8 +6,8 @@ use super::{terminal_targets::TerminalTargetError, App};
 use crate::api::schema::AgentStartParams;
 
 const DEFAULT_AGENT_START_TIMEOUT: Duration = Duration::from_secs(30);
-pub(crate) const MAX_AGENT_START_TIMEOUT: Duration = Duration::from_secs(300);
-pub(crate) const AGENT_START_SETTLE_DELAY: Duration = Duration::from_secs(3);
+const MAX_AGENT_START_TIMEOUT: Duration = Duration::from_secs(300);
+const AGENT_START_SETTLE_DELAY: Duration = Duration::from_secs(3);
 const INVALID_AGENT_TIMEOUT_MESSAGE: &str =
     "agent start timeout must be greater than 3000ms and at most 300000ms";
 const INVALID_AGENT_NAME_MESSAGE: &str = "agent name must start with a lowercase letter and contain only lowercase letters, digits, '-' or '_' (1-32 characters)";
@@ -185,14 +185,14 @@ impl App {
             .get(&terminal_id)
             .ok_or_else(|| AgentStartError::TargetNotFound(params.pane_id.clone()))?;
         if terminal.is_agent_terminal() || terminal.managed_agent_kind().is_some() {
-            return Err(AgentStartError::TargetBusy(params.pane_id));
+            return Err(AgentStartError::AgentPresent(params.pane_id));
         }
         let runtime = self
             .terminal_runtimes
             .get(&terminal_id)
             .ok_or_else(|| AgentStartError::TargetUnavailable(params.pane_id.clone()))?;
         let shell_name = available_shell_name(runtime)
-            .ok_or_else(|| AgentStartError::TargetBusy(params.pane_id.clone()))?;
+            .ok_or_else(|| shell_unavailable_error(runtime, params.pane_id.clone()))?;
 
         let mut argv = vec![crate::detect::interactive_agent_executable(kind).to_string()];
         argv.extend(params.args);
@@ -256,9 +256,17 @@ impl App {
                 code: "agent_pane_not_found".into(),
                 message: format!("agent target pane {target} not found"),
             },
-            AgentStartError::TargetBusy(target) => crate::api::schema::ErrorBody {
-                code: "agent_pane_busy".into(),
-                message: format!("agent target pane {target} is not an available shell"),
+            AgentStartError::AgentPresent(target) => crate::api::schema::ErrorBody {
+                code: "agent_present".into(),
+                message: format!("agent target pane {target} already hosts an agent"),
+            },
+            AgentStartError::CommandRunning(target) => crate::api::schema::ErrorBody {
+                code: "pane_command_running".into(),
+                message: format!("agent target pane {target} is running a command"),
+            },
+            AgentStartError::ShellNotReady(target) => crate::api::schema::ErrorBody {
+                code: "shell_not_ready".into(),
+                message: format!("agent target pane {target} shell is still starting"),
             },
             AgentStartError::TargetUnavailable(target) => crate::api::schema::ErrorBody {
                 code: "agent_pane_unavailable".into(),
@@ -424,6 +432,38 @@ fn available_shell_name(runtime: &crate::terminal::TerminalRuntime) -> Option<St
     crate::platform::available_pane_shell(runtime.child_pid()?)
 }
 
+/// Why a pane's shell cannot take an agent: still starting, or running a
+/// command. Platforms without foreground jobs report a running command.
+fn shell_unavailable_error(
+    runtime: &crate::terminal::TerminalRuntime,
+    pane_id: String,
+) -> AgentStartError {
+    let starting = runtime.child_pid().is_some_and(|shell_pid| {
+        crate::detect::foreground_job(shell_pid)
+            .is_some_and(|job| shell_is_starting(shell_pid, &job))
+    });
+    if starting {
+        AgentStartError::ShellNotReady(pane_id)
+    } else {
+        AgentStartError::CommandRunning(pane_id)
+    }
+}
+
+/// The shell itself leads the foreground job, so the other processes in it are
+/// helpers its startup files run. A command, or a shell that exec'd one, would
+/// lead the job instead.
+fn shell_is_starting(shell_pid: u32, job: &crate::platform::ForegroundJob) -> bool {
+    job.process_group_id == shell_pid
+        && job.processes.iter().any(|process| {
+            process.pid == shell_pid
+                && (crate::platform::is_pane_shell_process_name(&process.name)
+                    || process
+                        .argv0
+                        .as_deref()
+                        .is_some_and(crate::platform::is_pane_shell_process_name))
+        })
+}
+
 pub(super) fn runtime_hosts_agent(
     runtime: &crate::terminal::TerminalRuntime,
     expected: crate::detect::Agent,
@@ -452,7 +492,11 @@ pub(super) enum AgentStartError {
     InvalidArgument,
     InvalidTimeout,
     TargetNotFound(String),
-    TargetBusy(String),
+    AgentPresent(String),
+    /// A foreground job other than the shell holds the terminal.
+    CommandRunning(String),
+    /// The shell holds the terminal but is still running its startup files.
+    ShellNotReady(String),
     TargetUnavailable(String),
     InputFailed(String),
     DuplicateName {
@@ -475,6 +519,27 @@ pub(super) enum AgentRenameError {
 #[cfg(test)]
 mod tests {
     use super::valid_agent_name;
+
+    #[test]
+    fn a_shell_leading_its_job_is_starting_and_anything_else_is_a_command() {
+        let process = |pid, name: &str| crate::platform::ForegroundProcess {
+            pid,
+            name: name.into(),
+            argv0: None,
+            argv: None,
+            cmdline: None,
+        };
+        let job = |process_group_id, processes| crate::platform::ForegroundJob {
+            process_group_id,
+            processes,
+        };
+        let starting = job(10, vec![process(10, "zsh"), process(11, "git")]);
+        let exec_replaced = job(10, vec![process(10, "sleep")]);
+        let command = job(20, vec![process(20, "vim")]);
+        assert!(super::shell_is_starting(10, &starting));
+        assert!(!super::shell_is_starting(10, &exec_replaced));
+        assert!(!super::shell_is_starting(10, &command));
+    }
 
     #[test]
     fn agent_names_use_a_small_cli_safe_grammar() {

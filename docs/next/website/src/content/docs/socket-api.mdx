@@ -100,7 +100,7 @@ Raw socket method names use dot notation:
 | Notification | `notification.show` |
 | Client | `client.window_title.set`, `client.window_title.clear` |
 | Session | `session.snapshot` |
-| Workspace | `workspace.create`, `workspace.list`, `workspace.get`, `workspace.focus`, `workspace.rename`, `workspace.move`, `workspace.move_block`, `workspace.report_metadata`, `workspace.close` |
+| Workspace | `workspace.create`, `workspace.list`, `workspace.get`, `workspace.focus`, `workspace.rename`, `workspace.move`, `workspace.move_block`, `workspace.report_metadata`, `workspace.set_group`, `workspace.close` |
 | Worktree | `worktree.list`, `worktree.create`, `worktree.open`, `worktree.remove` |
 | Tab | `tab.create`, `tab.list`, `tab.get`, `tab.focus`, `tab.rename`, `tab.move`, `tab.close` |
 | Pane | `pane.split`, `pane.swap`, `pane.move`, `pane.zoom`, `pane.layout`, `pane.process_info`, `pane.neighbor`, `pane.edges`, `pane.focus_direction`, `pane.resize`, `pane.list`, `pane.current`, `pane.get`, `pane.rename`, `pane.send_text`, `pane.send_keys`, `pane.send_input`, `pane.read`, `pane.report_agent`, `pane.report_agent_session`, `pane.report_metadata`, `pane.clear_agent_authority`, `pane.release_agent`, `pane.close`, `pane.wait_for_output` |
@@ -115,6 +115,8 @@ Raw socket method names use dot notation:
 `agent.wait` is server-owned and event-driven. It pins the resolved pane occupant so a replacement cannot satisfy the wait. `agent.prompt` accepts an optional `wait` object with `until` and `timeout_ms`; this submits the prompt and starts the wait in one request, avoiding a race between separate calls. If the resolved agent is already `blocked`, `agent.prompt` returns `agent_blocked` without sending input or starting the wait.
 
 `workspace.move_block` atomically moves the ordered `workspace_ids` before `before_workspace_id`; omit the anchor to move the block to the end. The ids must be unique and the anchor cannot be part of the block. The response contains the authoritative ordered workspace list.
+
+`workspace.set_group` puts a space in a named space group, or takes it out with `"group": null`. Groups show as sidebar headers wherever the group changes in the space order. A worktree family shares its checkout's group, so the call sets the persisted `space_group` metadata token on the checkout and clears it on the family's other spaces. It then moves the family after the group's last space, counting a family where its first member is, above the first ungrouped space for a new group, or to the end when leaving every group, and returns the ordered workspace list. When `workspace.move` or `workspace.move_block` leaves a family inside another group's run, the family joins that group; inside the ungrouped spaces it leaves its group. Workspace records carry the family's `group`, and a linked worktree in a family carries its checkout's id as `family_anchor_id`. A family's spaces always sit together, checkout first: `worktree.create` and `worktree.open` move a space that joins a family next to it, and restoring a session gathers families that drifted apart. After `workspace.move` or `workspace.move_block`, a moved checkout's worktrees follow it and a worktree moved on its own returns to its checkout, with a further `workspace.reordered` event.
 
 `session.snapshot` returns a one-time bootstrap snapshot for clients that keep
 their own local runtime cache. The response includes version/protocol metadata,
@@ -826,8 +828,11 @@ Tab event subscriptions include `tab.created`, `tab.closed`, `tab.focused`,
 `workspace_id`, requested `insert_index`, and updated ordered `tabs` list for
 that workspace.
 Pane event subscriptions include `pane.created`, `pane.updated`, `pane.closed`, `pane.focused`,
-`pane.moved`, `pane.exited`, `pane.agent_detected`,
+`pane.moved`, `pane.exited`, `pane.cwd_changed`, `pane.agent_detected`,
 `pane.output_matched`, `pane.agent_status_changed`, and `pane.scroll_changed`.
+`pane.closed` and `pane.exited` include the pane's `tab_id`. `pane.cwd_changed`
+emits `pane_id`, `workspace_id`, `tab_id`, and the new `cwd` when the shell
+reports a different working directory.
 `pane.focused` also reports manual pane selection changes from any client attached
 to this server. It does not move other clients' views, and its payload does not
 identify the client. Selecting an already-selected pane does not emit it again.

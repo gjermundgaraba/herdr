@@ -187,9 +187,11 @@ impl App {
             EventData::PaneClosed {
                 pane_id,
                 workspace_id,
+                tab_id,
             } => {
                 let mut context = empty_plugin_context(correlation_id);
                 context.workspace_id = Some(workspace_id.clone());
+                context.tab_id = Some(tab_id.clone());
                 context.focused_pane_id = Some(pane_id.clone());
                 context
             }
@@ -205,6 +207,12 @@ impl App {
             | EventData::PaneExited {
                 pane_id,
                 workspace_id,
+                ..
+            }
+            | EventData::PaneCwdChanged {
+                pane_id,
+                workspace_id,
+                ..
             }
             | EventData::PaneAgentDetected {
                 pane_id,

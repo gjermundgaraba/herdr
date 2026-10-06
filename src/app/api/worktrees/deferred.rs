@@ -454,6 +454,7 @@ impl App {
         if created_workspace {
             self.emit_workspace_open_events(ws_idx);
         }
+        let ws_idx = self.gather_worktree_family(ws_idx);
         let Some(worktree) = self.worktree_info_for_workspace(ws_idx) else {
             Self::send_api_response(
                 api.respond_to,

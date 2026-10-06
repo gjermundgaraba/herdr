@@ -96,7 +96,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | 通知 | `notification.show` |
 | 客户端 | `client.window_title.set`、`client.window_title.clear` |
 | 会话 | `session.snapshot` |
-| 工作区 | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.close` |
+| 工作区 | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.set_group`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | 标签页 | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.move`、`tab.close` |
 | 窗格 | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
@@ -111,6 +111,8 @@ herdr pane read w1:p2 --source recent --lines 50
 `agent.wait` 由服务器拥有并由事件驱动。它会固定到已解析的窗格占用者,因此替换后的智能体不能满足该等待。`agent.prompt` 接受可选的 `wait` 对象,其中包含 `until` 和 `timeout_ms`;这样可在一个请求中提交提示并开始等待,避免两个独立调用之间的竞态。如果解析出的智能体已经是 `blocked`,`agent.prompt` 不会发送输入或开始等待,而是返回 `agent_blocked`。
 
 `workspace.move_block` 会将有序的 `workspace_ids` 原子地移动到 `before_workspace_id` 之前;省略锚点则将该块移动到末尾。id 必须唯一,且锚点不能属于被移动的块。响应包含服务器确认的有序工作区列表。
+
+`workspace.set_group` 把空间放入命名的空间分组,用 `"group": null` 移出。分组在空间顺序中分组变化的位置显示为侧边栏标题。worktree 家族共享其 checkout 的分组,因此该调用在 checkout 上设置持久化的 `space_group` 元数据令牌,并清除家族其他空间上的令牌。随后把家族移到该分组最后一个空间(家族按其第一个成员的位置计算)之后;新分组则移到第一个未分组空间之上;离开所有分组则移到末尾,并返回有序的工作区列表。当 `workspace.move` 或 `workspace.move_block` 把家族放进另一个分组的连续区段内时,家族加入该分组;放进未分组空间之间则离开其分组。工作区记录带有家族的 `group`,家族中的链接 worktree 以 `family_anchor_id` 携带其 checkout 的 id。家族的空间总是以 checkout 为首排在一起:`worktree.create` 和 `worktree.open` 会把加入家族的空间移到家族旁边,恢复会话时也会把分散的家族重新聚拢。在 `workspace.move` 或 `workspace.move_block` 之后,被移动的 checkout 会带上其 worktree,单独移动的 worktree 会回到其 checkout 旁边,并额外发出一个 `workspace.reordered` 事件。
 
 `session.snapshot` 为维护本地运行时缓存的客户端返回一次性引导快照。响应包含版本/协议元数据、当前聚焦的工作区/标签页/窗格 id、工作区记录、标签页记录、窗格记录、标签页布局快照和智能体记录。它不是订阅。初始化或恢复缓存时,应先建立订阅,再按下文事件订阅部分的说明读取服务器当前状态并核对、更新缓存。事件表示缓存可能过期,不能无条件重放到快照上。重新连接后或本地缓存可能已过期时,再次调用 `session.snapshot`。工作区记录也包含关联 worktree 的来源信息。完整的仓库 worktree 发现仍使用 `worktree.list`。
 
@@ -651,7 +653,7 @@ workspace 的 get/list 响应会公开生成的 `tokens` 映射,空间侧边栏�
 
 工作区事件订阅包括 `workspace.created`、`workspace.updated`、`workspace.metadata_updated`、`workspace.renamed`、`workspace.moved`、`workspace.reordered`、`workspace.closed` 和 `workspace.focused`。`workspace.metadata_updated` 报告令牌变更和 TTL 到期,但不会调用插件事件钩子。其他工作区事件描述 Herdr UI/运行时的生命周期。当工作区属于 worktree 组时,`workspace.created` 包含可选的 `workspace.worktree` 来源信息。`workspace.moved` 包含被移动的 `workspace_id`、请求的 `insert_index` 和更新后的有序 `workspaces` 列表。`workspace.reordered` 包含原子移动的 `workspace_ids`、可选的 `before_workspace_id` 和服务器确认的有序 `workspaces` 列表。在移除前 Herdr 仍能识别时,`workspace.closed` 包含最终的 `workspace` 快照。
 标签页事件订阅包括 `tab.created`、`tab.closed`、`tab.focused`、`tab.renamed` 和 `tab.moved`。`tab.moved` 包含被移动的 `tab_id`、`workspace_id`、请求的 `insert_index` 和该工作区更新后的有序 `tabs` 列表。
-窗格事件订阅包括 `pane.created`、`pane.updated`、`pane.closed`、`pane.focused`、`pane.moved`、`pane.exited`、`pane.agent_detected`、`pane.output_matched`、`pane.agent_status_changed` 和 `pane.scroll_changed`。`pane.focused` 也会上报任意连接到此服务器的客户端手动选择窗格的变化，不会移动其他客户端的视图，且载荷不包含客户端身份。重复选择已选中的窗格不会再次发出事件。终端标题变化可能发出 `pane.updated`,但如果原始标题只有旋转指示符发生变化且 `terminal_title_stripped` 不变,则不会发出。`pane.scroll_changed` 只针对一个 `pane_id`,每当 Herdr 观察到滚动快照变化时,都会发出 `pane_id`、`workspace_id` 和当前 `scroll` 指标。
+窗格事件订阅包括 `pane.created`、`pane.updated`、`pane.closed`、`pane.focused`、`pane.moved`、`pane.exited`、`pane.cwd_changed`、`pane.agent_detected`、`pane.output_matched`、`pane.agent_status_changed` 和 `pane.scroll_changed`。`pane.closed` 和 `pane.exited` 包含窗格的 `tab_id`。当 shell 报告了不同的工作目录时,`pane.cwd_changed` 会发出 `pane_id`、`workspace_id`、`tab_id` 和新的 `cwd`。`pane.focused` 也会上报任意连接到此服务器的客户端手动选择窗格的变化，不会移动其他客户端的视图，且载荷不包含客户端身份。重复选择已选中的窗格不会再次发出事件。终端标题变化可能发出 `pane.updated`,但如果原始标题只有旋转指示符发生变化且 `terminal_title_stripped` 不变,则不会发出。`pane.scroll_changed` 只针对一个 `pane_id`,每当 Herdr 观察到滚动快照变化时,都会发出 `pane_id`、`workspace_id` 和当前 `scroll` 指标。
 布局事件订阅包括 `layout.updated`。该事件携带一个标签页更新后的 `PaneLayoutSnapshot`。使用 `session.snapshot` 维护缓存的客户端应将该事件作为重新读取受影响布局的通知；延迟到达的载荷可能早于最新快照。
 
 Worktree 事件订阅包括 `worktree.created`、`worktree.opened` 和 `worktree.removed`。Worktree 事件描述 Git 检出的生命周期。`worktree.created` 包含打开的 `workspace` 和创建的 `worktree`。`worktree.opened` 包含目标 `workspace`、打开的 `worktree` 和 `already_open`。`worktree.removed` 包含 `workspace_id`、被移除的 `worktree` 和 `forced`。

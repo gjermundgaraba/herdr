@@ -31,8 +31,11 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
 - The `agent.prompt` method in the client command lane
   (`CLIENT_SHELL_METHODS` in `src/server/client_commands.rs`)
 - Space groups: the `space_group` workspace metadata token puts runs of
-  spaces under collapsible, draggable sidebar headers
-  (`src/client/shell/space_groups.rs`)
+  spaces under collapsible, draggable sidebar headers. `workspace.set_group`
+  assigns and places a worktree family, moved families take the group of
+  where they land, and a family's spaces are kept together, checkout first
+  (`src/space_order.rs`, `src/app/api/space_groups.rs`,
+  `src/client/shell/space_groups.rs`)
 - Agent priority tokens: `ui.agent_priority_tokens` lists workspace metadata
   token keys, and a space carrying any of them with a non-empty value lifts
   its blocked and done agents to the top of the `priority` agent order; the
@@ -51,7 +54,11 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   space's tabs, and every space (`src/app/api/plugins/context.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
   saves tokens in the session snapshot, so plugin state such as space groups
-  and priorities survives restarts and handoffs (`src/metadata_tokens.rs`)
+  and priority tokens survives restarts and handoffs (`src/metadata_tokens.rs`)
+- Plugin-facing events and starts: `pane.closed` and `pane.exited` carry
+  `tab_id`, `pane.cwd_changed` reports shell cwd changes, and `agent.start`
+  waits for a starting shell and reports `agent_present`,
+  `pane_command_running`, or `shell_not_ready`
 - Native pickers: `ui.pick` blocks while the invoking TUI shows a filterable
   list, and returns the picked id, created text, or cancellation
   (`src/server/headless/picks.rs`, `src/client/shell/picks.rs`)

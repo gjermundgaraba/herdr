@@ -15,7 +15,8 @@ use crate::api::schema::{
 };
 use crate::api::subscriptions::ActiveSubscription;
 use crate::api::wait::{
-    prompt_agent, wait_for_agent, wait_for_event, wait_for_output, wait_for_pick,
+    prompt_agent, wait_for_agent, wait_for_agent_start, wait_for_event, wait_for_output,
+    wait_for_pick,
 };
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
@@ -450,6 +451,11 @@ fn handle_connection_with_stop(
             )?;
             finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
         }
+        Method::AgentStart(params) => {
+            let response =
+                wait_for_agent_start(request_id.clone(), params, &mut stream, api_tx, running)?;
+            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
+        }
         Method::UiPick(params) => {
             let response = wait_for_pick(request_id.clone(), params, &mut stream, api_tx, running)?;
             finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
@@ -592,6 +598,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::WorkspaceRename(_) => "workspace.rename",
         Method::WorkspaceMove(_) => "workspace.move",
         Method::WorkspaceMoveBlock(_) => "workspace.move_block",
+        Method::WorkspaceSetGroup(_) => "workspace.set_group",
         Method::WorkspaceReportMetadata(_) => "workspace.report_metadata",
         Method::WorkspaceClose(_) => "workspace.close",
         Method::WorktreeList(_) => "worktree.list",
@@ -1646,6 +1653,7 @@ mod tests {
                             data: crate::api::schema::EventData::PaneClosed {
                                 pane_id: "pane_1".into(),
                                 workspace_id: "ws_1".into(),
+                                tab_id: "ws_1:t1".into(),
                             },
                         });
                     }
@@ -1795,6 +1803,7 @@ mod tests {
                 data: crate::api::schema::EventData::PaneClosed {
                     pane_id: "w999:p9".into(),
                     workspace_id: "w999".into(),
+                    tab_id: "w999:t1".into(),
                 },
             });
             msg.respond_to

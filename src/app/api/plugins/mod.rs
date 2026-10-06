@@ -2902,6 +2902,7 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > {}"]
                 data: crate::api::schema::EventData::PaneClosed {
                     pane_id: closed_pane_id.clone(),
                     workspace_id: workspace_id.clone(),
+                    tab_id: closed_tab_id.clone(),
                 },
             },
             "pane.closed",

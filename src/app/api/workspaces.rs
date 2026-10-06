@@ -153,19 +153,28 @@ impl App {
         let workspace_id = self.public_workspace_id(index);
         let insert_index = params.insert_index;
         let moved = self.state.move_workspace(index, insert_index);
+        if moved {
+            self.regroup_moved_spaces(std::slice::from_ref(&workspace_id));
+        }
         let workspaces = self.workspace_list_info();
         if moved {
             self.emit_event(EventEnvelope {
                 event: EventKind::WorkspaceMoved,
                 data: EventData::WorkspaceMoved {
-                    workspace_id,
+                    workspace_id: workspace_id.clone(),
                     insert_index,
-                    workspaces: workspaces.clone(),
+                    workspaces,
                 },
             });
+            self.gather_moved_families(std::slice::from_ref(&workspace_id));
         }
 
-        encode_success(id, ResponseResult::WorkspaceList { workspaces })
+        encode_success(
+            id,
+            ResponseResult::WorkspaceList {
+                workspaces: self.workspace_list_info(),
+            },
+        )
     }
 
     pub(super) fn handle_workspace_move_block(
@@ -223,19 +232,28 @@ impl App {
         let moved = self
             .state
             .move_workspace_block(&workspace_ids, before_workspace_id.as_deref());
+        if moved {
+            self.regroup_moved_spaces(&workspace_ids);
+        }
         let workspaces = self.workspace_list_info();
         if moved {
             self.emit_event(EventEnvelope {
                 event: EventKind::WorkspaceReordered,
                 data: EventData::WorkspaceReordered {
-                    workspace_ids,
+                    workspace_ids: workspace_ids.clone(),
                     before_workspace_id,
-                    workspaces: workspaces.clone(),
+                    workspaces,
                 },
             });
+            self.gather_moved_families(&workspace_ids);
         }
 
-        encode_success(id, ResponseResult::WorkspaceList { workspaces })
+        encode_success(
+            id,
+            ResponseResult::WorkspaceList {
+                workspaces: self.workspace_list_info(),
+            },
+        )
     }
 
     pub(super) fn handle_workspace_report_metadata(
@@ -364,7 +382,7 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
-    fn workspace_list_info(&self) -> Vec<crate::api::schema::WorkspaceInfo> {
+    pub(super) fn workspace_list_info(&self) -> Vec<crate::api::schema::WorkspaceInfo> {
         self.state
             .workspaces
             .iter()
