@@ -821,6 +821,40 @@ fn wait_matched_response(request_id: &str, event: serde_json::Value) -> String {
     .unwrap()
 }
 
+/// How long `agent.start` waits for a starting shell before it reports
+/// `shell_not_ready`.
+const AGENT_START_SHELL_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Starts an agent, retrying while the target shell is still starting.
+pub(super) fn wait_for_agent_start(
+    request_id: String,
+    params: crate::api::schema::AgentStartParams,
+    stream: &mut LocalStream,
+    api_tx: &ApiRequestSender,
+    running: &Arc<AtomicBool>,
+) -> std::io::Result<Option<String>> {
+    let deadline = std::time::Instant::now() + AGENT_START_SHELL_WAIT;
+    loop {
+        let response = dispatch_to_app_with_timeout(
+            Request {
+                id: request_id.clone(),
+                method: Method::AgentStart(params.clone()),
+            },
+            api_tx,
+            Some(APP_RESPONSE_TIMEOUT),
+        );
+        let shell_starting = serde_json::from_str::<ErrorResponse>(&response)
+            .is_ok_and(|response| response.error.code == "shell_not_ready");
+        if !shell_starting || std::time::Instant::now() >= deadline {
+            return Ok(Some(response));
+        }
+        std::thread::sleep(CONNECTION_POLL_INTERVAL);
+        if should_stop_connection(stream, running)? {
+            return Ok(None);
+        }
+    }
+}
+
 static NEXT_PICK_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// Holds a `ui.pick` request open until its client answers. The picker is

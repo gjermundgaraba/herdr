@@ -24,6 +24,19 @@ impl App {
         ))
     }
 
+    pub(crate) fn public_tab_id_for_pane(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<String> {
+        let tab_idx = self
+            .state
+            .workspaces
+            .get(ws_idx)?
+            .find_tab_index_for_pane(pane_id)?;
+        self.public_tab_id(ws_idx, tab_idx)
+    }
+
     pub(crate) fn public_pane_id(
         &self,
         ws_idx: usize,

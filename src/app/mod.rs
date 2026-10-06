@@ -9,7 +9,6 @@ mod agent_resume;
 mod agent_suspend_tests;
 pub(crate) mod agent_view;
 mod agents;
-pub(crate) use agents::{AGENT_START_SETTLE_DELAY, MAX_AGENT_START_TIMEOUT};
 mod api;
 #[cfg(test)]
 pub(crate) use api::test_support::exiting_test_command;
@@ -582,6 +581,7 @@ impl App {
         };
 
         state.terminals = restored_terminals;
+        state.gather_worktree_families();
 
         // Background auto-update is disabled for non-persistent test apps
         // and in debug/test builds so local development never mutates the
@@ -739,6 +739,7 @@ impl App {
         app.state.selected = snapshot
             .selected
             .min(app.state.workspaces.len().saturating_sub(1));
+        app.state.gather_worktree_families();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {

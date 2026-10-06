@@ -1,19 +1,16 @@
 //! User-defined space groups in the spaces sidebar.
 //!
 //! A space joins a group through the `space_group` workspace metadata token,
-//! which the space-groups plugin sets. The sidebar never reorders spaces: it
+//! which `workspace.set_group` sets. The sidebar never reorders spaces: it
 //! shows the server order and starts a collapsible header wherever the group
 //! changes, with a divider where ungrouped spaces follow a group. Worktree
-//! families take their parent checkout's group. Membership is the plugin's
-//! business: spaces and headers drag anywhere, like in a flat sidebar, and the
-//! plugin regroups what moved by where it landed. A header moves its whole
-//! run, so dropping one inside another group splits that group into two runs.
+//! families take their parent checkout's group (`crate::space_order`).
+//! Spaces and headers drag anywhere, like in a flat sidebar, and the server
+//! regroups what moved by where it landed. A header moves its whole run, so
+//! dropping one inside another group splits that group into two runs.
 //! Runs of one group share a collapse key, so collapsing either collapses both.
 
 use super::*;
-
-/// Workspace metadata key that names a space's group.
-const GROUP_TOKEN: &str = "space_group";
 
 /// Collapse state key of a group, namespaced apart from worktree repo keys.
 fn collapse_key(name: &str) -> String {
@@ -58,12 +55,23 @@ pub(super) fn gap_between(previous: &SidebarRow, next: &SidebarRow, row_gap: u16
     }
 }
 
-fn workspace_group(workspace: &ClientShellWorkspace) -> Option<&str> {
-    workspace
-        .tokens
+/// The snapshot's spaces as `crate::space_order` sees them.
+fn order_spaces(snapshot: &ClientShellSnapshot) -> Vec<crate::space_order::Space<'_>> {
+    snapshot
+        .workspaces
         .iter()
-        .find(|(key, _)| key == GROUP_TOKEN)
-        .map(|(_, name)| name.as_str())
+        .map(|workspace| crate::space_order::Space {
+            worktree: workspace
+                .worktree
+                .as_ref()
+                .map(|worktree| (worktree.key.as_str(), worktree.is_linked_worktree)),
+            group: workspace
+                .tokens
+                .iter()
+                .find(|(key, _)| key == crate::space_order::GROUP_TOKEN)
+                .map(|(_, name)| name.as_str()),
+        })
+        .collect()
 }
 
 /// Splits sidebar entries into top-level units: an entry plus its indented children.
@@ -85,9 +93,10 @@ struct Run<'a> {
 }
 
 fn runs(snapshot: &ClientShellSnapshot) -> Vec<Run<'_>> {
+    let spaces = order_spaces(snapshot);
     let mut runs = Vec::<Run<'_>>::new();
     for unit in units(sidebar::worktree_entries(snapshot, &HashSet::new())) {
-        let name = workspace_group(&snapshot.workspaces[unit[0].index]);
+        let name = crate::space_order::group(&spaces, unit[0].index);
         let members = unit.iter().map(|entry| entry.index);
         match runs.last_mut() {
             Some(run) if run.name == name => run.members.extend(members),
