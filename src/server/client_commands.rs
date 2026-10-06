@@ -305,7 +305,7 @@ mod tests {
         );
         assert_eq!(
             actual.remove("plugin.action.invoke").as_deref(),
-            Some("c9d7a501da3edf6e53e723a825554ff318664b3a4d80a572f448d10629462ae0")
+            Some("4db61256f9a095e9fedd93b9740e0504988d4101308d3d922689c469e12cdc36")
         );
 
         assert_eq!(
