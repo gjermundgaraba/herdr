@@ -475,21 +475,8 @@ fn plugin_action_invoke(args: &[String]) -> std::io::Result<i32> {
         action_id: action_id.clone(),
         plugin_id,
         context: Some(PluginInvocationContext {
-            workspace_id: None,
-            workspace_label: None,
-            workspace_cwd: None,
-            worktree: None,
-            tab_id: None,
-            tab_label: None,
-            focused_pane_id: None,
-            focused_pane_cwd: None,
-            focused_pane_agent: None,
-            focused_pane_status: None,
-            selected_text: None,
             invocation_source: Some("cli".into()),
-            correlation_id: None,
-            clicked_url: None,
-            link_handler_id: None,
+            ..Default::default()
         }),
     }))
 }

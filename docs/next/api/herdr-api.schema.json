@@ -1338,6 +1338,36 @@
           ],
           "type": "object"
         },
+        "AgentSessionInfo": {
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "kind": {
+              "$ref": "#/schemas/request/$defs/AgentSessionRefKind"
+            },
+            "source": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "agent",
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        "AgentSessionRefKind": {
+          "enum": [
+            "id",
+            "path"
+          ],
+          "type": "string"
+        },
         "AgentStartParams": {
           "properties": {
             "args": {
@@ -3452,6 +3482,15 @@
                 "null"
               ]
             },
+            "client_id": {
+              "description": "Server-local id of the TUI client whose request started the plugin.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "correlation_id": {
               "type": [
                 "string",
@@ -3464,7 +3503,23 @@
                 "null"
               ]
             },
+            "focused_pane_agent_session": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/AgentSessionInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "focused_pane_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused_pane_foreground_cwd": {
               "type": [
                 "string",
                 "null"
@@ -3516,6 +3571,13 @@
                 "null"
               ]
             },
+            "tabs": {
+              "description": "Tabs of the context workspace in order. Omitted for event hooks.",
+              "items": {
+                "$ref": "#/schemas/request/$defs/TabInfo"
+              },
+              "type": "array"
+            },
             "workspace_cwd": {
               "type": [
                 "string",
@@ -3533,6 +3595,13 @@
                 "string",
                 "null"
               ]
+            },
+            "workspaces": {
+              "description": "Every workspace in server order. Omitted for event hooks.",
+              "items": {
+                "$ref": "#/schemas/request/$defs/WorkspaceInfo"
+              },
+              "type": "array"
             },
             "worktree": {
               "anyOf": [
@@ -4303,6 +4372,45 @@
           },
           "type": "object"
         },
+        "TabInfo": {
+          "properties": {
+            "agent_status": {
+              "$ref": "#/schemas/request/$defs/AgentStatus"
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "label": {
+              "type": "string"
+            },
+            "number": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pane_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tab_id": {
+              "type": "string"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tab_id",
+            "workspace_id",
+            "number",
+            "label",
+            "focused",
+            "pane_count",
+            "agent_status"
+          ],
+          "type": "object"
+        },
         "TabListParams": {
           "properties": {
             "workspace_id": {
@@ -4412,6 +4520,71 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "WorkspaceInfo": {
+          "properties": {
+            "active_tab_id": {
+              "type": "string"
+            },
+            "agent_status": {
+              "$ref": "#/schemas/request/$defs/AgentStatus"
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "label": {
+              "type": "string"
+            },
+            "number": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pane_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tab_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tokens": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "maxProperties": 32,
+              "propertyNames": {
+                "pattern": "^[A-Za-z0-9_-]{1,32}$"
+              },
+              "type": "object"
+            },
+            "workspace_id": {
+              "type": "string"
+            },
+            "worktree": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/WorkspaceWorktreeInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "workspace_id",
+            "number",
+            "label",
+            "focused",
+            "pane_count",
+            "tab_count",
+            "active_tab_id",
+            "agent_status"
+          ],
           "type": "object"
         },
         "WorkspaceMoveBlockParams": {
@@ -8733,6 +8906,15 @@
                 "null"
               ]
             },
+            "client_id": {
+              "description": "Server-local id of the TUI client whose request started the plugin.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "correlation_id": {
               "type": [
                 "string",
@@ -8745,7 +8927,23 @@
                 "null"
               ]
             },
+            "focused_pane_agent_session": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/AgentSessionInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "focused_pane_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused_pane_foreground_cwd": {
               "type": [
                 "string",
                 "null"
@@ -8797,6 +8995,13 @@
                 "null"
               ]
             },
+            "tabs": {
+              "description": "Tabs of the context workspace in order. Omitted for event hooks.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/TabInfo"
+              },
+              "type": "array"
+            },
             "workspace_cwd": {
               "type": [
                 "string",
@@ -8814,6 +9019,13 @@
                 "string",
                 "null"
               ]
+            },
+            "workspaces": {
+              "description": "Every workspace in server order. Omitted for event hooks.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/WorkspaceInfo"
+              },
+              "type": "array"
             },
             "worktree": {
               "anyOf": [

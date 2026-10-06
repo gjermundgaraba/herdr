@@ -45,6 +45,10 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   directly with the originating pane and selection as context. Actions and
   panes share one id namespace and one resolver
   (`src/app/api/plugins/entrypoint.rs`, `keybind.rs`)
+- Plugin invocation context: menu, key, and API targets supply the context
+  instead of focus; actions, panes, and startup hooks also get the invoking
+  TUI's `client_id` (`HERDR_CLIENT_ID`), the target pane's agent session, the
+  space's tabs, and every space (`src/app/api/plugins/context.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the Micro and Deck plugins in the `herdr-plugins`

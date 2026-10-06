@@ -244,8 +244,15 @@ Herdr 恢复会话且 API socket 就绪后,会为每个已启用插件运行一�
 同步或删除其中的内容。文件格式和生命周期归插件所有。
 
 `HERDR_PLUGIN_CONTEXT_JSON` 在本次调用可用时,可以包含工作区、标签页、
-聚焦窗格、worktree、智能体、选中文本、点击的 URL 和链接处理器字段。
-shell 插件可以从各个环境变量读取常用 id,或解析上下文 JSON 获取完整结构。
+聚焦窗格、worktree、智能体、智能体会话、选中文本、点击的 URL 和链接处理器字段。
+当菜单、按键或 API 调用指定了窗格、标签页或空间时,上下文描述的是该目标,
+而不是当前聚焦的对象。shell 插件可以从各个环境变量读取常用 id,或解析上下文
+JSON 获取完整结构。
+
+动作、窗格和启动钩子还会收到上下文空间的 `tabs`,以及以 `workspaces` 表示的
+所有空间,结构与 `tab.list` 和 `workspace.list` 相同,因此很少需要先查询会话。
+事件钩子省略这两项,因为事件 JSON 已经指明相关实体。当插件由 TUI 客户端启动时,
+`client_id` 和 `HERDR_CLIENT_ID` 在服务器内标识该客户端。
 
 当插件需要从 Node、PowerShell、Bash 或其他运行时可移植地调用 Herdr 时,
 使用 `HERDR_BIN_PATH`。`HERDR_SOCKET_PATH` 背后的原始 socket 传输是

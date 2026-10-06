@@ -276,9 +276,18 @@ but it does not validate, sync, or delete their contents. The plugin owns the
 file format and lifecycle.
 
 `HERDR_PLUGIN_CONTEXT_JSON` can include workspace, tab, focused pane, worktree,
-agent, selected text, clicked URL, and link handler fields when they are
-available for that invocation. Shell plugins can read the individual env vars
-for common ids, or parse the context JSON for the full shape.
+agent, agent session, selected text, clicked URL, and link handler fields when
+they are available for that invocation. When a menu, key, or API call names a
+pane, tab, or space, the context describes that target rather than whatever has
+focus. Shell plugins can read the individual env vars for common ids, or parse
+the context JSON for the full shape.
+
+Actions, panes, and startup hooks also receive the context space's `tabs` and
+every space as `workspaces`, in the same shape as `tab.list` and
+`workspace.list`, so they rarely need to query the session first. Event hooks
+omit both because their event JSON already names the affected entities. When a
+TUI client started the plugin, `client_id` and `HERDR_CLIENT_ID` identify that
+client within the server.
 
 Use `HERDR_BIN_PATH` when a plugin needs to call Herdr portably from Node,
 PowerShell, Bash, or another runtime. The raw socket transport behind

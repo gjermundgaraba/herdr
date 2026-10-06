@@ -2455,20 +2455,9 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
                 action_id: "bootstrap".into(),
                 context: Some(PluginInvocationContext {
                     workspace_id: Some("1".into()),
-                    workspace_label: None,
-                    workspace_cwd: None,
-                    worktree: None,
-                    tab_id: None,
-                    tab_label: None,
-                    focused_pane_id: None,
-                    focused_pane_cwd: None,
-                    focused_pane_agent: None,
-                    focused_pane_status: None,
-                    selected_text: None,
                     invocation_source: Some("test".into()),
                     correlation_id: Some("external-correlation".into()),
-                    clicked_url: None,
-                    link_handler_id: None,
+                    ..Default::default()
                 }),
             }),
         });

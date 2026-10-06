@@ -383,6 +383,10 @@ pub struct PluginInvocationContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_pane_status: Option<AgentStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_foreground_cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_agent_session: Option<super::agents::AgentSessionInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub invocation_source: Option<String>,
@@ -392,6 +396,15 @@ pub struct PluginInvocationContext {
     pub clicked_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_handler_id: Option<String>,
+    /// Server-local id of the TUI client whose request started the plugin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<u64>,
+    /// Tabs of the context workspace in order. Omitted for event hooks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<super::tabs::TabInfo>,
+    /// Every workspace in server order. Omitted for event hooks.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub workspaces: Vec<super::workspaces::WorkspaceInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

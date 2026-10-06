@@ -7,11 +7,27 @@ impl App {
         provided: Option<PluginInvocationContext>,
         correlation_id: &str,
     ) -> PluginInvocationContext {
+        // The most specific provided target supplies the context, so a menu
+        // or key invocation describes what it targets, not what has focus.
         let mut context = provided
             .as_ref()
-            .and_then(|provided| provided.workspace_id.as_deref())
-            .and_then(|workspace_id| {
-                self.plugin_context_for_workspace_id(workspace_id, correlation_id)
+            .and_then(|provided| {
+                provided
+                    .focused_pane_id
+                    .as_deref()
+                    .and_then(|pane_id| {
+                        self.plugin_context_for_public_pane_id(pane_id, correlation_id)
+                    })
+                    .or_else(|| {
+                        provided.tab_id.as_deref().and_then(|tab_id| {
+                            self.plugin_context_for_tab_id(tab_id, correlation_id)
+                        })
+                    })
+                    .or_else(|| {
+                        provided.workspace_id.as_deref().and_then(|workspace_id| {
+                            self.plugin_context_for_workspace_id(workspace_id, correlation_id)
+                        })
+                    })
             })
             .unwrap_or_else(|| self.current_plugin_context(correlation_id));
         if let Some(provided) = provided {
@@ -26,12 +42,43 @@ impl App {
             context.focused_pane_agent = provided.focused_pane_agent.or(context.focused_pane_agent);
             context.focused_pane_status =
                 provided.focused_pane_status.or(context.focused_pane_status);
+            context.focused_pane_foreground_cwd = provided
+                .focused_pane_foreground_cwd
+                .or(context.focused_pane_foreground_cwd);
+            context.focused_pane_agent_session = provided
+                .focused_pane_agent_session
+                .or(context.focused_pane_agent_session);
             context.selected_text = provided.selected_text.or(context.selected_text);
             context.invocation_source = provided.invocation_source.or(context.invocation_source);
             context.correlation_id = provided.correlation_id.or(context.correlation_id);
             context.clicked_url = provided.clicked_url.or(context.clicked_url);
             context.link_handler_id = provided.link_handler_id.or(context.link_handler_id);
+            context.client_id = provided.client_id.or(context.client_id);
         }
+        context
+    }
+
+    /// Adds what an invoked plugin would otherwise query next: the invoking
+    /// client, the context workspace's tabs, and every workspace. Event hooks
+    /// skip this; they fire per event and their event JSON names the entities.
+    pub(super) fn with_invocation_details(
+        &self,
+        mut context: PluginInvocationContext,
+    ) -> PluginInvocationContext {
+        context.client_id = self.invoking_client_id.or(context.client_id);
+        if let Some((ws_idx, ws)) = context
+            .workspace_id
+            .as_deref()
+            .and_then(|workspace_id| self.parse_workspace_id(workspace_id))
+            .and_then(|ws_idx| Some((ws_idx, self.state.workspaces.get(ws_idx)?)))
+        {
+            context.tabs = (0..ws.tabs.len())
+                .filter_map(|tab_idx| self.tab_info(ws_idx, tab_idx))
+                .collect();
+        }
+        context.workspaces = (0..self.state.workspaces.len())
+            .map(|ws_idx| self.workspace_info(ws_idx))
+            .collect();
         context
     }
 
@@ -297,6 +344,8 @@ impl App {
                 context.focused_pane_cwd = pane.cwd.clone();
                 context.focused_pane_agent = pane.agent.clone();
                 context.focused_pane_status = Some(pane.agent_status);
+                context.focused_pane_foreground_cwd = pane.foreground_cwd.clone();
+                context.focused_pane_agent_session = pane.agent_session.clone();
                 context
             })
     }
@@ -374,13 +423,15 @@ impl App {
             focused_pane_cwd: focused_pane.as_ref().and_then(|pane| pane.cwd.clone()),
             focused_pane_agent: focused_pane.as_ref().and_then(|pane| pane.agent.clone()),
             focused_pane_status: focused_pane.as_ref().map(|pane| pane.agent_status),
+            focused_pane_foreground_cwd: focused_pane
+                .as_ref()
+                .and_then(|pane| pane.foreground_cwd.clone()),
+            focused_pane_agent_session: focused_pane.and_then(|pane| pane.agent_session),
             // Selection is client presentation state. Client keybindings provide
             // revision-validated coordinates; API callers can provide explicit context.
-            selected_text: None,
             invocation_source: Some("api".to_string()),
             correlation_id: Some(correlation_id.to_string()),
-            clicked_url: None,
-            link_handler_id: None,
+            ..Default::default()
         }
     }
 
@@ -397,20 +448,100 @@ impl App {
 
 fn empty_plugin_context(correlation_id: &str) -> PluginInvocationContext {
     PluginInvocationContext {
-        workspace_id: None,
-        workspace_label: None,
-        workspace_cwd: None,
-        worktree: None,
-        tab_id: None,
-        tab_label: None,
-        focused_pane_id: None,
-        focused_pane_cwd: None,
-        focused_pane_agent: None,
-        focused_pane_status: None,
-        selected_text: None,
         invocation_source: Some("api".to_string()),
         correlation_id: Some(correlation_id.to_string()),
-        clicked_url: None,
-        link_handler_id: None,
+        ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::api::schema::PluginInvocationContext;
+
+    fn app_with_unfocused_target() -> crate::app::App {
+        let mut app = super::super::tests::test_app();
+        let mut target = crate::workspace::Workspace::test_new("target");
+        target.custom_name = Some("Target".into());
+        target.test_add_tab(Some("second"));
+        app.state.workspaces = vec![crate::workspace::Workspace::test_new("focused"), target];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app
+    }
+
+    #[test]
+    fn provided_targets_supply_context_most_specific_first() {
+        let app = app_with_unfocused_target();
+        let target_tab = app.public_tab_id(1, 1).unwrap();
+        let target_pane = app
+            .public_pane_id(1, app.state.workspaces[1].tabs[1].root_pane)
+            .unwrap();
+        let workspace_id = app.public_workspace_id(1);
+        for provided in [
+            PluginInvocationContext {
+                focused_pane_id: Some(target_pane.clone()),
+                ..Default::default()
+            },
+            PluginInvocationContext {
+                tab_id: Some(target_tab.clone()),
+                ..Default::default()
+            },
+        ] {
+            let context = app.merge_plugin_context(Some(provided), "menu");
+            assert_eq!(context.workspace_id.as_deref(), Some(workspace_id.as_str()));
+            assert_eq!(context.workspace_label.as_deref(), Some("Target"));
+            assert_eq!(context.tab_id.as_deref(), Some(target_tab.as_str()));
+            assert_eq!(
+                context.focused_pane_id.as_deref(),
+                Some(target_pane.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn invocation_details_carry_the_client_tabs_and_every_workspace() {
+        let mut app = app_with_unfocused_target();
+        app.invoking_client_id = Some(7);
+        let context = app.with_invocation_details(PluginInvocationContext {
+            workspace_id: Some(app.public_workspace_id(1)),
+            ..Default::default()
+        });
+        assert_eq!(context.client_id, Some(7));
+        assert_eq!(
+            context
+                .tabs
+                .iter()
+                .map(|tab| tab.tab_id.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                app.public_tab_id(1, 0).unwrap(),
+                app.public_tab_id(1, 1).unwrap()
+            ]
+        );
+        assert_eq!(
+            context
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.workspace_id.clone())
+                .collect::<Vec<_>>(),
+            vec![app.public_workspace_id(0), app.public_workspace_id(1)]
+        );
+    }
+
+    #[test]
+    fn event_contexts_stay_lean() {
+        let app = app_with_unfocused_target();
+        let context = app.plugin_context_for_event(
+            &crate::api::schema::EventEnvelope {
+                event: crate::api::schema::EventKind::WorkspaceFocused,
+                data: crate::api::schema::EventData::WorkspaceFocused {
+                    workspace_id: app.public_workspace_id(1),
+                },
+            },
+            "workspace.focused",
+        );
+        assert!(context.client_id.is_none());
+        assert!(context.tabs.is_empty());
+        assert!(context.workspaces.is_empty());
     }
 }
