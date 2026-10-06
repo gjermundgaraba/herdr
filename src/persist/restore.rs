@@ -425,7 +425,9 @@ fn restore_workspace(
             cached_git_ahead_behind: None,
             cached_git_space: None,
             worktree_space: snap.worktree_space.clone(),
-            metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
+            metadata_tokens: crate::metadata_tokens::MetadataTokens::restored(
+                snap.metadata_tokens.clone(),
+            ),
             metadata_token_sequences: HashMap::new(),
             public_pane_numbers,
             next_public_pane_number,
@@ -1561,6 +1563,7 @@ mod tests {
                     root_pane: Some(0),
                 }],
                 active_tab: 0,
+                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,
@@ -1656,6 +1659,7 @@ mod tests {
                     root_pane: Some(10),
                 }],
                 active_tab: 0,
+                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,
@@ -1765,6 +1769,7 @@ mod tests {
                     },
                 ],
                 active_tab: 3,
+                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,
@@ -1827,6 +1832,7 @@ mod tests {
                 root_pane: Some(10),
             }],
             active_tab: 0,
+            metadata_tokens: Default::default(),
         };
         let mut next_public_pane_number = 1;
 
@@ -1877,6 +1883,7 @@ mod tests {
                     root_pane: Some(0),
                 }],
                 active_tab: 0,
+                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,
@@ -2217,6 +2224,7 @@ mod tests {
                     root_pane: Some(0),
                 }],
                 active_tab: 0,
+                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,

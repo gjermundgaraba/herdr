@@ -142,7 +142,7 @@ fn workspace_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn workspace_report_metadata(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_workspace_id) = args.first() else {
-        eprintln!("usage: herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
+        eprintln!("usage: herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N|--persist]");
         return Ok(2);
     };
     let workspace_id = super::normalize_workspace_id(raw_workspace_id);
@@ -150,6 +150,7 @@ fn workspace_report_metadata(args: &[String]) -> std::io::Result<i32> {
     let mut tokens = HashMap::new();
     let mut seq = None;
     let mut ttl_ms = None;
+    let mut persist = false;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
@@ -200,6 +201,10 @@ fn workspace_report_metadata(args: &[String]) -> std::io::Result<i32> {
                 ttl_ms = Some(super::parse_u64_flag("--ttl-ms", value)?);
                 index += 2;
             }
+            "--persist" => {
+                persist = true;
+                index += 1;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -221,6 +226,7 @@ fn workspace_report_metadata(args: &[String]) -> std::io::Result<i32> {
             tokens,
             seq,
             ttl_ms,
+            persist,
         },
     ))
 }
@@ -248,6 +254,6 @@ fn print_workspace_help() {
     eprintln!("  herdr workspace get <workspace_id>");
     eprintln!("  herdr workspace focus <workspace_id>");
     eprintln!("  herdr workspace rename <workspace_id> <label>");
-    eprintln!("  herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
+    eprintln!("  herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N|--persist]");
     eprintln!("  herdr workspace close <workspace_id> [--group]");
 }
