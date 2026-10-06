@@ -149,6 +149,8 @@ fn workspace_focus_success(id: &str, workspace_id: &str) -> Vec<u8> {
                 agent_status: crate::api::schema::AgentStatus::Unknown,
                 tokens: Default::default(),
                 worktree: None,
+                group: None,
+                family_anchor_id: None,
             },
         },
     })

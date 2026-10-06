@@ -9,6 +9,7 @@ mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
 mod session;
+mod space_groups;
 mod tabs;
 mod workspaces;
 mod worktrees;
@@ -310,6 +311,9 @@ impl App {
                         data: crate::api::schema::EventData::PaneExited {
                             pane_id: public_pane_id,
                             workspace_id: self.public_workspace_id(ws_idx),
+                            tab_id: self
+                                .public_tab_id_for_pane(ws_idx, *pane_id)
+                                .unwrap_or_default(),
                         },
                     });
                 }
@@ -349,7 +353,12 @@ impl App {
             } else {
                 None
             };
-        let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
+        let reported_cwd = match &ev {
+            AppEvent::TerminalCwdReported { pane_id, .. } => {
+                Some((*pane_id, self.pane_terminal_cwd(*pane_id)))
+            }
+            _ => None,
+        };
         let previous_toast = self.state.toast.clone();
         let mut pane_updates = self.state.handle_app_event(ev);
         if update_ready.is_some() {
@@ -375,10 +384,11 @@ impl App {
             }
         }
         self.sync_full_lifecycle_authority_detection_pauses();
-        if terminal_cwd_reported {
+        if let Some((pane_id, before)) = reported_cwd {
             self.request_git_identity_refresh(Instant::now());
             self.render_dirty.request_generic();
             self.render_notify.notify_one();
+            self.emit_pane_cwd_changed(pane_id, before);
         }
         for update in &pane_updates {
             self.refresh_new_herdr_toast_context_for_update(update, &previous_toast);
@@ -683,6 +693,44 @@ impl App {
                     operation_id,
                 })
                 .await;
+        });
+    }
+
+    fn pane_terminal_cwd(&self, pane_id: crate::layout::PaneId) -> Option<std::path::PathBuf> {
+        let (ws_idx, _) = self.find_pane(pane_id)?;
+        let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id)?;
+        Some(self.state.terminals.get(&terminal_id)?.cwd.clone())
+    }
+
+    /// Emits `pane.cwd_changed` when a cwd report changed the pane's cwd.
+    fn emit_pane_cwd_changed(
+        &mut self,
+        pane_id: crate::layout::PaneId,
+        before: Option<std::path::PathBuf>,
+    ) {
+        let Some(cwd) = self
+            .pane_terminal_cwd(pane_id)
+            .filter(|cwd| Some(cwd) != before.as_ref())
+        else {
+            return;
+        };
+        let Some((ws_idx, _)) = self.find_pane(pane_id) else {
+            return;
+        };
+        let (Some(public_pane_id), Some(tab_id)) = (
+            self.public_pane_id(ws_idx, pane_id),
+            self.public_tab_id_for_pane(ws_idx, pane_id),
+        ) else {
+            return;
+        };
+        self.emit_event(crate::api::schema::EventEnvelope {
+            event: crate::api::schema::EventKind::PaneCwdChanged,
+            data: crate::api::schema::EventData::PaneCwdChanged {
+                pane_id: public_pane_id,
+                workspace_id: self.public_workspace_id(ws_idx),
+                tab_id,
+                cwd: cwd.display().to_string(),
+            },
         });
     }
 
@@ -1075,6 +1123,9 @@ impl App {
             }
             Method::WorkspaceMoveBlock(params) => {
                 return self.handle_workspace_move_block(request.id, params);
+            }
+            Method::WorkspaceSetGroup(params) => {
+                return self.handle_workspace_set_group(request.id, params);
             }
             Method::WorkspaceReportMetadata(params) => {
                 return self.handle_workspace_report_metadata(request.id, params);

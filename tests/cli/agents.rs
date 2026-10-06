@@ -182,7 +182,7 @@ fn agent_start_stops_retrying_when_the_pane_shell_stays_busy() {
     );
     assert_eq!(unavailable.status.code(), Some(1));
     let error: serde_json::Value = serde_json::from_slice(&unavailable.stderr).unwrap();
-    assert_eq!(error["error"]["code"], "agent_pane_busy");
+    assert_eq!(error["error"]["code"], "shell_not_ready");
     assert!(started_at.elapsed() >= Duration::from_secs(2));
     assert!(started_at.elapsed() < Duration::from_secs(4));
     assert!(!invocations.exists());
@@ -484,7 +484,7 @@ fn agent_start_command_works() {
     );
     assert!(!busy.status.success());
     let busy_json: serde_json::Value = serde_json::from_slice(&busy.stderr).unwrap();
-    assert_eq!(busy_json["error"]["code"], "agent_pane_busy");
+    assert_eq!(busy_json["error"]["code"], "agent_present");
 
     cleanup_spawned_herdr(herdr, base);
 }
@@ -529,7 +529,7 @@ fn agent_start_rejects_a_shell_replaced_by_a_foreground_program() {
     );
     assert_eq!(started.status.code(), Some(1));
     let error: serde_json::Value = serde_json::from_slice(&started.stderr).unwrap();
-    assert_eq!(error["error"]["code"], "agent_pane_busy");
+    assert_eq!(error["error"]["code"], "pane_command_running");
     assert_eq!(
         pane_topology_snapshot(&run_cli_json(&socket_path, &["pane", "list"])),
         topology
