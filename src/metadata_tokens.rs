@@ -5,6 +5,8 @@ use std::time::{Duration, Instant};
 struct MetadataToken {
     value: String,
     expires_at: Option<Instant>,
+    /// Saved with the session, so it survives restarts and handoffs.
+    persist: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -58,12 +60,52 @@ impl MetadataTokens {
         ttl: Option<Duration>,
         now: Instant,
     ) -> bool {
-        let expires_at = ttl.and_then(|ttl| now.checked_add(ttl));
+        self.apply(patch, ttl.and_then(|ttl| now.checked_add(ttl)), false)
+    }
+
+    /// Patches tokens that never expire and are saved with the session.
+    pub(crate) fn patch_persisted(&mut self, patch: HashMap<String, Option<String>>) -> bool {
+        self.apply(patch, None, true)
+    }
+
+    /// Tokens restored from a saved session.
+    pub(crate) fn restored(values: HashMap<String, String>) -> Self {
+        let mut tokens = Self::default();
+        tokens.apply(
+            values
+                .into_iter()
+                .map(|(key, value)| (key, Some(value)))
+                .collect(),
+            None,
+            true,
+        );
+        tokens
+    }
+
+    /// The tokens to save with the session.
+    pub(crate) fn persisted(&self) -> HashMap<String, String> {
+        self.entries
+            .iter()
+            .filter(|(_, token)| token.persist)
+            .map(|(key, token)| (key.clone(), token.value.clone()))
+            .collect()
+    }
+
+    fn apply(
+        &mut self,
+        patch: HashMap<String, Option<String>>,
+        expires_at: Option<Instant>,
+        persist: bool,
+    ) -> bool {
         let mut changed = false;
         for (key, value) in patch {
             match value {
                 Some(value) => {
-                    let token = MetadataToken { value, expires_at };
+                    let token = MetadataToken {
+                        value,
+                        expires_at,
+                        persist,
+                    };
                     if self.entries.get(&key) != Some(&token) {
                         self.entries.insert(key, token);
                         changed = true;
@@ -190,6 +232,19 @@ mod tests {
             tokens.values(),
             HashMap::from([("persistent".into(), "two".into())])
         );
+    }
+
+    #[test]
+    fn only_persisted_tokens_are_saved_and_a_plain_patch_unpersists() {
+        let now = Instant::now();
+        let mut tokens = MetadataTokens::default();
+        tokens.patch_persisted(patch(&[("group", Some("work")), ("priority", Some("1"))]));
+        tokens.patch(patch(&[("git", Some("dirty"))]), None, now);
+        tokens.patch(patch(&[("priority", Some("2"))]), None, now);
+
+        let saved = tokens.persisted();
+        assert_eq!(saved, HashMap::from([("group".into(), "work".into())]));
+        assert_eq!(MetadataTokens::restored(saved).persisted().len(), 1);
     }
 
     #[test]
