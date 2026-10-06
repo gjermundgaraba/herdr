@@ -632,7 +632,7 @@ id = "read"
 title = "Read"
 command = ["sh", "./read.sh", "action"]
 [[panes]]
-id = "read"
+id = "view"
 title = "Read"
 placement = "tab"
 command = ["sh", "./read.sh", "pane"]
@@ -745,7 +745,7 @@ mv "$HERDR_PLUGIN_ROOT/result-$kind.tmp" "$HERDR_PLUGIN_ROOT/result-$kind"
                 "--plugin",
                 "example.live",
                 "--entrypoint",
-                "read",
+                "view",
             ],
         );
         assert_eq!(pane["result"]["type"], "plugin_pane_opened");
