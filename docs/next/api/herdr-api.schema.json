@@ -4547,6 +4547,10 @@
         },
         "WorkspaceReportMetadataParams": {
           "properties": {
+            "persist": {
+              "description": "Save the set tokens with the session so they survive restarts and\nhandoffs. Cannot be combined with `ttl_ms`.",
+              "type": "boolean"
+            },
             "seq": {
               "format": "uint64",
               "minimum": 0,

@@ -56,6 +56,10 @@ pub struct WorkspaceReportMetadataParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 1, max = 86_400_000))]
     pub ttl_ms: Option<u64>,
+    /// Save the set tokens with the session so they survive restarts and
+    /// handoffs. Cannot be combined with `ttl_ms`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub persist: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

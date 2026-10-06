@@ -49,6 +49,9 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   instead of focus; actions, panes, and startup hooks also get the invoking
   TUI's `client_id` (`HERDR_CLIENT_ID`), the target pane's agent session, the
   space's tabs, and every space (`src/app/api/plugins/context.rs`)
+- Persisted workspace tokens: `workspace.report_metadata` with `persist`
+  saves tokens in the session snapshot, so plugin state such as space groups
+  and priorities survives restarts and handoffs (`src/metadata_tokens.rs`)
 - Native pickers: `ui.pick` blocks while the invoking TUI shows a filterable
   list, and returns the picked id, created text, or cancellation
   (`src/server/headless/picks.rs`, `src/client/shell/picks.rs`)

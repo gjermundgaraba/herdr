@@ -770,7 +770,7 @@ Presentation text is normalized before storage. Herdr trims surrounding whitespa
 
 `source` and `applies_to_source` are source identifiers. They must be 80 characters or fewer and may contain only ASCII letters, digits, colon, dot, underscore, and hyphen.
 
-Use `ttl_ms` for short-lived metadata. It must be between `1` and `86400000` milliseconds. Omit `ttl_ms` for metadata that should stay until replaced, cleared, or the pane/workspace closes. Presentation fields retain their existing source-scoped expiry behavior; each token updated by the call receives its own deadline. Token metadata is not restored after a server restart.
+Use `ttl_ms` for short-lived metadata. It must be between `1` and `86400000` milliseconds. Omit `ttl_ms` for metadata that should stay until replaced, cleared, or the pane/workspace closes. Presentation fields retain their existing source-scoped expiry behavior; each token updated by the call receives its own deadline. Pane token metadata is not restored after a server restart. Workspace tokens reported with `"persist": true` are saved with the session and survive restarts and live handoffs until replaced or cleared; `persist` cannot be combined with `ttl_ms`, and a later report without `persist` makes the tokens it sets live-only again.
 
 Use `seq` when a hook may send updates out of order. For the same `source`, reports with a sequence number less than or equal to the last accepted sequence are accepted by the API but ignored by the pane state. A pane or workspace accepts sequenced token reports from at most 32 distinct sources during its lifetime; clearing or expiry does not release those source slots.
 
