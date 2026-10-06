@@ -16,6 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub mod directory;
+
 pub const PROTOCOL: u64 = 7;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// An endpoint and the server boot whose ids the caller captured. Pane, tab,
