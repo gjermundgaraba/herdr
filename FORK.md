@@ -25,7 +25,8 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
 
 - The per-TUI frontend socket and its protocol, documented in
   `docs/next/website/src/content/docs/frontend-api.md`
-- The `herdr-frontend` Rust client crate in `sdk/frontend`
+- The `herdr-frontend` Rust client crate in `sdk/frontend`, including TUI
+  discovery with one push subscription per TUI (`directory`)
 - Client-side `[keys]` actions: agent and workspace lists, Back/Forward
   history, and the unread hold
 - The `agent.prompt` method in the client command lane

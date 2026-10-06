@@ -14,7 +14,15 @@ herdr-frontend = { git = "https://github.com/gjermundgaraba/herdr", branch = "cu
 `discover(&directory())` lists the owner-only sockets in the TUI socket
 directory. The methods are `snapshot`, `subscribe`, `navigate`, `input`, and
 `call`; `Snapshot::route(endpoint_id)` yields the `Route` a mutation needs.
-`attention_order` sorts agents by how much they deserve a glance. The socket
+`attention_order` sorts agents by how much they deserve a glance.
+
+`directory::spawn_updates` watches the socket directory for TUIs coming and
+going, keeps one push subscription per TUI, and calls back with every live
+TUI's latest snapshot as `ClientState`s. It delivers every observed snapshot,
+including A→B→A, so route guards see each invalidation, and it repeats the
+current state on each 250 ms rescan; callers that only draw should coalesce.
+`ClientState::route` and `input_route` capture a `ClientRoute` for later
+mutations. The socket
 contract itself is documented in
 `docs/next/website/src/content/docs/frontend-api.md`.
 
