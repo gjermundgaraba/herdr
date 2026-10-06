@@ -11,6 +11,7 @@ pub mod response;
 pub mod server;
 pub mod session;
 pub mod tabs;
+pub mod ui;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -25,6 +26,7 @@ pub use response::*;
 pub use server::*;
 pub use session::*;
 pub use tabs::*;
+pub use ui::*;
 pub use workspaces::*;
 pub use worktrees::*;
 
@@ -249,6 +251,12 @@ pub enum Method {
     PluginPaneFocus(PluginPaneFocusParams),
     #[serde(rename = "plugin.pane.close")]
     PluginPaneClose(PluginPaneCloseParams),
+    #[serde(rename = "ui.pick")]
+    UiPick(UiPickParams),
+    #[serde(rename = "ui.pick.resolve")]
+    UiPickResolve(UiPickResolveParams),
+    #[serde(rename = "ui.pick.close")]
+    UiPickClose(UiPickCloseParams),
 }
 
 #[cfg(test)]

@@ -4474,6 +4474,169 @@
           ],
           "type": "string"
         },
+        "UiPickCloseParams": {
+          "properties": {
+            "pick_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pick_id"
+          ],
+          "type": "object"
+        },
+        "UiPickCreate": {
+          "description": "Offers a \"create\" row for query text that matches no item.",
+          "properties": {
+            "label": {
+              "description": "Row label prefix, such as \"New group\".",
+              "type": "string"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "type": "object"
+        },
+        "UiPickItem": {
+          "description": "One row of a native picker.",
+          "properties": {
+            "badge": {
+              "description": "Short marker shown before the label.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "detail": {
+              "description": "Secondary text shown after the label.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label"
+          ],
+          "type": "object"
+        },
+        "UiPickOutcome": {
+          "oneOf": [
+            {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "picked",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "created",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "text"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "cancelled",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "UiPickParams": {
+          "description": "Opens a picker on a TUI client and waits until it resolves.",
+          "properties": {
+            "client_id": {
+              "description": "Client to show the picker on; defaults to the foreground client.\nPlugins pass the `client_id` from their invocation context.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "create": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/UiPickCreate"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "items": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/UiPickItem"
+              },
+              "type": "array"
+            },
+            "selected": {
+              "description": "Id of the item selected when the picker opens.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "title",
+            "items"
+          ],
+          "type": "object"
+        },
+        "UiPickResolveParams": {
+          "description": "Sent by the client that shows a picker.",
+          "properties": {
+            "outcome": {
+              "$ref": "#/schemas/request/$defs/UiPickOutcome"
+            },
+            "pick_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pick_id",
+            "outcome"
+          ],
+          "type": "object"
+        },
         "WorkspaceCloseParams": {
           "properties": {
             "close_group": {
@@ -6478,6 +6641,54 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PluginPaneCloseParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "ui.pick",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/UiPickParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "ui.pick.resolve",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/UiPickResolveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "ui.pick.close",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/UiPickCloseParams"
             }
           },
           "required": [
@@ -10572,6 +10783,22 @@
             },
             {
               "properties": {
+                "outcome": {
+                  "$ref": "#/schemas/success_response/$defs/UiPickOutcome"
+                },
+                "type": {
+                  "const": "ui_picked",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "outcome"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "diagnostics": {
                   "items": {
                     "type": "string"
@@ -10784,6 +11011,54 @@
             "agent_status"
           ],
           "type": "object"
+        },
+        "UiPickOutcome": {
+          "oneOf": [
+            {
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "picked",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "text": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "created",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "text"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "cancelled",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
         },
         "WorkspaceInfo": {
           "properties": {

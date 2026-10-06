@@ -99,8 +99,8 @@ pub(super) fn render_worktree_create_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        worktree_search: Rect::default(),
-        worktree_rows: Vec::new(),
+        list_search: Rect::default(),
+        list_rows: Vec::new(),
         cursor: cursor.filter(|_| !create.creating),
         ..OverlayRender::default()
     })
@@ -298,8 +298,8 @@ pub(super) fn render_worktree_open_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        worktree_search: search,
-        worktree_rows: row_hits,
+        list_search: search,
+        list_rows: row_hits,
         cursor: cursor.filter(|_| !open.opening),
         ..OverlayRender::default()
     })
@@ -410,8 +410,8 @@ pub(super) fn render_worktree_remove_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        worktree_search: Rect::default(),
-        worktree_rows: Vec::new(),
+        list_search: Rect::default(),
+        list_rows: Vec::new(),
         cursor: None,
         ..OverlayRender::default()
     })

@@ -11,6 +11,8 @@ pub(crate) enum EndpointControlMessage {
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
+    PickOpen(crate::protocol::endpoint::EndpointPickOpen),
+    PickClose(crate::protocol::endpoint::EndpointPickClose),
     Ignored,
 }
 
@@ -20,6 +22,16 @@ pub(crate) fn decode_endpoint_control(
 ) -> Result<EndpointControlMessage, String> {
     if kind == crate::protocol::endpoint::HEALTH_PONG_KIND {
         return Ok(EndpointControlMessage::HealthPong);
+    }
+    if kind == crate::protocol::endpoint::PICK_OPEN_KIND {
+        return Ok(serde_json::from_str(data)
+            .map(EndpointControlMessage::PickOpen)
+            .unwrap_or(EndpointControlMessage::Ignored));
+    }
+    if kind == crate::protocol::endpoint::PICK_CLOSE_KIND {
+        return Ok(serde_json::from_str(data)
+            .map(EndpointControlMessage::PickClose)
+            .unwrap_or(EndpointControlMessage::Ignored));
     }
     if kind == crate::protocol::endpoint::AGENT_COMPLETIONS_KIND {
         return Ok(serde_json::from_str(data)

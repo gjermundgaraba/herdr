@@ -267,6 +267,9 @@ pub enum ResponseResult {
     PluginPaneClosed {
         pane_id: String,
     },
+    UiPicked {
+        outcome: super::UiPickOutcome,
+    },
     ConfigReload {
         status: crate::config::ConfigReloadStatus,
         diagnostics: Vec<String>,
