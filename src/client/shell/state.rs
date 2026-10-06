@@ -137,8 +137,8 @@ pub(super) struct ShellHitMap {
     pub(super) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(super) navigator_scrollbar: Rect,
     pub(super) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    pub(super) worktree_search: Rect,
-    pub(super) worktree_rows: Vec<(Rect, usize)>,
+    pub(super) list_search: Rect,
+    pub(super) list_rows: Vec<(Rect, usize)>,
     pub(super) help_popup: Rect,
     pub(super) help_scrollbar: Rect,
     pub(super) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -318,6 +318,7 @@ pub(super) enum ClientShellOverlayKind {
     ContextMenu,
     GlobalMenu,
     Settings,
+    Pick,
 }
 
 #[derive(Debug)]
@@ -540,6 +541,68 @@ impl ClientWorktreeOpenOverlay {
     }
 }
 
+/// A `ui.pick` picker the server asked this client to show.
+#[derive(Debug)]
+pub(super) struct ClientPickOverlay {
+    pub(super) pick_id: String,
+    pub(super) title: String,
+    pub(super) items: Vec<crate::api::schema::UiPickItem>,
+    pub(super) create: Option<crate::api::schema::UiPickCreate>,
+    pub(super) query: TextEditor,
+    /// Index into [`ClientPickOverlay::rows`].
+    pub(super) selected: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClientPickRow {
+    Item(usize),
+    Create,
+}
+
+impl ClientPickOverlay {
+    /// Items matching the query, then a create row when the query names no item.
+    pub(super) fn rows(&self) -> Vec<ClientPickRow> {
+        let query = self.query.trim().to_lowercase();
+        let mut rows = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                query.is_empty()
+                    || format!(
+                        "{} {}",
+                        item.label,
+                        item.detail.as_deref().unwrap_or_default()
+                    )
+                    .to_lowercase()
+                    .contains(&query)
+            })
+            .map(|(index, _)| ClientPickRow::Item(index))
+            .collect::<Vec<_>>();
+        if self.create.is_some()
+            && !query.is_empty()
+            && !self
+                .items
+                .iter()
+                .any(|item| item.label.trim().to_lowercase() == query)
+        {
+            rows.push(ClientPickRow::Create);
+        }
+        rows
+    }
+
+    pub(super) fn outcome(&self) -> Option<crate::api::schema::UiPickOutcome> {
+        Some(match *self.rows().get(self.selected)? {
+            ClientPickRow::Item(index) => crate::api::schema::UiPickOutcome::Picked {
+                id: self.items[index].id.clone(),
+            },
+            ClientPickRow::Create => crate::api::schema::UiPickOutcome::Created {
+                text: self.query.trim().to_owned(),
+            },
+        })
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct ClientWorktreeRemoveOverlay {
     pub(super) workspace_id: String,
@@ -635,6 +698,7 @@ pub(super) enum ClientShellOverlay {
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
     Settings(ClientSettingsOverlay),
+    Pick(ClientPickOverlay),
 }
 
 impl ClientShellOverlay {
@@ -653,6 +717,7 @@ impl ClientShellOverlay {
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
+            Self::Pick(_) => ClientShellOverlayKind::Pick,
         }
     }
 }

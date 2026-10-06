@@ -2103,6 +2103,30 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
+                            Ok(endpoint::EndpointControlMessage::PickOpen(open)) => {
+                                if let Some(shell) = state.shell.as_mut() {
+                                    if shell.receive_pick_open(&endpoint_id, open) {
+                                        if let Some(frame) = shell
+                                            .compose(state.reported_size.0, state.reported_size.1)
+                                        {
+                                            state.present_frame(frame);
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+                            Ok(endpoint::EndpointControlMessage::PickClose(close)) => {
+                                if let Some(shell) = state.shell.as_mut() {
+                                    if shell.receive_pick_close(&endpoint_id, close) {
+                                        if let Some(frame) = shell
+                                            .compose(state.reported_size.0, state.reported_size.1)
+                                        {
+                                            state.present_frame(frame);
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
                             Ok(endpoint::EndpointControlMessage::Ignored) => {
                                 debug!(%kind, "ignoring unknown endpoint control message");
                                 continue;

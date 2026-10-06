@@ -78,6 +78,7 @@ mod endpoint_requests;
 mod lifecycle;
 mod native_graphics;
 mod notifications;
+mod picks;
 mod render;
 mod retained_surface;
 mod surface_interest;
@@ -222,6 +223,8 @@ pub struct HeadlessServer {
     server_config_diagnostic_without_keybindings: Option<String>,
     /// Writable direct attach owner per terminal id string.
     terminal_attach_owners: HashMap<String, u64>,
+    /// Open `ui.pick` pickers by pick id, each waiting on its API caller.
+    pending_picks: HashMap<String, picks::PendingPick>,
     /// Deferred application-history reads currently driving alternate-screen viewports.
     pending_alt_screen_reads: Vec<crate::server::alt_screen_read::PendingAltScreenRead>,
     /// Reads waiting for an alternate-screen traversal of the same terminal to finish.
@@ -361,6 +364,7 @@ impl HeadlessServer {
             server_config_diagnostic,
             server_config_diagnostic_without_keybindings,
             terminal_attach_owners: HashMap::new(),
+            pending_picks: HashMap::new(),
             pending_alt_screen_reads: Vec::new(),
             deferred_alt_screen_reads: Vec::new(),
             next_activity_stamp: 1,
@@ -914,6 +918,7 @@ impl HeadlessServer {
             })
         });
         let was_foreground = self.foreground_client_id == Some(client_id);
+        self.cancel_client_picks(client_id);
         let removed = self.clients.remove(&client_id);
         self.tab_geometry_controllers
             .retain(|_, controller_id| *controller_id != client_id);
@@ -2878,6 +2883,10 @@ impl HeadlessServer {
             }
             return true;
         }
+
+        let Some(msg) = self.handle_ui_pick_request(msg) else {
+            return true;
+        };
 
         if let api::schema::Method::NotificationShow(params) = &msg.request.method {
             let response =

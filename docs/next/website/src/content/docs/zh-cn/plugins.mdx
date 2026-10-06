@@ -261,6 +261,22 @@ JSON 获取完整结构。
 命令见 [CLI 参考](/zh-cn/docs/cli-reference/),原始请求结构见
 [socket API](/zh-cn/docs/socket-api/)。
 
+## 选择器
+
+需要用户做出选择的插件调用 `ui.pick`,而不是自己绘制选择器窗格。Herdr 会在
+启动插件的 TUI(上下文中的 `client_id`)中显示可过滤的原生列表,该客户端不在时
+则显示在前台 TUI 中,调用会阻塞直到用户作答:
+
+```json
+{"id":"req_pick","method":"ui.pick","params":{"title":"Move pane to","items":[{"id":"t2","label":"build","badge":"2","detail":"3 panes"}],"selected":"t2","create":{"label":"New tab"},"client_id":7}}
+```
+
+结果中的 `outcome` 为 `{"type":"picked","id":"t2"}`;设置了 `create` 且用户提交了
+不匹配任何标签的过滤文本时为 `{"type":"created","text":"..."}`;否则为
+`{"type":"cancelled"}`。每个客户端同时只能打开一个选择器,第二次调用返回
+`ui_busy`,`no_client` 表示没有连接的 TUI。关闭请求连接或用 pick id 调用
+`ui.pick.close` 会关闭选择器。
+
 ## 窗格
 
 清单中窗格的 `placement` 默认为 `overlay`,它在活动窗格上方打开一个

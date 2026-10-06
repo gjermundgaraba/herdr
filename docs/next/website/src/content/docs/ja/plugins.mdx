@@ -295,6 +295,24 @@ Windows クライアントは名前付きパイプに接続します。`HERDR_BI
 [CLI リファレンス](/ja/docs/cli-reference/)、生のリクエスト形式は
 [ソケット API](/ja/docs/socket-api/)を参照してください。
 
+## ピッカー
+
+ユーザーに選択を求めるプラグインは、独自のピッカーペインを描画する代わりに
+`ui.pick` を呼び出します。Herdr はプラグインを起動した TUI (コンテキストの
+`client_id`)、そのクライアントがいなければ前面の TUI に、絞り込み可能なネイティブの
+リストを表示し、ユーザーが答えるまで呼び出しはブロックします:
+
+```json
+{"id":"req_pick","method":"ui.pick","params":{"title":"Move pane to","items":[{"id":"t2","label":"build","badge":"2","detail":"3 panes"}],"selected":"t2","create":{"label":"New tab"},"client_id":7}}
+```
+
+結果の `outcome` は `{"type":"picked","id":"t2"}`、`create` を指定していてユーザーが
+どのラベルにも一致しない絞り込みテキストを確定した場合は
+`{"type":"created","text":"..."}`、または `{"type":"cancelled"}` です。ピッカーは
+クライアントごとに 1 つだけ開けます。2 つ目の呼び出しは `ui_busy` を返し、
+`no_client` は TUI が接続されていないことを示します。リクエストの接続を閉じるか、
+pick id を指定して `ui.pick.close` を呼ぶとピッカーは閉じます。
+
 ## ペイン
 
 マニフェストのペイン `placement` のデフォルトは `overlay` で、アクティブなペインの

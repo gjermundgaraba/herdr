@@ -45,6 +45,7 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "tab.focus",
     "tab.move",
     "tab.rename",
+    "ui.pick.resolve",
     "workspace.close",
     "workspace.create",
     "workspace.focus",
@@ -302,6 +303,10 @@ mod tests {
         assert_eq!(
             actual.remove("agent.prompt").as_deref(),
             Some("0cb08afb7f2e5317370d8c8a6664a2109116532e21d29e94da8e92b86fd200f4")
+        );
+        assert_eq!(
+            actual.remove("ui.pick.resolve").as_deref(),
+            Some("4d7bdabc63bd848851f6da06f4da1a94782ddec890c5f7776455c2fc4b969f49")
         );
         assert_eq!(
             actual.remove("plugin.action.invoke").as_deref(),

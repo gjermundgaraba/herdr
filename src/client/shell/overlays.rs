@@ -1,5 +1,6 @@
 use super::*;
 
+mod pick_overlay;
 mod settings_overlay;
 mod worktree_overlays;
 
@@ -15,8 +16,8 @@ pub(crate) struct OverlayRender {
     pub(crate) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(crate) navigator_scrollbar: Rect,
     pub(crate) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    pub(crate) worktree_search: Rect,
-    pub(crate) worktree_rows: Vec<(Rect, usize)>,
+    pub(crate) list_search: Rect,
+    pub(crate) list_rows: Vec<(Rect, usize)>,
     pub(crate) help_popup: Rect,
     pub(crate) help_scrollbar: Rect,
     pub(crate) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -80,6 +81,7 @@ pub(crate) fn render_client_overlay(
         ClientShellOverlay::WorktreeRemove(v) => {
             worktree_overlays::render_worktree_remove_overlay(b, v, p)
         }
+        ClientShellOverlay::Pick(v) => pick_overlay::render_pick_overlay(b, v, p),
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }
 }
@@ -681,8 +683,8 @@ fn render_rename_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        worktree_search: Rect::default(),
-        worktree_rows: Vec::new(),
+        list_search: Rect::default(),
+        list_rows: Vec::new(),
         cursor,
         ..OverlayRender::default()
     })
@@ -1064,8 +1066,8 @@ fn render_navigator_overlay(
         navigator_rows: row_hits,
         navigator_scrollbar: scrollbar.unwrap_or_default(),
         navigator_scroll_metrics: Some(metrics),
-        worktree_search: Rect::default(),
-        worktree_rows: Vec::new(),
+        list_search: Rect::default(),
+        list_rows: Vec::new(),
         cursor,
         ..OverlayRender::default()
     })
@@ -1330,8 +1332,8 @@ fn render_confirm_close_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        worktree_search: Rect::default(),
-        worktree_rows: Vec::new(),
+        list_search: Rect::default(),
+        list_rows: Vec::new(),
         cursor: None,
         ..OverlayRender::default()
     })

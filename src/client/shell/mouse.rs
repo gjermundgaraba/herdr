@@ -1486,6 +1486,43 @@ impl ClientShellState {
             }
             return;
         }
+        if matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.move_pick_selection(-1);
+                    outcome.repaint = true;
+                }
+                MouseEventKind::ScrollDown => {
+                    self.move_pick_selection(1);
+                    outcome.repaint = true;
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    let row = self
+                        .hits
+                        .list_rows
+                        .iter()
+                        .find(|(rect, _)| super::contains(*rect, point))
+                        .map(|(_, index)| *index);
+                    if super::contains(self.hits.overlay_cancel, point) {
+                        self.resolve_pick(
+                            Some(crate::api::schema::UiPickOutcome::Cancelled),
+                            outcome,
+                        );
+                    } else if let Some(index) = row {
+                        if let Some(ClientShellOverlay::Pick(pick)) = self.overlay.as_mut() {
+                            pick.selected = index;
+                        }
+                        self.resolve_pick(None, outcome);
+                    } else if super::contains(self.hits.overlay_primary, point)
+                        && matches!(&self.overlay, Some(ClientShellOverlay::Pick(pick)) if pick.outcome().is_some())
+                    {
+                        self.resolve_pick(None, outcome);
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         if matches!(
             self.overlay,
             Some(
@@ -1526,7 +1563,7 @@ impl ClientShellState {
                             self.overlay = None;
                             outcome.repaint = true;
                         }
-                    } else if super::contains(self.hits.worktree_search, point) {
+                    } else if super::contains(self.hits.list_search, point) {
                         if let Some(ClientShellOverlay::WorktreeOpen(open)) = self.overlay.as_mut()
                         {
                             open.search_focused = true;
@@ -1534,7 +1571,7 @@ impl ClientShellState {
                         }
                     } else if let Some((_, index)) = self
                         .hits
-                        .worktree_rows
+                        .list_rows
                         .iter()
                         .find(|(rect, _)| super::contains(*rect, point))
                         .copied()

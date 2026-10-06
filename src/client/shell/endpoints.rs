@@ -175,6 +175,10 @@ impl ClientShellState {
             self.pending_integration_installs = 0;
             self.pane_scroll_in_flight.clear();
             self.pane_scroll_queued.clear();
+            // The server cancels the picker when this connection drops.
+            if matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
+                self.overlay = None;
+            }
         }
     }
 
@@ -244,6 +248,10 @@ impl ClientShellState {
             self.active_endpoint_id = endpoint_id.clone();
             self.pane_surface = None;
             self.pending_pane_surface = None;
+            // A picker belongs to the endpoint that opened it.
+            if matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
+                self.overlay = None;
+            }
         }
         self.apply_active_snapshot(snapshot, generation);
         if switching_endpoint {

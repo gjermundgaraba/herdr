@@ -297,6 +297,24 @@ while Windows clients connect to a named pipe. CLI calls through
 [CLI reference](/docs/cli-reference/) for available commands and
 [socket API](/docs/socket-api/) for raw request shapes.
 
+## Pickers
+
+A plugin that needs a choice from the user calls `ui.pick` instead of drawing
+its own picker pane. Herdr shows a native filterable list in the TUI that
+started the plugin (the context's `client_id`), or in the foreground TUI when
+that client is gone, and the call blocks until the user answers:
+
+```json
+{"id":"req_pick","method":"ui.pick","params":{"title":"Move pane to","items":[{"id":"t2","label":"build","badge":"2","detail":"3 panes"}],"selected":"t2","create":{"label":"New tab"},"client_id":7}}
+```
+
+The result's `outcome` is `{"type":"picked","id":"t2"}`,
+`{"type":"created","text":"..."}` when `create` is set and the user submits
+filter text that matches no label, or `{"type":"cancelled"}`. Only one picker is
+open per client; a second call returns `ui_busy`, and `no_client` means no TUI
+is attached. Closing the request connection or calling `ui.pick.close` with
+the pick id dismisses the picker.
+
 ## Panes
 
 Manifest pane `placement` defaults to `overlay`, which opens a temporary zoomed

@@ -1182,7 +1182,7 @@ fn worktree_open_filters_and_clicks_a_stable_public_entry() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("feature"));
-    let row = state.hits.worktree_rows[0].0;
+    let row = state.hits.list_rows[0].0;
     let open = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: row.x + 2,
