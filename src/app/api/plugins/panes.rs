@@ -8,12 +8,6 @@ use crate::api::schema::{
 use crate::app::App;
 use crate::layout::PaneId;
 
-pub(super) enum PluginPaneInvocation {
-    Api,
-    // Selection has already been validated and read by command dispatch.
-    Keybinding { selected_text: Option<String> },
-}
-
 enum PaneTarget {
     Popup,
     Overlay,
@@ -37,12 +31,14 @@ struct PaneLaunch {
 
 impl App {
     /// Open a resolved pane entrypoint. Request sizes apply only to popups.
+    /// An invocation `context` describes its target; without one, the
+    /// placement target supplies it.
     pub(super) fn open_plugin_pane(
         &mut self,
         plugin: InstalledPluginInfo,
         mut pane: PluginManifestPane,
         params: PluginPaneOpenParams,
-        invocation: PluginPaneInvocation,
+        context: Option<PluginInvocationContext>,
     ) -> Result<ResponseResult, ErrorBody> {
         let PluginPaneOpenParams {
             placement,
@@ -62,23 +58,15 @@ impl App {
             target_pane_id.as_deref(),
             direction,
         )?;
-        let correlation_id = match invocation {
-            PluginPaneInvocation::Api => "plugin-pane",
-            PluginPaneInvocation::Keybinding { .. } => "keybinding",
-        };
-        let mut context = match target {
-            PaneTarget::Popup | PaneTarget::Overlay => self.current_plugin_context(correlation_id),
+        let context = context.unwrap_or_else(|| match target {
+            PaneTarget::Popup | PaneTarget::Overlay => self.current_plugin_context("plugin-pane"),
             PaneTarget::Split {
                 workspace, pane, ..
-            } => self.plugin_context_for_pane(workspace, pane, correlation_id),
+            } => self.plugin_context_for_pane(workspace, pane, "plugin-pane"),
             PaneTarget::Tab { workspace } => {
-                self.plugin_context_for_workspace(workspace, correlation_id)
+                self.plugin_context_for_workspace(workspace, "plugin-pane")
             }
-        };
-        if let PluginPaneInvocation::Keybinding { selected_text } = invocation {
-            context.invocation_source = Some("keybinding".to_owned());
-            context.selected_text = selected_text;
-        }
+        });
         pane.command[0] = crate::plugin_command::program_for_cwd(
             &pane.command[0],
             std::path::Path::new(&plugin.plugin_root),

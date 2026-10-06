@@ -284,7 +284,7 @@ mod tests {
             panes: Vec::new(),
             agents: Vec::new(),
             commands: Vec::new(),
-            workspace_actions: Vec::new(),
+            plugin_entries: Vec::new(),
         }
     }
 

@@ -318,17 +318,7 @@ command = ["sh", "-c", "sleep 5"]
         "example.layout"
     );
 
-    let invoked = run_cli_json(
-        &socket_path,
-        &[
-            "plugin",
-            "action",
-            "invoke",
-            "apply",
-            "--plugin",
-            "example.layout",
-        ],
-    );
+    let invoked = run_cli_json(&socket_path, &["plugin", "invoke", "example.layout.apply"]);
     assert_eq!(invoked["result"]["type"], "plugin_action_invoked");
     assert_eq!(invoked["result"]["action"]["action_id"], "apply");
 

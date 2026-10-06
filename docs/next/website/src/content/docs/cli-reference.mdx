@@ -493,18 +493,18 @@ herdr plugin config-dir <plugin_id>
 
 `plugin config-dir` prints the plugin's config directory. It creates the directory if needed and seeds it from legacy plugin config locations when present. Use it in setup docs and shell scripts to point users at a stable path for `.env` files and other user-editable config, separate from the managed plugin checkout.
 
-Actions:
+Actions and entrypoints:
 
 ```bash
 herdr plugin action list [--plugin ID]
-herdr plugin action invoke <action_id> [--plugin ID]
+herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]
 ```
 
-`plugin action invoke` starts the manifest command for an installed, enabled,
-platform-compatible plugin action and prints the started command log record in
-the JSON response. Use the qualified action id (`plugin.id.action`) when more
-than one plugin uses the same action id. Local action ids cannot contain dots,
-so qualified ids remain unambiguous even when plugin ids contain dots.
+`plugin invoke` runs an action or opens a pane of an installed, enabled,
+platform-compatible plugin, like a `type = "plugin"` key, with the given space,
+tab, or pane as its context. An action prints the started command log record in
+the JSON response. Entry ids cannot contain dots, so the qualified id remains
+unambiguous even when plugin ids contain dots.
 
 Logs:
 

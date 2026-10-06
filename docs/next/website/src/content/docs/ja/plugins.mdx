@@ -113,6 +113,15 @@ ASCII の英字、数字、コロン、アンダースコア、ハイフンが�
 リンクハンドラー id はリンクハンドラー同士で一意でなければなりません。グローバルに
 一意な名前が必要なとき、Herdr はアクション id とペイン id を `plugin.id.entrypoint` の形に修飾します。
 
+アクションとペインは `contexts` を列挙すると、`title` で右クリックメニューに
+表示されます: `"workspace"` はスペースのメニュー、`"tab"` はタブのメニュー、
+`"pane"` はペインのメニュー、`"selection"` は選択範囲があるときのペインのメニューです。
+選ぶと、クリックしたスペース、タブ、ペインをコンテキストとして呼び出されるため、
+別の対象にフォーカスがあっても `HERDR_WORKSPACE_ID` と `HERDR_PANE_ID` はその対象を
+指し、選択範囲のエントリは `selected_text` を受け取ります。`"global"` と空のリストは
+メニュー項目を追加しません。キーと `plugin.invoke` は contexts に関係なく任意の
+エントリを実行できます。
+
 プラグインが動作する場所は `platforms = ["linux", "macos", "windows"]` で宣言します。
 ビルドコマンド、スタートアップフック、アクション、イベントフック、ペイン、
 リンクハンドラーも独自の `platforms` を宣言でき、項目レベルの platforms は
@@ -186,7 +195,7 @@ herdr plugin action list --plugin examples.agent-telegram-notify
 herdr plugin link /path/to/plugin
 herdr plugin config-dir example.layout
 herdr plugin action list --plugin example.layout
-herdr plugin action invoke example.layout.apply
+herdr plugin invoke example.layout.apply
 herdr plugin pane open --plugin example.layout --entrypoint board
 herdr plugin log list --plugin example.layout
 ```

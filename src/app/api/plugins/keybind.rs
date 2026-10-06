@@ -1,10 +1,7 @@
 //! `type = "plugin"` key commands. The command names one entrypoint as
-//! `plugin_id.entrypoint`; actions run as plugin commands and panes open
-//! directly, both with the originating pane and selection as context.
+//! `plugin_id.entrypoint`, invoked with the originating pane and selection as
+//! context; command dispatch has already focused that pane.
 
-use super::entrypoint::PluginEntrypoint;
-use super::panes::PluginPaneInvocation;
-use crate::api::schema::PluginPaneOpenParams;
 use crate::app::App;
 use crate::config::CustomCommandKeybind;
 
@@ -18,44 +15,21 @@ impl App {
             .map_err(|err| format!("plugin_registry_load_failed: {err}"))?;
         let result = self
             .resolve_qualified_plugin_entrypoint(&binding.command)
-            .and_then(|(plugin, entrypoint)| match entrypoint {
-                PluginEntrypoint::Action(action) => {
-                    let mut context = self.current_plugin_context("keybinding");
-                    context.invocation_source = Some("keybinding".to_owned());
-                    context.selected_text = selected_text;
-                    self.start_plugin_command(
-                        &plugin,
-                        Some(action.action_id),
-                        None,
-                        action.command,
-                        &context,
-                        None,
-                    )
-                    .map(|_| ())
-                    .map_err(|(code, message)| super::entrypoint::plugin_error(code, message))
-                }
-                PluginEntrypoint::Pane(pane) => self
-                    .open_plugin_pane(
-                        plugin,
-                        pane,
-                        PluginPaneOpenParams {
-                            plugin_id: String::new(),
-                            entrypoint: String::new(),
-                            placement: None,
-                            width: binding.width,
-                            height: binding.height,
-                            workspace_id: None,
-                            target_pane_id: None,
-                            direction: None,
-                            cwd: None,
-                            focus: true,
-                            env: Default::default(),
-                        },
-                        PluginPaneInvocation::Keybinding { selected_text },
-                    )
-                    .map(|_| ()),
+            .and_then(|(plugin, entrypoint)| {
+                let mut context = self.current_plugin_context("keybinding");
+                context.invocation_source = Some("keybinding".to_owned());
+                context.selected_text = selected_text;
+                self.invoke_plugin_entrypoint(
+                    plugin,
+                    entrypoint,
+                    context,
+                    binding.width,
+                    binding.height,
+                )
             });
-        result.map_err(|error| format!("{}: {}", error.code, error.message))
+        result
+            .map(|_| ())
+            .map_err(|error| format!("{}: {}", error.code, error.message))
     }
 }
 
@@ -279,6 +253,38 @@ printf '%s' "$HERDR_PLUGIN_CONTEXT_JSON" > context.json
         assert_eq!(app.state.plugin_commands_in_flight, 1);
         assert!(app.state.popup_pane.is_none());
         assert!(app.state.plugin_panes.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_invoke_targets_a_pane_without_moving_focus() {
+        let fixture = Fixture::new();
+        let mut app = test_app(&fixture);
+        let target_pane = app.state.workspaces[1].tabs[0].root_pane;
+        let target_id = app.public_pane_id(1, target_pane).unwrap();
+        let mut params = crate::api::schema::PluginInvokeParams {
+            plugin_id: "example.keybound".into(),
+            entry_id: "run".into(),
+            workspace_id: Some(app.public_workspace_id(1)),
+            tab_id: None,
+            pane_id: Some(target_id.clone()),
+            selection: None,
+        };
+        let response = app.handle_plugin_invoke("menu".into(), params.clone());
+        let success: SuccessResponse = serde_json::from_str(&response).expect(&response);
+        let crate::api::schema::ResponseResult::PluginActionInvoked { context, .. } =
+            success.result
+        else {
+            panic!("expected an action invocation: {response}");
+        };
+        assert_eq!(context.focused_pane_id, Some(target_id));
+        assert_eq!(app.state.active, Some(0));
+
+        params.workspace_id = Some(app.public_workspace_id(0));
+        let response = app.handle_plugin_invoke("mismatch".into(), params);
+        let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "target_mismatch");
+        assert_eq!(app.state.plugin_commands_in_flight, 1);
     }
 
     #[test]

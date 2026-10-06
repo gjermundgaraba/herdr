@@ -63,7 +63,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
         }],
         agents: Vec::new(),
         commands: Vec::new(),
-        workspace_actions: Vec::new(),
+        plugin_entries: Vec::new(),
     }
 }
 

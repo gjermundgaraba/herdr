@@ -453,10 +453,10 @@ herdr plugin config-dir <plugin_id>
 
 ```bash
 herdr plugin action list [--plugin ID]
-herdr plugin action invoke <action_id> [--plugin ID]
+herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]
 ```
 
-`plugin action invoke` は、インストール済みで有効かつプラットフォーム互換のプラグインアクションのマニフェストコマンドを起動し、開始されたコマンドのログレコードを JSON レスポンスに表示します。複数のプラグインが同じアクション id を使っている場合は、修飾されたアクション id (`plugin.id.action`) を使ってください。ローカルのアクション id はドットを含められないため、プラグイン id がドットを含んでいても修飾 id は曖昧になりません。
+`plugin invoke` は、インストール済みで有効かつプラットフォーム互換のプラグインのアクションを実行するかペインを開きます。`type = "plugin"` のキーと同様に、指定したスペース、タブ、ペインをコンテキストにします。アクションは開始されたコマンドのログレコードを JSON レスポンスに表示します。エントリ id はドットを含められないため、プラグイン id がドットを含んでいても修飾 id は曖昧になりません。
 
 ログ:
 

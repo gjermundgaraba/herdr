@@ -106,20 +106,14 @@ impl App {
             return crate::app::api::responses::encode_error(id, code, message);
         }
         let selected_text = if binding.action == crate::config::CustomCommandAction::Plugin {
-            let Some(selection) = params.selection.as_ref() else {
-                return self.execute_custom_command_response(id, &binding, None);
-            };
-            if params.pane_id.as_deref() != Some(selection.pane_id.as_str()) {
-                return crate::app::api::responses::encode_error(
-                    id,
-                    "command_target_mismatch",
-                    "command selection does not belong to the requested pane",
-                );
-            }
-            match self.pane_selection_text(selection) {
-                Ok(text) => Some(text),
-                Err((code, message)) => {
-                    return crate::app::api::responses::encode_error(id, code, message);
+            match self.plugin_selection_text(params.pane_id.as_deref(), params.selection.as_ref()) {
+                Ok(text) => text,
+                Err(error) => {
+                    return crate::app::api::responses::encode_error(
+                        id,
+                        &error.code,
+                        error.message,
+                    );
                 }
             }
         } else {

@@ -1207,8 +1207,8 @@ impl App {
             Method::PluginActionList(params) => {
                 return self.handle_plugin_action_list(request.id, params);
             }
-            Method::PluginActionInvoke(params) => {
-                return self.handle_plugin_action_invoke(request.id, params);
+            Method::PluginInvoke(params) => {
+                return self.handle_plugin_invoke(request.id, params);
             }
             Method::PluginLogList(params) => {
                 return self.handle_plugin_log_list(request.id, params);

@@ -38,13 +38,13 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   its blocked and done agents to the top of the `priority` agent order; the
   agent picker shows the first listed token's value. That order also queues
   blocked and done agents oldest state change first (`src/agent_priority.rs`)
-- Space context menu items: plugin actions with the `workspace` context appear
-  in a space's right-click menu and run against the clicked space
-  (`src/app/api/plugins/workspace_actions.rs`)
-- `type = "plugin"` keybindings run any manifest entrypoint, opening panes
-  directly with the originating pane and selection as context. Actions and
-  panes share one id namespace and one resolver
-  (`src/app/api/plugins/entrypoint.rs`, `keybind.rs`)
+- Plugin menu items: actions and panes whose `contexts` name `workspace`,
+  `tab`, `pane`, or `selection` appear in the matching right-click menus and
+  run against the clicked target (`src/app/api/plugins/menu_entries.rs`)
+- One invoke path: `type = "plugin"` keybindings, menus, and `plugin.invoke`
+  (which replaces `plugin.action.invoke`) run any manifest entrypoint with a
+  target pane, tab, or space and its selection as context. Actions and panes
+  share one id namespace and one resolver (`src/app/api/plugins/entrypoint.rs`)
 - Plugin invocation context: menu, key, and API targets supply the context
   instead of focus; actions, panes, and startup hooks also get the invoking
   TUI's `client_id` (`HERDR_CLIENT_ID`), the target pane's agent session, the

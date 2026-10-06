@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::api::schema::PluginActionContext;
+
 impl ClientContextMenuOverlay {
     pub(super) fn items(&self) -> Vec<ClientContextMenuItem<'_>> {
         use ClientContextMenuAction as Action;
@@ -76,14 +78,12 @@ impl ClientContextMenuOverlay {
                 items
             }
         };
-        if let ClientContextMenuTarget::Workspace { plugin_actions, .. } = &self.target {
-            items.extend(plugin_actions.iter().enumerate().map(|(index, action)| {
-                ClientContextMenuItem {
-                    label: &action.title,
-                    action: Action::PluginAction(index),
-                }
-            }));
-        }
+        items.extend(
+            self.plugin_entries
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| item(&entry.title, Action::PluginEntry(index))),
+        );
         items
     }
 }
@@ -125,8 +125,8 @@ impl ClientShellState {
                 is_linked_worktree: worktree.is_some_and(|worktree| worktree.is_linked_worktree),
                 has_worktree_children,
                 collapsed,
-                plugin_actions: snapshot.workspace_actions.clone(),
             },
+            plugin_entries: plugin_entries_for(snapshot, &[PluginActionContext::Workspace]),
             x,
             y,
             highlighted: 0,
@@ -134,11 +134,10 @@ impl ClientShellState {
     }
 
     pub(super) fn open_tab_context_menu(&mut self, tab_id: String, x: u16, y: u16) {
-        let Some(tab) = self
-            .snapshot
-            .as_deref()
-            .and_then(|snapshot| snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id))
-        else {
+        let Some(snapshot) = self.snapshot.as_deref() else {
+            return;
+        };
+        let Some(tab) = snapshot.tabs.iter().find(|tab| tab.tab_id == tab_id) else {
             return;
         };
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
@@ -146,6 +145,7 @@ impl ClientShellState {
                 tab_id,
                 workspace_id: tab.workspace_id.clone(),
             },
+            plugin_entries: plugin_entries_for(snapshot, &[PluginActionContext::Tab]),
             x,
             y,
             highlighted: 0,
@@ -163,6 +163,12 @@ impl ClientShellState {
             .focused_pane_id
             .clone()
             .filter(|focused| focused != &pane_id);
+        let selection = self.selection_params(&pane_id);
+        let contexts: &[PluginActionContext] = if selection.is_some() {
+            &[PluginActionContext::Pane, PluginActionContext::Selection]
+        } else {
+            &[PluginActionContext::Pane]
+        };
         self.overlay = Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
             target: ClientContextMenuTarget::Pane {
                 pane_id,
@@ -170,7 +176,9 @@ impl ClientShellState {
                 source_pane_id,
                 has_manual_label: pane.label.is_some(),
                 right_click_passthrough: pane.right_click_passthrough,
+                selection,
             },
+            plugin_entries: plugin_entries_for(snapshot, contexts),
             x,
             y,
             highlighted: 0,
@@ -201,17 +209,17 @@ impl ClientShellState {
             outcome.repaint = true;
             return;
         };
+        if let ClientContextMenuAction::PluginEntry(index) = action {
+            if let Some(entry) = menu.plugin_entries.into_iter().nth(index) {
+                self.invoke_plugin_entry(entry, menu.target, outcome);
+            }
+            outcome.repaint = true;
+            return;
+        }
         match menu.target {
-            ClientContextMenuTarget::Workspace {
-                workspace_id,
-                plugin_actions,
-                ..
-            } => self.activate_workspace_context_action(
-                workspace_id,
-                plugin_actions,
-                action,
-                outcome,
-            ),
+            ClientContextMenuTarget::Workspace { workspace_id, .. } => {
+                self.activate_workspace_context_action(workspace_id, action, outcome)
+            }
             ClientContextMenuTarget::Tab {
                 tab_id,
                 workspace_id,
@@ -234,10 +242,53 @@ impl ClientShellState {
         outcome.repaint = true;
     }
 
+    /// Invokes a plugin entry with the clicked space, tab, or pane as target.
+    fn invoke_plugin_entry(
+        &mut self,
+        entry: crate::protocol::ClientShellPluginEntry,
+        target: ClientContextMenuTarget,
+        outcome: &mut ClientShellInput,
+    ) {
+        let mut params = crate::api::schema::PluginInvokeParams {
+            plugin_id: entry.plugin_id,
+            entry_id: entry.entry_id,
+            workspace_id: None,
+            tab_id: None,
+            pane_id: None,
+            selection: None,
+        };
+        match target {
+            ClientContextMenuTarget::Workspace { workspace_id, .. } => {
+                params.workspace_id = Some(workspace_id);
+            }
+            ClientContextMenuTarget::Tab {
+                tab_id,
+                workspace_id,
+            } => {
+                params.workspace_id = Some(workspace_id);
+                params.tab_id = Some(tab_id);
+            }
+            ClientContextMenuTarget::Pane {
+                pane_id,
+                workspace_id,
+                selection,
+                ..
+            } => {
+                params.workspace_id = Some(workspace_id);
+                params.pane_id = Some(pane_id);
+                params.selection = selection;
+            }
+        }
+        self.push_plugin_method(
+            crate::api::schema::Method::PluginInvoke(params),
+            entry.popup,
+            outcome,
+        );
+    }
+
     fn activate_workspace_context_action(
         &mut self,
         workspace_id: String,
-        plugin_actions: Vec<crate::protocol::ClientShellPluginAction>,
         action: ClientContextMenuAction,
         outcome: &mut ClientShellInput,
     ) {
@@ -300,24 +351,6 @@ impl ClientShellState {
                     let endpoint_id = self.active_endpoint_id.clone();
                     self.toggle_collapsed_group(&endpoint_id, key);
                     self.persist_chrome_preferences(outcome);
-                }
-            }
-            ClientContextMenuAction::PluginAction(index) => {
-                if let Some(plugin_action) = plugin_actions.into_iter().nth(index) {
-                    self.push_endpoint_method(
-                        crate::api::schema::Method::PluginActionInvoke(
-                            crate::api::schema::PluginActionInvokeParams {
-                                action_id: plugin_action.action_id,
-                                plugin_id: Some(plugin_action.plugin_id),
-                                context: Some(crate::api::schema::PluginInvocationContext {
-                                    workspace_id: Some(workspace_id),
-                                    invocation_source: Some("context_menu".to_owned()),
-                                    ..Default::default()
-                                }),
-                            },
-                        ),
-                        outcome,
-                    );
                 }
             }
             _ => {}
@@ -498,4 +531,22 @@ impl ClientShellState {
             _ => {}
         }
     }
+}
+
+/// The snapshot's plugin entries offered in a menu with any of `contexts`.
+fn plugin_entries_for(
+    snapshot: &crate::protocol::ClientShellSnapshot,
+    contexts: &[PluginActionContext],
+) -> Vec<crate::protocol::ClientShellPluginEntry> {
+    snapshot
+        .plugin_entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .contexts
+                .iter()
+                .any(|context| contexts.contains(context))
+        })
+        .cloned()
+        .collect()
 }

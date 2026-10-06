@@ -453,10 +453,10 @@ herdr plugin config-dir <plugin_id>
 
 ```bash
 herdr plugin action list [--plugin ID]
-herdr plugin action invoke <action_id> [--plugin ID]
+herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]
 ```
 
-`plugin action invoke` 为一个已安装、已启用、平台兼容的插件动作启动清单命令,并在 JSON 响应中打印已启动命令的日志记录。当多个插件使用相同的动作 id 时,使用限定的动作 id (`plugin.id.action`)。本地动作 id 不能包含点,所以即使插件 id 包含点,限定 id 也不会有歧义。
+`plugin invoke` 运行一个已安装、已启用、平台兼容插件的动作或打开其窗格,与 `type = "plugin"` 按键一样,以给定的空间、标签页或窗格作为上下文。动作会在 JSON 响应中打印已启动命令的日志记录。条目 id 不能包含点,所以即使插件 id 包含点,限定 id 也不会有歧义。
 
 日志:
 

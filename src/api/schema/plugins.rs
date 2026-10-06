@@ -269,6 +269,8 @@ pub struct PluginManifestPane {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platforms: Option<Vec<PluginPlatform>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contexts: Vec<PluginActionContext>,
     #[serde(default)]
     pub placement: PluginPanePlacement,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -303,12 +305,21 @@ pub struct PluginLogListParams {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-pub struct PluginActionInvokeParams {
-    pub action_id: String,
+pub struct PluginInvokeParams {
+    pub plugin_id: String,
+    /// An action or pane id; they share one namespace per plugin.
+    pub entry_id: String,
+    /// The space, tab, or pane the invocation targets. The most specific id
+    /// supplies the context; omitted ids fall back to focus.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plugin_id: Option<String>,
+    pub workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context: Option<PluginInvocationContext>,
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    /// Selection coordinates in `pane_id`, read into `selected_text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<super::PaneSelectionReadParams>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

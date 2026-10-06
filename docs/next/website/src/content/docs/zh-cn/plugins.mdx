@@ -100,6 +100,13 @@ ASCII 字母、数字、冒号、下划线和连字符,但不能用点。动作 
 当需要全局唯一名称时,Herdr 会把动作 id 和窗格 id 限定为
 `plugin.id.entrypoint` 的形式。
 
+动作和窗格可以列出 `contexts`,以 `title` 出现在右键菜单中:`"workspace"` 出现在
+空间菜单,`"tab"` 出现在标签页菜单,`"pane"` 出现在窗格菜单,`"selection"` 在窗格有
+选区时出现在窗格菜单。选择后,会以所点击的空间、标签页或窗格作为上下文调用,因此即使
+焦点在别处,`HERDR_WORKSPACE_ID` 和 `HERDR_PANE_ID` 也指向该目标,选区条目会收到
+`selected_text`。`"global"` 和空列表不会添加菜单项。按键和 `plugin.invoke` 可以运行
+任何条目,不受 contexts 限制。
+
 用 `platforms = ["linux", "macos", "windows"]` 声明插件可以运行的平台。
 构建命令、启动钩子、动作、事件钩子、窗格和链接处理器也可以声明自己的
 `platforms`;条目级的 platforms 覆盖顶层列表。没有顶层 `platforms` 的本地
@@ -170,7 +177,7 @@ herdr plugin action list --plugin examples.agent-telegram-notify
 herdr plugin link /path/to/plugin
 herdr plugin config-dir example.layout
 herdr plugin action list --plugin example.layout
-herdr plugin action invoke example.layout.apply
+herdr plugin invoke example.layout.apply
 herdr plugin pane open --plugin example.layout --entrypoint board
 herdr plugin log list --plugin example.layout
 ```

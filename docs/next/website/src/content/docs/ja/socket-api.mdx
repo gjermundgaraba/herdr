@@ -106,7 +106,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | エージェント | `agent.list`、`agent.get`、`agent.read`、`agent.explain`、`agent.send_keys`、`agent.prompt`、`agent.wait`、`agent.rename`、`agent.focus`、`agent.start` |
 | イベント | `events.subscribe`、`events.wait` |
 | インテグレーション | `integration.install`、`integration.uninstall` |
-| プラグイン | `plugin.link`、`plugin.list`、`plugin.unlink`、`plugin.enable`、`plugin.disable`、`plugin.action.list`、`plugin.action.invoke`、`plugin.log.list`、`plugin.pane.open`、`plugin.pane.focus`、`plugin.pane.close` |
+| プラグイン | `plugin.link`、`plugin.list`、`plugin.unlink`、`plugin.enable`、`plugin.disable`、`plugin.action.list`、`plugin.invoke`、`plugin.log.list`、`plugin.pane.open`、`plugin.pane.focus`、`plugin.pane.close` |
 
 `agent.wait` はサーバー所有でイベント駆動です。解決したペイン占有者に固定されるため、置換されたエージェントが待機を満たすことはありません。`agent.prompt` は `until` と `timeout_ms` を持つ省略可能な `wait` オブジェクトを受け付けます。これにより、プロンプト送信と待機開始を 1 つのリクエストで行い、別々の呼び出し間の競合を避けられます。解決したエージェントがすでに `blocked` の場合、`agent.prompt` は入力を送信せず、待機も開始せずに `agent_blocked` を返します。
 
@@ -443,13 +443,13 @@ action = "bootstrap"
 
 `plugin.action.list` は、プラグインレベルの継承を適用した後の各アクションの実効的な `platforms` を返します。
 
-修飾 id または素のアクション id でアクションを呼び出す:
+対象を指定してアクションまたはペインのエントリポイントを呼び出す:
 
 ```json
-{"id":"req_plugin_invoke","method":"plugin.action.invoke","params":{"action_id":"example.worktree-bootstrap.bootstrap","context":{"invocation_source":"keybinding"}}}
+{"id":"req_plugin_invoke","method":"plugin.invoke","params":{"plugin_id":"example.worktree-bootstrap","entry_id":"bootstrap","pane_id":"w1:p2"}}
 ```
 
-`plugin.action.invoke` はマニフェストのアクションを解決し、マニフェストのコマンドを起動し、Herdr が構築した呼び出しコンテキストと、開始されたコマンドのログレコードを返します。欠けているコンテキストフィールドは、アクティブなワークスペース、タブ、フォーカス中のペイン、worktree の出自情報、リクエスト id から補完されます。無効化されたプラグインのアクションの呼び出しは `plugin_disabled` エラーを返します。
+`plugin.invoke` はキーとコンテキストメニューが使う経路です。`pane_id`、`tab_id`、`workspace_id` のうち最も具体的なものが呼び出しコンテキストを決め、より上位の id は同じ対象を指す必要があります (違えば `target_mismatch`)。id がなければフォーカス中のペインが使われます。`pane_id` 内の任意の `selection` は `selected_text` になります。アクションはマニフェストのコマンドを起動し、呼び出しコンテキストと開始されたコマンドのログレコードを返します。ペインはマニフェストの配置で開きます: split と zoomed は対象ペインを分割し、tab は対象スペースに開き、popup と overlay は対象からコンテキストだけを受け取ります。無効化されたプラグインのエントリの呼び出しは `plugin_disabled` エラーを返します。
 
 Herdr は `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ENV=1`、`HERDR_PLUGIN_ID`、`HERDR_PLUGIN_ROOT`、`HERDR_PLUGIN_CONFIG_DIR`、`HERDR_PLUGIN_STATE_DIR`、`HERDR_PLUGIN_CONTEXT_JSON`、そして利用可能な `HERDR_WORKSPACE_ID`、`HERDR_TAB_ID`、`HERDR_PANE_ID` の値を注入します。アクションコマンドは加えて `HERDR_PLUGIN_ACTION_ID` を受け取ります。イベントフックは `HERDR_PLUGIN_EVENT` と `HERDR_PLUGIN_EVENT_JSON` を、ペインコマンドは `HERDR_PLUGIN_ENTRYPOINT_ID` を受け取ります。
 

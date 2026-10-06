@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 22;
+pub const PROTOCOL_VERSION: u32 = 23;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -971,17 +971,20 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
-    /// Runnable plugin actions for a space's context menu. Optional so older
-    /// servers still produce valid snapshots.
+    /// Plugin actions and panes offered on space, tab, and pane context menus.
     #[serde(default)]
-    pub workspace_actions: Vec<ClientShellPluginAction>,
+    pub plugin_entries: Vec<ClientShellPluginEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellPluginAction {
+pub struct ClientShellPluginEntry {
     pub plugin_id: String,
-    pub action_id: String,
+    pub entry_id: String,
     pub title: String,
+    /// The menus that offer the entry; never `global`.
+    pub contexts: Vec<crate::api::schema::PluginActionContext>,
+    /// Opens a popup, so the client holds input until it arrives.
+    pub popup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -2902,10 +2905,12 @@ mod tests {
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
             }],
-            workspace_actions: vec![ClientShellPluginAction {
+            plugin_entries: vec![ClientShellPluginEntry {
                 plugin_id: "example.plugin".into(),
-                action_id: "toggle".into(),
+                entry_id: "toggle".into(),
                 title: "Toggle".into(),
+                contexts: vec![crate::api::schema::PluginActionContext::Workspace],
+                popup: false,
             }],
         }));
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();

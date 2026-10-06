@@ -77,6 +77,8 @@ struct RawPluginManifestPane {
     #[serde(default)]
     platforms: Option<Vec<RawPlatform>>,
     #[serde(default)]
+    contexts: Vec<crate::api::schema::PluginActionContext>,
+    #[serde(default)]
     placement: PluginPanePlacement,
     #[serde(default)]
     width: Option<PopupSize>,
@@ -418,6 +420,7 @@ fn normalize_manifest_pane(
         title,
         description,
         platforms,
+        contexts: pane.contexts,
         placement: pane.placement,
         width: pane.width,
         height: pane.height,

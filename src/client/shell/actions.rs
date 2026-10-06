@@ -237,36 +237,10 @@ impl ClientShellState {
                 };
                 // Every command carries the visible selection; the server reads
                 // it only for plugin bindings.
-                let selection = self
-                    .selection
-                    .as_ref()
-                    .filter(|selection| {
-                        selection.is_visible()
-                            && snapshot.focused_pane_id.as_deref()
-                                == Some(selection.pane_id.as_str())
-                    })
-                    .and_then(|selection| {
-                        let content_revision = self
-                            .pane_surface
-                            .as_ref()?
-                            .panes
-                            .iter()
-                            .find(|pane| pane.pane_id == selection.pane_id)?
-                            .content_revision;
-                        let (anchor, cursor) = selection.ordered_cells();
-                        Some(crate::api::schema::PaneSelectionReadParams {
-                            pane_id: selection.pane_id.clone(),
-                            anchor: crate::api::schema::PaneTextPoint {
-                                row: anchor.0,
-                                col: anchor.1,
-                            },
-                            cursor: crate::api::schema::PaneTextPoint {
-                                row: cursor.0,
-                                col: cursor.1,
-                            },
-                            content_revision: Some(content_revision),
-                        })
-                    });
+                let selection = snapshot
+                    .focused_pane_id
+                    .as_deref()
+                    .and_then(|pane_id| self.selection_params(pane_id));
                 let params = crate::api::schema::CommandInvokeParams {
                     command_id,
                     workspace_id: snapshot.focused_workspace_id.clone(),
@@ -274,23 +248,63 @@ impl ClientShellState {
                     pane_id: snapshot.focused_pane_id.clone(),
                     selection,
                 };
-                if action == crate::protocol::ClientShellCommandAction::Popup {
-                    self.popup_pending = true;
-                    self.popup_pending_deadline = None;
-                    if !self.push_endpoint_method_with_kind(
-                        crate::api::schema::Method::CommandInvoke(params),
-                        PendingEndpointKind::PopupCommand,
-                        outcome,
-                    ) {
-                        self.popup_pending = false;
-                    }
-                } else {
-                    self.push_endpoint_method(
-                        crate::api::schema::Method::CommandInvoke(params),
-                        outcome,
-                    );
-                }
+                self.push_plugin_method(
+                    crate::api::schema::Method::CommandInvoke(params),
+                    action == crate::protocol::ClientShellCommandAction::Popup,
+                    outcome,
+                );
             }
+        }
+    }
+
+    /// The visible selection in `pane_id`, pinned to the displayed content.
+    pub(super) fn selection_params(
+        &self,
+        pane_id: &str,
+    ) -> Option<crate::api::schema::PaneSelectionReadParams> {
+        let selection = self
+            .selection
+            .as_ref()
+            .filter(|selection| selection.is_visible() && selection.pane_id == pane_id)?;
+        let content_revision = self
+            .pane_surface
+            .as_ref()?
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == selection.pane_id)?
+            .content_revision;
+        let (anchor, cursor) = selection.ordered_cells();
+        Some(crate::api::schema::PaneSelectionReadParams {
+            pane_id: selection.pane_id.clone(),
+            anchor: crate::api::schema::PaneTextPoint {
+                row: anchor.0,
+                col: anchor.1,
+            },
+            cursor: crate::api::schema::PaneTextPoint {
+                row: cursor.0,
+                col: cursor.1,
+            },
+            content_revision: Some(content_revision),
+        })
+    }
+
+    /// Sends a request that may open a popup. Input is held until the popup
+    /// arrives, so keys typed meanwhile reach it rather than the pane.
+    pub(super) fn push_plugin_method(
+        &mut self,
+        method: crate::api::schema::Method,
+        popup: bool,
+        outcome: &mut ClientShellInput,
+    ) {
+        if !popup {
+            self.push_endpoint_method(method, outcome);
+            return;
+        }
+        self.popup_pending = true;
+        self.popup_pending_deadline = None;
+        if !self.push_endpoint_method_with_kind(method, PendingEndpointKind::PopupCommand, outcome)
+        {
+            self.popup_pending = false;
         }
     }
 

@@ -378,7 +378,7 @@ fn context_menus_capture_stable_targets_and_route_actions() {
 }
 
 #[test]
-fn workspace_menu_invokes_plugin_actions_on_the_clicked_workspace() {
+fn workspace_menu_invokes_plugin_entries_on_the_clicked_workspace() {
     let mut snapshot = snapshot();
     let mut other = snapshot.workspaces[0].clone();
     other.workspace_id = "ws_2".into();
@@ -386,11 +386,30 @@ fn workspace_menu_invokes_plugin_actions_on_the_clicked_workspace() {
     other.label = "other".into();
     other.focused = false;
     snapshot.workspaces.push(other);
-    snapshot.workspace_actions = vec![crate::protocol::ClientShellPluginAction {
+    let entry = |entry_id: &str, title: &str, context| crate::protocol::ClientShellPluginEntry {
         plugin_id: "example.priority".into(),
-        action_id: "toggle".into(),
-        title: "Toggle space priority".into(),
-    }];
+        entry_id: entry_id.into(),
+        title: title.into(),
+        contexts: vec![context],
+        popup: false,
+    };
+    snapshot.plugin_entries = vec![
+        entry(
+            "toggle",
+            "Toggle space priority",
+            crate::api::schema::PluginActionContext::Workspace,
+        ),
+        entry(
+            "tab",
+            "Tab only",
+            crate::api::schema::PluginActionContext::Tab,
+        ),
+        entry(
+            "pane",
+            "Pane only",
+            crate::api::schema::PluginActionContext::Pane,
+        ),
+    ];
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
@@ -416,7 +435,7 @@ fn workspace_menu_invokes_plugin_actions_on_the_clicked_workspace() {
             let plugin_items = items
                 .iter()
                 .enumerate()
-                .filter(|(_, item)| matches!(item.action, ClientContextMenuAction::PluginAction(_)))
+                .filter(|(_, item)| matches!(item.action, ClientContextMenuAction::PluginEntry(_)))
                 .collect::<Vec<_>>();
             (
                 plugin_items.first().expect("plugin action item").0,
@@ -441,14 +460,16 @@ fn workspace_menu_invokes_plugin_actions_on_the_clicked_workspace() {
     let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
         panic!("plugin menu item should use the endpoint API");
     };
-    let crate::api::schema::Method::PluginActionInvoke(params) = &request.method else {
-        panic!("plugin menu item should invoke the plugin action");
+    let crate::api::schema::Method::PluginInvoke(params) = &request.method else {
+        panic!("plugin menu item should invoke the plugin entry");
     };
-    assert_eq!(params.action_id, "toggle");
-    assert_eq!(params.plugin_id.as_deref(), Some("example.priority"));
-    let context = params.context.as_ref().expect("invocation context");
-    assert_eq!(context.workspace_id.as_deref(), Some("ws_2"));
-    assert_eq!(context.invocation_source.as_deref(), Some("context_menu"));
+    assert_eq!(params.plugin_id, "example.priority");
+    assert_eq!(params.entry_id, "toggle");
+    assert_eq!(params.workspace_id.as_deref(), Some("ws_2"));
+    assert_eq!(
+        (params.tab_id.as_ref(), params.pane_id.as_ref()),
+        (None, None)
+    );
 }
 
 #[test]

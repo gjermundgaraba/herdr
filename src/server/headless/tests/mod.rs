@@ -7887,11 +7887,14 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_CLIENT_ID\" > client.tmp && mv clie
         crate::api::ApiRequestMessage {
             request: crate::api::schema::Request {
                 id: "record-origin".into(),
-                method: crate::api::schema::Method::PluginActionInvoke(
-                    crate::api::schema::PluginActionInvokeParams {
-                        plugin_id: Some("example.client-origin".into()),
-                        action_id: "record".into(),
-                        context: None,
+                method: crate::api::schema::Method::PluginInvoke(
+                    crate::api::schema::PluginInvokeParams {
+                        plugin_id: "example.client-origin".into(),
+                        entry_id: "record".into(),
+                        workspace_id: None,
+                        tab_id: None,
+                        pane_id: None,
+                        selection: None,
                     },
                 ),
             },

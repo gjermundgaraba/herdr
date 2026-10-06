@@ -111,10 +111,14 @@ dots. Action and pane ids share one namespace, so no action may reuse a pane
 id; link handler ids must be unique among themselves. Herdr qualifies action
 and pane ids as `plugin.id.entrypoint` when it needs a globally unique name.
 
-Actions of enabled plugins that list `"workspace"` in `contexts` also appear
-at the end of a space's right-click menu, under their `title`. Choosing one
-invokes the action with the clicked space as its context, so
-`HERDR_WORKSPACE_ID` names that space even when another one is focused.
+Actions and panes can list `contexts` to appear in right-click menus under
+their `title`: `"workspace"` in a space's menu, `"tab"` in a tab's menu,
+`"pane"` in a pane's menu, and `"selection"` in a pane's menu while it has a
+selection. Choosing one invokes it with the clicked space, tab, or pane as its
+context, so `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID` name that target even
+when another one is focused, and selection entries receive `selected_text`.
+`"global"` and an empty list add no menu item. Keys and `plugin.invoke` can
+run any entry regardless of its contexts.
 
 Use `platforms = ["linux", "macos", "windows"]` to declare where the plugin
 can run. Build commands, startup hooks, actions, event hooks, panes, and link
@@ -189,7 +193,7 @@ When you are authoring a local plugin, link the working directory instead:
 herdr plugin link /path/to/plugin
 herdr plugin config-dir example.layout
 herdr plugin action list --plugin example.layout
-herdr plugin action invoke example.layout.apply
+herdr plugin invoke example.layout.apply
 herdr plugin pane open --plugin example.layout --entrypoint board
 herdr plugin log list --plugin example.layout
 ```

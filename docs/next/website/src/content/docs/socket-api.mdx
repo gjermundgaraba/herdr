@@ -110,7 +110,7 @@ Raw socket method names use dot notation:
 | Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.start`, `agent.view.set`, `agent.view.clear` |
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
-| Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
+| Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
 
 `agent.wait` is server-owned and event-driven. It pins the resolved pane occupant so a replacement cannot satisfy the wait. `agent.prompt` accepts an optional `wait` object with `until` and `timeout_ms`; this submits the prompt and starts the wait in one request, avoiding a race between separate calls. If the resolved agent is already `blocked`, `agent.prompt` returns `agent_blocked` without sending input or starting the wait.
 
@@ -547,18 +547,22 @@ Actions are resolved from the linked manifest. `plugin.action.list` returns all 
 `plugin.action.list` returns each action's effective `platforms` after applying
 plugin-level inheritance.
 
-Invoke an action by its qualified id or bare action id:
+Invoke an action or pane entrypoint against a target:
 
 ```json
-{"id":"req_plugin_invoke","method":"plugin.action.invoke","params":{"action_id":"example.worktree-bootstrap.bootstrap","context":{"invocation_source":"keybinding"}}}
+{"id":"req_plugin_invoke","method":"plugin.invoke","params":{"plugin_id":"example.worktree-bootstrap","entry_id":"bootstrap","pane_id":"w1:p2"}}
 ```
 
-`plugin.action.invoke` resolves the manifest action, starts the manifest
-command, and returns the Herdr-built invocation context plus the started command
-log record. Missing context fields are filled from the workspace named by the
-context's `workspace_id`, or from the active workspace when it names none or an
-unknown one: its tab, focused pane, worktree provenance, and the request id. Invoking an action from a
-disabled plugin returns a `plugin_disabled` error.
+`plugin.invoke` is the path keys and context menus use. The most specific of
+`pane_id`, `tab_id`, and `workspace_id` supplies the invocation context; less
+specific ids must name the same target or the call returns `target_mismatch`,
+and with no ids the focused pane supplies it. An optional `selection` in
+`pane_id` becomes `selected_text`. An action starts its manifest command and
+returns the invocation context plus the started command log record. A pane
+opens at its manifest placement: split and zoomed panes split the target pane,
+tab panes open in the target space, and popup and overlay panes take only their
+context from the target. Invoking an entry of a disabled plugin returns a
+`plugin_disabled` error.
 
 Herdr injects `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV=1`,
 `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`,
