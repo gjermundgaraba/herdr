@@ -498,6 +498,28 @@ herdr pane report-metadata <pane_id> \
 
 侧边栏行设置仅影响展开的桌面侧边栏。折叠视图和移动视图仍使用紧凑布局。
 
+### 置顶空间分区
+
+置顶分区会把选定的空间集中显示在 Space 面板顶部。每个 `[[ui.sidebar.spaces.pinned]]` 表定义一个分区，收集所有带有某个工作区元数据令牌的空间。例如，如果某个插件用 `space_priority` 令牌标记重要空间：
+
+```toml
+[[ui.sidebar.spaces.pinned]]
+title = "Priority"
+token = "space_priority"
+fg = "#e5c07b"
+
+[[ui.sidebar.spaces.pinned]]
+title = "Review"
+token = "stage"
+equals = "review"
+```
+
+当空间以非空值报告分区的 `token` 时，它就属于该分区。最多可再添加 `equals`、`contains` 或 `starts_with` 中的一个，要求该值还要满足区分大小写的匹配；上例中只有 `$stage` 恰好为 `review` 的空间会进入 Review 分区。`title` 和 `token` 为必填项，标题不能重复。`fg` 可选，用于设置标题颜色，只接受严格的 `#RGB` 或 `#RRGGBB`。最多允许 16 个分区。无效的分区会在加载配置时被拒绝。
+
+每台机器都会在其常规空间列表上方按配置顺序显示分区，随后是一条分隔线。没有匹配空间的分区不会显示。分区以与空间分组相同样式的标题开头，并显示匹配空间的数量，然后按空间顺序使用 `rows` 布局列出这些空间，不带 worktree 缩进。这些行是副本：每个空间仍保留在常规位置，匹配多个分区的空间会出现在每个分区中。点击副本会聚焦该空间，右键会打开它的常规菜单，但副本不能拖动，也不能作为放置目标，键盘导航会跳过它们。点击分区标题可以折叠；折叠后的标题显示其空间中最紧急的智能体状态。每个客户端都会单独记住分区的折叠状态，与空间分组互不影响。置顶分区只出现在展开的桌面侧边栏中。
+
+与其他自定义 Space 令牌一样，可以通过 `herdr workspace report-metadata` 或插件报告该令牌。
+
 ## 通知
 
 当后台智能体完成任务或需要输入时，Herdr 可以通知你：
