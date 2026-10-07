@@ -9,6 +9,12 @@
 //! regroups what moved by where it landed. A header moves its whole run, so
 //! dropping one inside another group splits that group into two runs.
 //! Runs of one group share a collapse key, so collapsing either collapses both.
+//!
+//! Configured pinned sections (`[[ui.sidebar.spaces.pinned]]`) come first:
+//! each shows a header and a flat mirror row for every space carrying its
+//! token, in server order. Mirrors are copies; every space keeps its place in
+//! the regular list, which follows behind a divider. Mirrors and pinned
+//! headers neither drag nor take drops, and navigation skips mirrors.
 
 use super::*;
 
@@ -17,9 +23,29 @@ fn collapse_key(name: &str) -> String {
     format!("group:{name}")
 }
 
+/// Collapse state key of a pinned section, namespaced apart from group and
+/// worktree repo keys.
+fn pinned_collapse_key(title: &str) -> String {
+    format!("pinned:{title}")
+}
+
+/// A group header, or a pinned section's header.
 pub(super) struct Group {
     pub(super) name: String,
     pub(super) collapsed: bool,
+    pub(super) pinned: bool,
+    /// Header text color; `None` keeps the default.
+    pub(super) title_color: Option<ratatui::style::Color>,
+}
+
+impl Group {
+    fn key(&self) -> String {
+        if self.pinned {
+            pinned_collapse_key(&self.name)
+        } else {
+            collapse_key(&self.name)
+        }
+    }
 }
 
 /// Starts a run: a group header, or with `group: None` the divider before
@@ -34,13 +60,17 @@ pub(super) struct Marker {
 pub(super) enum SidebarRow {
     Marker(Marker),
     Workspace(WorkspaceEntry),
+    /// A pinned section's copy of a space that also has its own row.
+    Mirror(WorkspaceEntry),
 }
 
 pub(super) struct MarkerHit {
     pub(super) rect: Rect,
     pub(super) endpoint_id: ClientEndpointId,
-    /// Collapse key of a group header; `None` for a divider.
+    /// Collapse key of a group or pinned header; `None` for a divider.
     pub(super) key: Option<String>,
+    /// A pinned section's header, which neither drags nor takes drops.
+    pub(super) pinned: bool,
     /// The run's spaces in sidebar order, moved as one block when dragged.
     pub(super) member_ids: Vec<String>,
 }
@@ -109,13 +139,69 @@ fn runs(snapshot: &ClientShellSnapshot) -> Vec<Run<'_>> {
     runs
 }
 
-/// Sidebar rows for one endpoint: its spaces in sidebar order, with a marker
-/// starting each run after the first ungrouped one. Without groups this is
-/// upstream's flat list.
+/// Pinned sections with at least one matching space, in config order: a
+/// header, then unless collapsed a flat mirror row per member.
+fn pinned_rows(
+    snapshot: &ClientShellSnapshot,
+    collapsed_groups: &HashSet<String>,
+    pinned: &[crate::config::PinnedSpaceSection],
+) -> Vec<SidebarRow> {
+    let mut rows = Vec::new();
+    for section in pinned {
+        let members = snapshot
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter(|(_, workspace)| {
+                section.matches(
+                    workspace
+                        .tokens
+                        .iter()
+                        .map(|(key, value)| (key.as_str(), value.as_str())),
+                )
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if members.is_empty() {
+            continue;
+        }
+        let collapsed = collapsed_groups.contains(&pinned_collapse_key(&section.title));
+        let mirrors = if collapsed {
+            Vec::new()
+        } else {
+            members.clone()
+        };
+        rows.push(SidebarRow::Marker(Marker {
+            group: Some(Group {
+                name: section.title.clone(),
+                collapsed,
+                pinned: true,
+                title_color: section.fg.map(|color| color.ratatui()),
+            }),
+            members,
+        }));
+        rows.extend(mirrors.into_iter().map(|index| {
+            SidebarRow::Mirror(WorkspaceEntry {
+                index,
+                indented: false,
+                last_child: false,
+            })
+        }));
+    }
+    rows
+}
+
+/// Sidebar rows for one endpoint: the pinned sections, then its spaces in
+/// sidebar order with a marker starting each run after the first ungrouped
+/// one, or every run when pinned sections precede the list. Without groups
+/// and pinned sections this is upstream's flat list.
 pub(super) fn sidebar_rows(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
+    pinned: &[crate::config::PinnedSpaceSection],
 ) -> Vec<SidebarRow> {
+    let mut rows = pinned_rows(snapshot, collapsed_groups, pinned);
+    let after_pinned = !rows.is_empty();
     let runs = runs(snapshot);
     let mut run_of = vec![0; snapshot.workspaces.len()];
     for (index, run) in runs.iter().enumerate() {
@@ -128,16 +214,17 @@ pub(super) fn sidebar_rows(
         shown[run_of[entry.index]].push(entry);
     }
 
-    let mut rows = Vec::new();
     for (index, (run, entries)) in runs.into_iter().zip(shown).enumerate() {
         let collapsed = run
             .name
             .is_some_and(|name| collapsed_groups.contains(&collapse_key(name)));
-        if run.name.is_some() || index > 0 {
+        if run.name.is_some() || index > 0 || after_pinned {
             rows.push(SidebarRow::Marker(Marker {
                 group: run.name.map(|name| Group {
                     name: name.to_owned(),
                     collapsed,
+                    pinned: false,
+                    title_color: None,
                 }),
                 members: run.members,
             }));
@@ -163,16 +250,17 @@ pub(super) fn sidebar_rows(
     rows
 }
 
-/// Navigable workspace entries in sidebar order.
+/// Navigable workspace entries in sidebar order. Pinned mirrors are left
+/// out, so every space appears once.
 pub(super) fn workspace_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
 ) -> Vec<WorkspaceEntry> {
-    sidebar_rows(snapshot, collapsed_groups)
+    sidebar_rows(snapshot, collapsed_groups, &[])
         .into_iter()
         .filter_map(|row| match row {
             SidebarRow::Workspace(entry) => Some(entry),
-            SidebarRow::Marker(_) => None,
+            SidebarRow::Marker(_) | SidebarRow::Mirror(_) => None,
         })
         .collect()
 }
@@ -212,7 +300,8 @@ pub(super) fn render_marker(
     hits.markers.push(MarkerHit {
         rect,
         endpoint_id: endpoint_id.clone(),
-        key: marker.group.as_ref().map(|group| collapse_key(&group.name)),
+        key: marker.group.as_ref().map(Group::key),
+        pinned: marker.group.as_ref().is_some_and(|group| group.pinned),
         member_ids: marker
             .members
             .iter()
@@ -250,7 +339,7 @@ fn render_group_header(
         right,
         &group.name,
         Style::default()
-            .fg(palette.subtext0)
+            .fg(group.title_color.unwrap_or(palette.subtext0))
             .add_modifier(Modifier::BOLD),
     );
     let count = members.len().to_string();
