@@ -1858,7 +1858,7 @@ mod tests {
 
         std::fs::write(
             &path,
-            "[ui.sidebar.agents]\nrows = [[\"state_icon\", \"$summary\"]]\nrow_gap = 1\n\n[ui.sidebar.agents.rows_by_agent]\nclaude = [[\"terminal_title_stripped\"]]\n\n[ui.sidebar.spaces]\nrows = [[\"workspace\", \"$jj_status\"]]\nrow_gap = 3\n",
+            "[ui.sidebar.agents]\nrows = [[\"state_icon\", \"$summary\"]]\nrow_gap = 1\n\n[ui.sidebar.agents.rows_by_agent]\nclaude = [[\"terminal_title_stripped\"]]\n\n[ui.sidebar.spaces]\nrows = [[\"workspace\", \"$jj_status\"]]\nrow_gap = 3\n\n[[ui.sidebar.spaces.pinned]]\ntitle = \"Priority\"\ntoken = \"prio\"\n",
         )
         .unwrap();
         let report = app.reload_config();
@@ -1886,6 +1886,8 @@ mod tests {
             ]]
         );
         assert_eq!(app.state.sidebar_spaces.row_gap, 3);
+        assert_eq!(app.state.sidebar_spaces.pinned.len(), 1);
+        assert_eq!(app.state.sidebar_spaces.pinned[0].token, "prio");
 
         let conditional = "[ui.sidebar.agents]\nrows = [[{ token = '$load', rules = [{ gt = 80, bold = true }] }]]\n";
         std::fs::write(&path, conditional).unwrap();

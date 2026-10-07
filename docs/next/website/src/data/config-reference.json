@@ -1121,6 +1121,12 @@
           "description": "Expanded Space sidebar layout. Entries may be token strings or inline { token, fg, bold, dim, rules } style tables. Text-valued built-ins and $name metadata tokens accept up to 16 ordered rules using equals, contains, starts_with, gt, or lt; the first match overrides specified styles. Text conditions optionally accept ignore_case for ASCII matching; numeric conditions require full finite numbers. state_icon and git_status accept fixed styles only. At most 16 rows and 16 tokens per row."
         },
         {
+          "key": "ui.sidebar.spaces.pinned",
+          "type": "list of tables",
+          "default": "[]",
+          "description": "Up to 16 pinned sections shown above the Space list, in order. Each [[ui.sidebar.spaces.pinned]] table needs a unique non-empty title and a workspace metadata token, and accepts at most one of equals, contains, or starts_with plus an optional #RGB or #RRGGBB fg header color. A section lists every space whose token has a non-empty value meeting the condition; those spaces keep their regular rows too."
+        },
+        {
           "key": "ui.accent",
           "type": "color",
           "default": "\"cyan\"",

@@ -37,6 +37,13 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
   where they land, and a family's spaces are kept together, checkout first
   (`src/space_order.rs`, `src/app/api/space_groups.rs`,
   `src/client/shell/space_groups.rs`)
+- Pinned space sections: each `[[ui.sidebar.spaces.pinned]]` entry shows a
+  collapsible section at the top of every machine's space list with copies of
+  the spaces whose given workspace metadata token is non-empty, optionally
+  matched with `equals`, `contains`, or `starts_with`. Copies focus and open
+  menus like the real rows, but do not drag or take drops, and navigation
+  skips them (`src/config/sidebar/pinned.rs`,
+  `src/client/shell/space_groups.rs`)
 - Agent priority tokens: `ui.agent_priority_tokens` lists workspace metadata
   token keys, and a space carrying any of them with a non-empty value lifts
   its blocked and done agents to the top of the `priority` agent order; the

@@ -510,11 +510,28 @@ impl ClientShellState {
 
     /// The nearest drop position for a dragged space or space group. A group
     /// header or divider stands for the first space of its run, so the drop
-    /// line above a run sits above its header instead of on it.
+    /// line above a run sits above its header instead of on it. Pinned
+    /// sections take no drops: the pointer over them, or anywhere above the
+    /// regular list's first row, has no target.
     fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
+        let pinned_bottom = self
+            .hits
+            .markers
+            .iter()
+            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && hit.pinned)
+            .map(|hit| hit.rect.bottom())
+            .chain(
+                self.hits
+                    .workspaces
+                    .iter()
+                    .filter(|hit| hit.endpoint_id == self.active_endpoint_id && hit.mirror)
+                    .map(|hit| hit.rect.bottom()),
+            )
+            .max();
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
             || point.1 >= self.hits.new_workspace.y
+            || pinned_bottom.is_some_and(|bottom| point.1 < bottom)
             || self.hits.workspaces.iter().any(|hit| {
                 hit.endpoint_id != self.active_endpoint_id && super::contains(hit.rect, point)
             })
@@ -525,7 +542,7 @@ impl ClientShellState {
             .hits
             .markers
             .iter()
-            .filter(|hit| hit.endpoint_id == self.active_endpoint_id)
+            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.pinned)
             .collect::<Vec<_>>();
         let mut slots = markers
             .iter()
@@ -537,6 +554,7 @@ impl ClientShellState {
                     .filter(|hit| {
                         hit.endpoint_id == self.active_endpoint_id
                             && !hit.indented
+                            && !hit.mirror
                             && !markers
                                 .iter()
                                 .any(|marker| marker.rect.y == hit.rect.y.saturating_sub(1))
@@ -556,7 +574,7 @@ impl ClientShellState {
             .workspaces
             .iter()
             .rev()
-            .find(|hit| hit.endpoint_id == self.active_endpoint_id)?;
+            .find(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.mirror)?;
         let last_position = entries.iter().position(|entry| {
             snapshot
                 .workspaces
@@ -1243,7 +1261,7 @@ impl ClientShellState {
                     .column
                     .abs_diff(press.start_column)
                     .max(mouse.row.abs_diff(press.start_row));
-                if delta >= 1 && press.endpoint_id == self.active_endpoint_id {
+                if delta >= 1 && !press.pinned && press.endpoint_id == self.active_endpoint_id {
                     if let Some(target) = self.workspace_drop_target_at(point) {
                         self.chrome_drag = Some(ClientChromeDrag::SpaceGroup {
                             member_ids: press.member_ids.clone(),
@@ -2189,6 +2207,7 @@ impl ClientShellState {
                     .map(|hit| ClientWorkspacePress {
                         endpoint_id: hit.endpoint_id.clone(),
                         workspace_id: hit.workspace_id.clone(),
+                        mirror: hit.mirror,
                         start_column: mouse.column,
                         start_row: mouse.row,
                     });
@@ -2206,6 +2225,7 @@ impl ClientShellState {
                             endpoint_id: hit.endpoint_id.clone(),
                             key: hit.key.clone()?,
                             member_ids: hit.member_ids.clone(),
+                            pinned: hit.pinned,
                             start_column: mouse.column,
                             start_row: mouse.row,
                         })

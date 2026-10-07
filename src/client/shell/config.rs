@@ -467,6 +467,8 @@ mod tests {
         next.ui.agent_priority_tokens = vec!["lift".into()];
         next.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
         next.ui.sidebar.agents = toml::from_str("rows = [[{ token = 'machine', rules = [{ equals = 'Local', bold = true }] }]]\nrow_gap = 2").unwrap();
+        next.ui.sidebar.spaces =
+            toml::from_str("[[pinned]]\ntitle = 'Priority'\ntoken = 'prio'").unwrap();
         next.keys.prefix = crate::config::BindingConfig::one("ctrl+a");
 
         let diagnostics = shell.apply_live_config(&next, &[], &[]);
@@ -484,6 +486,8 @@ mod tests {
             crate::config::StatusIndicatorStyle::Symbols
         );
         assert_eq!(shell.agents.row_gap, 2);
+        assert_eq!(shell.spaces.pinned.len(), 1);
+        assert_eq!(shell.spaces.pinned[0].title, "Priority");
         assert_eq!(
             shell.agents.rows[0][0]
                 .style_for_value("Local")

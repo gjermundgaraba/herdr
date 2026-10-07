@@ -189,6 +189,8 @@ pub(super) struct ClientPaneMouseGesture {
 pub(super) struct ClientWorkspacePress {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
+    /// Pressed on a pinned section's mirror, which never drags.
+    pub(super) mirror: bool,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
 }
@@ -198,6 +200,8 @@ pub(super) struct ClientGroupPress {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) key: String,
     pub(super) member_ids: Vec<String>,
+    /// Pressed on a pinned section's header, which only toggles.
+    pub(super) pinned: bool,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
 }
@@ -264,6 +268,8 @@ pub(super) struct WorkspaceHit {
     pub(super) workspace_id: String,
     pub(super) indented: bool,
     pub(super) group_toggle: Option<(Rect, String)>,
+    /// A pinned section's copy of the space, which neither drags nor takes drops.
+    pub(super) mirror: bool,
 }
 
 #[derive(Debug)]
@@ -1318,7 +1324,7 @@ impl ClientShellState {
             .hits
             .workspaces
             .iter()
-            .any(|hit| hit.workspace_id == workspace_id)
+            .any(|hit| !hit.mirror && hit.workspace_id == workspace_id)
         {
             return;
         }
@@ -1328,6 +1334,7 @@ impl ClientShellState {
                 snapshot,
                 self.sidebar_collapsed_groups()
                     .unwrap_or(&empty_collapsed_groups),
+                &self.config.spaces.pinned,
             )
             .iter()
             .position(|row| {

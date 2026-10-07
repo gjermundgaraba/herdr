@@ -1,5 +1,7 @@
+mod pinned;
 mod rules;
 
+pub use pinned::PinnedSpaceSection;
 pub use rules::SidebarTokenRule;
 
 use std::collections::BTreeMap;
@@ -418,6 +420,12 @@ pub struct SpacesSidebarConfig {
     #[serde(deserialize_with = "deserialize_sidebar_rows")]
     pub rows: SpaceSidebarRows,
     pub row_gap: u16,
+    /// Sections above the space list that mirror every space carrying a token.
+    #[serde(
+        deserialize_with = "pinned::deserialize_pinned_sections",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub pinned: pinned::PinnedSpaceSections,
 }
 
 impl Default for SpacesSidebarConfig {
@@ -434,6 +442,7 @@ impl Default for SpacesSidebarConfig {
                 ],
             ],
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
+            pinned: Vec::new(),
         }
     }
 }
