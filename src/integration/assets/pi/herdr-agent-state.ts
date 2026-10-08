@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=9
+// HERDR_INTEGRATION_VERSION=10
 // @ts-nocheck
 
 import net from "node:net";
@@ -54,14 +54,6 @@ async function sendRequest(request: unknown): Promise<void> {
   await sendRequestAttempt(request, 1500);
 }
 
-type AgentState = "working" | "blocked" | "idle";
-
-type QueuedState = {
-  state: AgentState;
-  message?: string;
-  seq: number;
-};
-
 let reportSeq = Date.now() * 1000;
 let currentAgentSessionId: string | undefined;
 let currentAgentSessionPath: string | undefined;
@@ -89,16 +81,6 @@ function updateSessionRef(ctx: any): void {
   } catch {
     currentAgentSessionId = undefined;
   }
-}
-
-function withSessionRef(params: Record<string, unknown>): Record<string, unknown> {
-  if (currentAgentSessionPath) {
-    return { ...params, agent_session_path: currentAgentSessionPath };
-  }
-  if (currentAgentSessionId) {
-    return { ...params, agent_session_id: currentAgentSessionId };
-  }
-  return params;
 }
 
 function currentSessionRef(): Record<string, unknown> | undefined {
@@ -131,100 +113,14 @@ function reportSession(sessionStartSource?: string): Promise<void> {
   });
 }
 
-function sendState(state: AgentState, message?: string, seq = nextReportSeq()): Promise<void> {
-  return sendRequest({
-    id: `${source}:${Date.now()}:${Math.random().toString(36).slice(2)}`,
-    method: "pane.report_agent",
-    params: withSessionRef({
-      pane_id: paneId,
-      source,
-      agent: "pi",
-      state,
-      message,
-      seq,
-    }),
-  });
-}
-
-let sendInFlight = false;
-let queuedState: QueuedState | undefined;
-
-function queueState(state: AgentState, message?: string): void {
-  queuedState = { state, message, seq: nextReportSeq() };
-  if (!sendInFlight) {
-    void drainStateQueue();
-  }
-}
-
-async function drainStateQueue(): Promise<void> {
-  if (sendInFlight) {
-    return;
-  }
-
-  sendInFlight = true;
-  try {
-    while (queuedState) {
-      const next = queuedState;
-      queuedState = undefined;
-      await sendState(next.state, next.message, next.seq);
-    }
-  } finally {
-    sendInFlight = false;
-    if (queuedState) {
-      void drainStateQueue();
-    }
-  }
-}
-
+// Pi reports its state in its own output (OSC 7501), which herdr reads from the pane. This
+// extension only reports the session, so herdr can resume it and attribute that state to it.
 export default function (pi) {
   if (!enabled()) {
     return;
   }
 
-  let agentActive = false;
-  let blockedCount = 0;
-  let blockedMessage: string | undefined;
-  let lastState: AgentState | undefined;
-  let lastMessage: string | undefined;
   let rootSession = false;
-
-  function desiredState() {
-    if (blockedCount > 0) {
-      return { state: "blocked" as const, message: blockedMessage };
-    }
-    if (agentActive) {
-      return { state: "working" as const, message: undefined };
-    }
-    return { state: "idle" as const, message: undefined };
-  }
-
-  function publishState(force = false) {
-    const next = desiredState();
-    if (!force && next.state === lastState && next.message === lastMessage) {
-      return;
-    }
-    lastState = next.state;
-    lastMessage = next.message;
-    queueState(next.state, next.message);
-  }
-
-  pi.events.on("herdr:blocked", (data) => {
-    if (!rootSession) {
-      return;
-    }
-    if (!data?.active) {
-      blockedCount = Math.max(0, blockedCount - 1);
-      if (blockedCount === 0) {
-        blockedMessage = undefined;
-      }
-      publishState();
-      return;
-    }
-
-    blockedCount += 1;
-    blockedMessage = data.label;
-    publishState();
-  });
 
   pi.on("session_start", async (event, ctx) => {
     // TUI only: RPC/JSON/print modes are headless (no PTY herdr can display),
@@ -235,9 +131,6 @@ export default function (pi) {
     rootSession = true;
     updateSessionRef(ctx);
     await reportSession(event?.reason);
-    // A reload can replace this extension mid-run without emitting another agent_start.
-    agentActive = ctx?.isIdle?.() === false;
-    publishState(true);
   });
 
   pi.on("agent_start", (_event, ctx) => {
@@ -246,16 +139,5 @@ export default function (pi) {
     }
     updateSessionRef(ctx);
     void reportSession();
-    agentActive = true;
-    publishState();
-  });
-
-  pi.on("agent_settled", (_event, ctx) => {
-    if (!rootSession || ctx?.isIdle?.() !== true) {
-      return;
-    }
-
-    agentActive = false;
-    publishState();
   });
 }
