@@ -433,6 +433,11 @@ impl HeadlessServer {
                 pane_id,
                 agent_label,
                 ..
+            }
+            | AppEvent::InBandHookStateReported {
+                pane_id,
+                app: agent_label,
+                ..
             } => {
                 // Hook reports can be stale or no-op after sequence rejection.
                 // Forward only effective state changes observed after handling.

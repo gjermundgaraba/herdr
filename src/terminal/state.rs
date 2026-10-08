@@ -55,6 +55,15 @@ enum FullLifecycleHookSuppressionReason {
     ProcessExit,
 }
 
+/// How a hook report is ordered against earlier reports from the same source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HookReportOrdering {
+    /// Socket reports carry a sequence number; older numbers are dropped.
+    Sequenced(Option<u64>),
+    /// Reports read from the agent's own output arrive in order already.
+    InBand,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FullLifecycleHookReportRoute {
     Accept { reanchor_sequence: bool },
@@ -708,6 +717,81 @@ impl TerminalState {
         seq: Option<u64>,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
+        self.apply_hook_report_at(
+            source,
+            agent_label,
+            state,
+            message,
+            session_ref,
+            HookReportOrdering::Sequenced(seq),
+            now,
+        )
+    }
+
+    /// Applies a state a program reported in its own output (OSC 7501) to the session a
+    /// full-lifecycle integration reported for the agent named `app`. The output stream
+    /// already orders these reports, so they leave the socket's sequence numbers alone. They
+    /// carry no session, so they keep the reported one and wait until there is one.
+    pub fn set_in_band_hook_state_at(
+        &mut self,
+        app: &str,
+        state: AgentState,
+        now: Instant,
+    ) -> Option<TerminalStateMutation> {
+        let (source, agent_label, session_ref) = self.in_band_anchor(app)?;
+        self.apply_hook_report_at(
+            source,
+            agent_label,
+            state,
+            None,
+            Some(session_ref),
+            HookReportOrdering::InBand,
+            now,
+        )
+    }
+
+    /// The full-lifecycle source, label and session an integration reported for `app`.
+    fn in_band_anchor(
+        &self,
+        app: &str,
+    ) -> Option<(String, String, crate::agent_resume::AgentSessionRef)> {
+        let authority = self.hook_authority.as_ref().and_then(|authority| {
+            Some((
+                &authority.source,
+                &authority.agent_label,
+                authority.session_ref.as_ref()?,
+            ))
+        });
+        let persisted = self
+            .persisted_agent_session
+            .as_ref()
+            .map(|session| (&session.source, &session.agent, &session.session_ref));
+        authority
+            .into_iter()
+            .chain(persisted)
+            .find(|(source, agent_label, _)| {
+                agent_label.as_str() == app
+                    && crate::detect::full_lifecycle_hook_authority(source, agent_label)
+            })
+            .map(|(source, agent_label, session_ref)| {
+                (source.clone(), agent_label.clone(), session_ref.clone())
+            })
+    }
+
+    fn apply_hook_report_at(
+        &mut self,
+        source: String,
+        agent_label: String,
+        state: AgentState,
+        message: Option<String>,
+        session_ref: Option<crate::agent_resume::AgentSessionRef>,
+        ordering: HookReportOrdering,
+        now: Instant,
+    ) -> Option<TerminalStateMutation> {
+        let seq = match ordering {
+            HookReportOrdering::Sequenced(seq) => seq,
+            HookReportOrdering::InBand => None,
+        };
         if crate::detect::session_identity_only_integration(&source, &agent_label) {
             return None;
         }
@@ -762,10 +846,14 @@ impl TerminalState {
         ) {
             return None;
         }
-        if reanchor_sequence {
-            self.hook_report_sequences.remove(&source);
+        if let HookReportOrdering::Sequenced(_) = ordering {
+            if reanchor_sequence {
+                self.hook_report_sequences.remove(&source);
+            }
         }
-        if !self.accept_hook_report(&source, seq) {
+        if matches!(ordering, HookReportOrdering::Sequenced(_))
+            && !self.accept_hook_report(&source, seq)
+        {
             return None;
         }
 
@@ -928,6 +1016,24 @@ impl TerminalState {
         );
     }
 
+    /// The session this source's live authority, or else its persisted session, belongs to.
+    fn anchored_session_ref(
+        &self,
+        source: &str,
+        agent_label: &str,
+    ) -> Option<&crate::agent_resume::AgentSessionRef> {
+        self.hook_authority
+            .as_ref()
+            .filter(|authority| authority.source == source && authority.agent_label == agent_label)
+            .and_then(|authority| authority.session_ref.as_ref())
+            .or_else(|| {
+                self.persisted_agent_session
+                    .as_ref()
+                    .filter(|session| session.source == source && session.agent == agent_label)
+                    .map(|session| &session.session_ref)
+            })
+    }
+
     fn route_full_lifecycle_hook_report(
         &mut self,
         source: &str,
@@ -951,17 +1057,7 @@ impl TerminalState {
         let process_present = known_agent.is_some()
             && self.detected_agent == known_agent
             && self.recent_agent_process_exit.is_none();
-        let anchored_session_ref = self
-            .hook_authority
-            .as_ref()
-            .filter(|authority| authority.source == source && authority.agent_label == agent_label)
-            .and_then(|authority| authority.session_ref.as_ref())
-            .or_else(|| {
-                self.persisted_agent_session
-                    .as_ref()
-                    .filter(|session| session.source == source && session.agent == agent_label)
-                    .map(|session| &session.session_ref)
-            });
+        let anchored_session_ref = self.anchored_session_ref(source, agent_label);
         let session_anchored = anchored_session_ref.is_some_and(|anchored| {
             session_ref
                 .as_ref()
@@ -3009,6 +3105,166 @@ mod tests {
         );
         assert!(late_session_b.is_none());
         assert_eq!(terminal.state, AgentState::Working);
+    }
+
+    #[test]
+    fn pi_in_band_state_follows_the_session_the_integration_reported() {
+        let mut terminal = test_terminal();
+        let session = test_session_path("pi-in-band.jsonl");
+        // Pi reports its session before the process probe recognizes it.
+        terminal.set_agent_session_ref_for_session_start(
+            "herdr:pi".into(),
+            "pi".into(),
+            crate::agent_resume::AgentSessionRef::path(session.clone()),
+            Some(10),
+            Some("startup".into()),
+        );
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
+
+        let working = terminal.set_in_band_hook_state_at("pi", AgentState::Working, Instant::now());
+
+        assert!(working.is_some());
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal.current_session_identity_for_persistence(),
+            Some((
+                "herdr:pi".into(),
+                "pi".into(),
+                crate::agent_resume::AgentSessionRefKind::Path,
+                session,
+            ))
+        );
+        // In-band reports leave the socket's sequence to the integration.
+        assert_eq!(terminal.hook_report_sequences.get("herdr:pi"), Some(&10));
+
+        terminal.set_in_band_hook_state_at("pi", AgentState::Blocked, Instant::now());
+        assert_eq!(terminal.state, AgentState::Blocked);
+
+        let replacement = test_session_path("pi-in-band-new.jsonl");
+        let new_session = terminal.set_agent_session_ref_for_session_start(
+            "herdr:pi".into(),
+            "pi".into(),
+            crate::agent_resume::AgentSessionRef::path(replacement.clone()),
+            Some(11),
+            Some("new".into()),
+        );
+        assert!(new_session.is_some());
+        terminal.set_in_band_hook_state_at("pi", AgentState::Idle, Instant::now());
+        assert_eq!(terminal.state, AgentState::Idle);
+        assert_eq!(
+            terminal.hook_authority.as_ref().unwrap().session_ref,
+            crate::agent_resume::AgentSessionRef::path(replacement)
+        );
+        // Moving to the replacement session must not reset the integration's sequence.
+        assert_eq!(terminal.hook_report_sequences.get("herdr:pi"), Some(&11));
+    }
+
+    #[test]
+    fn in_band_state_applies_only_to_the_reported_agent() {
+        let mut terminal = test_terminal();
+        anchor_full_lifecycle_session(
+            &mut terminal,
+            Agent::Pi,
+            "herdr:pi",
+            "pi",
+            crate::agent_resume::AgentSessionRef::path(test_session_path("pi-in-band-app.jsonl"))
+                .unwrap(),
+        );
+
+        let other = terminal.set_in_band_hook_state_at("omp", AgentState::Working, Instant::now());
+
+        assert!(other.is_none());
+        assert!(terminal.hook_authority.is_none());
+    }
+
+    #[test]
+    fn in_band_state_applies_to_any_state_reporting_integration_by_agent_name() {
+        let mut terminal = test_terminal();
+        anchor_full_lifecycle_session(
+            &mut terminal,
+            Agent::Omp,
+            "herdr:omp",
+            "omp",
+            crate::agent_resume::AgentSessionRef::path(test_session_path("omp-in-band.jsonl"))
+                .unwrap(),
+        );
+
+        let working =
+            terminal.set_in_band_hook_state_at("omp", AgentState::Working, Instant::now());
+
+        assert!(working.is_some());
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal.hook_authority.as_ref().unwrap().source,
+            "herdr:omp"
+        );
+    }
+
+    #[test]
+    fn pi_in_band_state_resumes_after_pi_restarts_in_the_pane() {
+        let mut terminal = test_terminal();
+        let first = test_session_path("pi-in-band-first.jsonl");
+        let second = test_session_path("pi-in-band-second.jsonl");
+        anchor_full_lifecycle_session(
+            &mut terminal,
+            Agent::Pi,
+            "herdr:pi",
+            "pi",
+            crate::agent_resume::AgentSessionRef::path(first).unwrap(),
+        );
+        let start = Instant::now();
+        terminal.set_in_band_hook_state_at("pi", AgentState::Working, start);
+        let exited = start + Duration::from_secs(1);
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Pi),
+            AgentState::Idle,
+            false,
+            true,
+            false,
+            true,
+            exited,
+        );
+
+        terminal.set_agent_session_ref_for_session_start(
+            "herdr:pi".into(),
+            "pi".into(),
+            crate::agent_resume::AgentSessionRef::path(second.clone()),
+            Some(20),
+            Some("startup".into()),
+        );
+        let restarted = exited + Duration::from_secs(1);
+        terminal.set_detected_state_with_screen_signals_at(
+            Some(Agent::Pi),
+            AgentState::Idle,
+            false,
+            false,
+            false,
+            false,
+            restarted,
+        );
+        let working = terminal.set_in_band_hook_state_at(
+            "pi",
+            AgentState::Working,
+            restarted + Duration::from_millis(100),
+        );
+
+        assert!(working.is_some());
+        assert_eq!(terminal.state, AgentState::Working);
+        assert_eq!(
+            terminal.hook_authority.as_ref().unwrap().session_ref,
+            crate::agent_resume::AgentSessionRef::path(second)
+        );
+    }
+
+    #[test]
+    fn pi_in_band_state_waits_for_a_reported_session() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
+
+        let working = terminal.set_in_band_hook_state_at("pi", AgentState::Working, Instant::now());
+
+        assert!(working.is_none());
+        assert!(terminal.hook_authority.is_none());
     }
 
     #[test]
