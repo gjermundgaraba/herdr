@@ -111,6 +111,13 @@ pub enum AppEvent {
         seq: Option<u64>,
         session_ref: Option<crate::agent_resume::AgentSessionRef>,
     },
+    /// A program reported its state in its own output (OSC 7501). It updates the authority
+    /// of the session an integration reported for that agent, without a sequence number.
+    InBandHookStateReported {
+        pane_id: PaneId,
+        app: String,
+        state: AgentState,
+    },
     /// Agent session identity was reported without state authority.
     AgentSessionReported {
         pane_id: PaneId,

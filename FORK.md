@@ -70,6 +70,9 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom-v3)..cus
 - Native pickers: `ui.pick` blocks while the invoking TUI shows a filterable
   list, and returns the picked id, created text, or cancellation
   (`src/server/headless/picks.rs`, `src/client/shell/picks.rs`)
+- Agent state from OSC 7501 program status reports, applied to the session a
+  state-reporting integration recorded; the bundled Pi integration (v10)
+  reports only the session (`src/pane/osc.rs`, `src/terminal/state.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the Micro and Deck plugins in the `herdr-plugins`

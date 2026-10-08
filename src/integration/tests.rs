@@ -3212,26 +3212,6 @@ fn process_owned_integration_assets_do_not_report_release() {
 }
 
 #[test]
-fn pi_extension_refreshes_session_ref_before_agent_start_state() {
-    let agent_start = PI_EXTENSION_ASSET
-        .find("pi.on(\"agent_start\", (_event, ctx)")
-        .expect("pi extension should receive agent_start context");
-    let handler = &PI_EXTENSION_ASSET[agent_start..];
-    let update_session = handler
-        .find("updateSessionRef(ctx);")
-        .expect("pi extension should refresh the active session on agent_start");
-    let report_session = handler
-        .find("void reportSession();")
-        .expect("pi extension should report the refreshed session before state");
-    let publish_state = handler
-        .find("publishState();")
-        .expect("pi extension should publish working state after refreshing session");
-
-    assert!(update_session < report_session);
-    assert!(report_session < publish_state);
-}
-
-#[test]
 fn omp_extension_refreshes_session_ref_before_agent_start_state() {
     let agent_start = OMP_EXTENSION_ASSET
         .find("pi.on(\"agent_start\", (_event, ctx)")

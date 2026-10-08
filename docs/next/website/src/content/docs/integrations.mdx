@@ -59,7 +59,7 @@ Herdr saves integration configs atomically on Linux/macOS and for new files; exi
 
 Every integration tells Herdr which session the agent is in, so Herdr can resume it after a server restart. Turn this off with `[session] resume_agents_on_restore = false`.
 
-The Pi, OMP, Kimi Code CLI, OpenCode, Kilo Code CLI, and MastraCode integrations also report the agent's state. While they report, Herdr uses them instead of reading the screen. The others leave state to screen detection.
+The OMP, Kimi Code CLI, OpenCode, Kilo Code CLI, and MastraCode integrations also report the agent's state. Pi reports its own state in its output, through the Program Status Protocol (OSC 7501). While an agent reports its state, Herdr uses that instead of reading the screen. The others leave state to screen detection.
 
 Native session restore requires current Herdr integrations: Pi integration version `2`, OMP version `3`, Claude Code version `6`, Codex version `5`, GitHub Copilot CLI version `2`, Devin CLI version `2`, Droid version `2`, Kimi Code CLI version `3`, Qoder CLI version `2`, Qwen Code version `1`, Letta Code version `1`, Cursor Agent CLI version `1`, Grok CLI version `2`, OpenCode version `5`, Kilo Code CLI version `1`, Hermes Agent version `5`, MastraCode version `1`, or Antigravity CLI version `1`. Check installed versions with `herdr integration status`.
 
@@ -82,6 +82,8 @@ Herdr writes the bundled extension to:
 ```
 
 If `PI_CODING_AGENT_DIR` is set, Herdr writes to `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts` instead. Herdr creates the extensions directory when the Pi agent directory already exists. Uninstall removes only that extension file.
+
+The extension reports only the Pi session. Pi 1.1.0 and later report whether they are working, waiting on a dialog or login, or idle through the Program Status Protocol (OSC 7501). Herdr answers the protocol's support query in every pane, but applies a report only when its `app` names an agent whose state-reporting integration reported the pane's session, so Pi's reports need this extension. An older Pi, or one run with `PI_PROGRAM_STATUS=0`, sends no reports, so Herdr reads its state from the screen and cannot tell when it is blocked. Pi extensions that emit `herdr:blocked` no longer affect Herdr's state for Pi.
 
 ## OMP
 

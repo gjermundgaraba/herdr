@@ -2062,6 +2062,26 @@ fn publish_terminal_bells(pane_id: PaneId, count: u16, events: &mpsc::Sender<App
     }
 }
 
+fn publish_program_status(
+    pane_id: PaneId,
+    reports: Vec<osc::ProgramStatusReport>,
+    events: &mpsc::Sender<AppEvent>,
+) {
+    for osc::ProgramStatusReport { app, state } in reports {
+        if let Err(err) = events.try_send(AppEvent::InBandHookStateReported {
+            pane_id,
+            app,
+            state,
+        }) {
+            warn!(
+                pane = pane_id.raw(),
+                err = %err,
+                "failed to queue program status report"
+            );
+        }
+    }
+}
+
 fn publish_reported_cwd(
     pane_id: PaneId,
     cwd: std::path::PathBuf,
@@ -2467,6 +2487,7 @@ impl PaneRuntime {
                 if let Some(cwd) = result.reported_cwd.clone() {
                     publish_reported_cwd(pane_id, cwd, &reported_cwd, &read_events);
                 }
+                publish_program_status(pane_id, result.program_status_reports, &read_events);
                 for content in result.clipboard_writes {
                     if let Err(err) = read_events.try_send(AppEvent::ClipboardWrite { content }) {
                         warn!(
@@ -2671,6 +2692,7 @@ impl PaneRuntime {
                 if let Some(cwd) = result.reported_cwd.clone() {
                     publish_reported_cwd(pane_id, cwd, &reported_cwd, &events);
                 }
+                publish_program_status(pane_id, result.program_status_reports, &events);
                 for content in result.clipboard_writes {
                     if let Err(err) = events.try_send(AppEvent::ClipboardWrite { content }) {
                         warn!(

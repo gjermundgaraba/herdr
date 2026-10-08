@@ -35,7 +35,8 @@ use super::{
         current_transient_default_color_owner, parse_reported_cwd,
         restore_host_terminal_theme_if_needed, write_host_terminal_theme_selective,
         AgentOscStateTracker, DefaultColorEvent, DefaultColorEventTracker, DefaultColorOscTracker,
-        DefaultColorQuery, DefaultColorTrackedEvent, OscDebugTracker,
+        DefaultColorQuery, DefaultColorTrackedEvent, OscDebugTracker, ProgramStatusReport,
+        PROGRAM_STATUS_QUERY_REPLY,
     },
     xtgettcap::{C1XtgettcapQueryTracker, C1XtgettcapResponse},
 };
@@ -170,6 +171,8 @@ pub(crate) struct ProcessBytesResult {
     pub clipboard_writes: Vec<Vec<u8>>,
     pub reported_cwd: Option<std::path::PathBuf>,
     pub terminal_responses: Vec<Bytes>,
+    /// OSC 7501 status reports, in output order.
+    pub program_status_reports: Vec<ProgramStatusReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -1359,6 +1362,7 @@ impl GhosttyPaneTerminal {
                 clipboard_writes: Vec::new(),
                 reported_cwd: None,
                 terminal_responses: Vec::new(),
+                program_status_reports: Vec::new(),
             };
         };
 
@@ -1388,6 +1392,8 @@ impl GhosttyPaneTerminal {
             );
         }
         let terminal_title_changed = core.agent_osc_state.observe(bytes);
+        let program_status_queries = core.agent_osc_state.drain_program_status_queries();
+        let program_status_reports = core.agent_osc_state.drain_program_status_reports();
 
         core.kitty_keyboard.observe(bytes);
         let mut terminal_responses = Vec::new();
@@ -1408,6 +1414,7 @@ impl GhosttyPaneTerminal {
             default_color_events,
             in_progress_default_color_event,
             c1_xtgettcap_responses,
+            program_status_queries,
             &mut terminal_responses,
         );
         let terminal_bells = core.terminal.take_bell_count();
@@ -1476,6 +1483,7 @@ impl GhosttyPaneTerminal {
             clipboard_writes,
             reported_cwd,
             terminal_responses,
+            program_status_reports,
         }
     }
 
@@ -1486,23 +1494,30 @@ impl GhosttyPaneTerminal {
         default_color_events: Vec<DefaultColorTrackedEvent>,
         in_progress_default_color_event: Option<DefaultColorEvent>,
         c1_xtgettcap_responses: Vec<C1XtgettcapResponse>,
+        program_status_queries: Vec<usize>,
         terminal_responses: &mut Vec<Bytes>,
     ) {
         // Only legacy C1 replies need merging; ordinary XTGETTCAP remains native.
+        // libghostty does not answer OSC 7501, so its support query is answered here.
         let mut events: Vec<_> = default_color_events
             .into_iter()
-            .map(OrderedColorOrC1Event::Color)
+            .map(OrderedReplyEvent::Color)
             .chain(
                 c1_xtgettcap_responses
                     .into_iter()
-                    .map(OrderedColorOrC1Event::C1),
+                    .map(OrderedReplyEvent::C1),
+            )
+            .chain(
+                program_status_queries
+                    .into_iter()
+                    .map(OrderedReplyEvent::ProgramStatusQuery),
             )
             .collect();
-        events.sort_by_key(OrderedColorOrC1Event::end_offset);
+        events.sort_by_key(OrderedReplyEvent::end_offset);
         let mut written = 0;
         for event in events {
             let end_offset = event.end_offset().min(bytes.len());
-            if matches!(&event, OrderedColorOrC1Event::C1(response) if response.suppress_native) {
+            if matches!(&event, OrderedReplyEvent::C1(response) if response.suppress_native) {
                 // Suppress only the unhook byte's replies, not earlier native queries.
                 let prefix_end = end_offset.saturating_sub(1).max(written);
                 if prefix_end > written {
@@ -1518,7 +1533,7 @@ impl GhosttyPaneTerminal {
                 written = end_offset;
             }
             match event {
-                OrderedColorOrC1Event::Color(event) => {
+                OrderedReplyEvent::Color(event) => {
                     let replacement = respond_to_default_color_event(core, event.event);
                     if replacement.is_some() {
                         remove_last_matching_libghostty_color_reply(
@@ -1529,7 +1544,7 @@ impl GhosttyPaneTerminal {
                     terminal_responses.extend(libghostty_responses);
                     terminal_responses.extend(replacement);
                 }
-                OrderedColorOrC1Event::C1(response) => {
+                OrderedReplyEvent::C1(response) => {
                     if response.suppress_native {
                         libghostty_responses.retain(|reply| {
                             !reply.starts_with(b"\x1bP1+r") && !reply.starts_with(b"\x1bP0+r")
@@ -1539,6 +1554,10 @@ impl GhosttyPaneTerminal {
                     if !response.suppress_native {
                         terminal_responses.push(response.bytes);
                     }
+                }
+                OrderedReplyEvent::ProgramStatusQuery(_) => {
+                    terminal_responses.extend(libghostty_responses);
+                    terminal_responses.push(Bytes::from_static(PROGRAM_STATUS_QUERY_REPLY));
                 }
             }
         }
@@ -3335,16 +3354,19 @@ fn ghostty_cell_style(
     style.add_modifier(modifiers)
 }
 
-enum OrderedColorOrC1Event {
+enum OrderedReplyEvent {
     Color(DefaultColorTrackedEvent),
     C1(C1XtgettcapResponse),
+    /// An OSC 7501 support query ending at this offset.
+    ProgramStatusQuery(usize),
 }
 
-impl OrderedColorOrC1Event {
+impl OrderedReplyEvent {
     fn end_offset(&self) -> usize {
         match self {
             Self::Color(event) => event.end_offset,
             Self::C1(response) => response.end_offset,
+            Self::ProgramStatusQuery(end_offset) => *end_offset,
         }
     }
 }
@@ -6485,6 +6507,42 @@ mod tests {
             expected_xtgettcap_response("5463", None)
         );
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn process_pty_bytes_answers_program_status_query_before_following_device_attributes() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
+        let pane_id = PaneId::from_raw(1);
+
+        // Pi's startup query: Kitty keyboard flags, OSC 7501 support, then DA1 as the sentinel.
+        let result =
+            pane.process_pty_bytes(pane_id, 0, b"\x1b[>7u\x1b[?u\x1b]7501;?\x1b\\\x1b[c", &tx);
+
+        let program_status = result
+            .terminal_responses
+            .iter()
+            .position(|reply| reply.as_ref() == PROGRAM_STATUS_QUERY_REPLY)
+            .expect("program status reply");
+        let device_attributes = result
+            .terminal_responses
+            .iter()
+            .position(|reply| reply.starts_with(b"\x1b[?") && reply.ends_with(b"c"))
+            .expect("device attributes reply");
+        assert!(program_status < device_attributes);
+        assert!(result.program_status_reports.is_empty());
+        assert!(rx.try_recv().is_err());
+
+        let report = pane.process_pty_bytes(pane_id, 0, b"\x1b]7501;state=working:app=pi\x07", &tx);
+        assert!(report.terminal_responses.is_empty());
+        assert_eq!(
+            report.program_status_reports,
+            vec![ProgramStatusReport {
+                app: "pi".into(),
+                state: crate::detect::AgentState::Working,
+            }]
+        );
     }
 
     #[test]
