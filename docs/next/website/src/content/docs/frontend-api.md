@@ -45,6 +45,9 @@ pane by any means; presenting the pane again clears it as usual. Only an
 acknowledged completion, shown as idle, can be restored. Working, blocked, and
 still-badged agents are left alone.
 
+This action keeps its record inside the TUI. The daemon offers the same hold to
+every client as `agent.mark_unread`; see [Client contract](/docs/client-contract/).
+
 Leaving moves the restored completion behind existing completions in its
 Priority group. New completions queue after it. The sidebar, agent picker,
 navigation, and mobile list share this order across machines. Revisiting clears

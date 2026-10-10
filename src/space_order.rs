@@ -5,6 +5,9 @@
 //! metadata token on that checkout, the family anchor, names the group. The
 //! sidebar shows spaces in server order and starts a header wherever the group
 //! changes, so keeping each group together is a matter of where spaces move.
+//!
+//! A client needs [`anchor`] and [`group`] to place those headers. Herdr GPUI
+//! ports the two in `crates/herdr-gpui/src/sidebar/space_groups.rs`.
 
 /// Workspace metadata key that names a space's group.
 pub(crate) const GROUP_TOKEN: &str = "space_group";

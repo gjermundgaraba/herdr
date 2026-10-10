@@ -64,6 +64,7 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
         agents: Vec::new(),
         commands: Vec::new(),
         plugin_entries: Vec::new(),
+        pinned_sections: Vec::new(),
     }
 }
 

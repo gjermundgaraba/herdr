@@ -1,32 +1,17 @@
 //! `ui.pick`: plugin pickers shown natively on one TUI client. The waiting
-//! API caller holds the request open; the picker's client answers with
-//! `ui.pick.resolve`, and a closed picker or a departed client cancels it.
+//! API caller holds the request open; the picker's client answers with the
+//! client-lane method `ui.pick.resolve`, and a closed picker or a departed
+//! client cancels it.
 
 use super::HeadlessServer;
 use crate::api;
-use crate::api::schema::{
-    ErrorBody, ErrorResponse, Method, ResponseResult, SuccessResponse, UiPickOutcome,
-};
+use crate::api::schema::{Method, ResponseResult, UiPickOutcome, UiPickResolveParams};
+use crate::app::{encode_error, encode_success};
 use crate::protocol::endpoint::{pick_close_message, pick_open_message, EndpointPickOpen};
 
 pub(super) struct PendingPick {
     client_id: u64,
     respond_to: std::sync::mpsc::Sender<String>,
-}
-
-fn success(id: String, result: ResponseResult) -> String {
-    serde_json::to_string(&SuccessResponse { id, result }).unwrap_or_else(|_| "{}".to_owned())
-}
-
-fn error(id: String, code: &str, message: &str) -> String {
-    serde_json::to_string(&ErrorResponse {
-        id,
-        error: ErrorBody {
-            code: code.to_owned(),
-            message: message.to_owned(),
-        },
-    })
-    .unwrap_or_else(|_| "{}".to_owned())
 }
 
 impl HeadlessServer {
@@ -39,7 +24,7 @@ impl HeadlessServer {
         let response = match &msg.request.method {
             Method::UiPick(params) => {
                 let Some(client_id) = self.pick_client(params.client_id) else {
-                    let _ = msg.respond_to.send(error(
+                    let _ = msg.respond_to.send(encode_error(
                         id,
                         "no_client",
                         "no TUI client is attached to show the picker",
@@ -51,7 +36,7 @@ impl HeadlessServer {
                     .values()
                     .any(|pick| pick.client_id == client_id)
                 {
-                    let _ = msg.respond_to.send(error(
+                    let _ = msg.respond_to.send(encode_error(
                         id,
                         "ui_busy",
                         "that client is already showing a picker",
@@ -68,7 +53,7 @@ impl HeadlessServer {
                 let sent = pick_open_message(&open)
                     .is_ok_and(|message| self.send_to_client(client_id, message));
                 if !sent {
-                    let _ = msg.respond_to.send(error(
+                    let _ = msg.respond_to.send(encode_error(
                         id,
                         "no_client",
                         "the picker's client went away",
@@ -84,31 +69,20 @@ impl HeadlessServer {
                 );
                 return None;
             }
-            Method::UiPickResolve(params) => {
-                let owned = self
-                    .pending_picks
-                    .get(&params.pick_id)
-                    .is_some_and(|pick| Some(pick.client_id) == self.app.invoking_client_id);
-                if owned {
-                    self.finish_pick(&params.pick_id, params.outcome.clone());
-                    success(id, ResponseResult::Ok {})
-                } else {
-                    error(
-                        id,
-                        "pick_not_found",
-                        "no open picker with that id on this client",
-                    )
-                }
-            }
+            Method::UiPickResolve(_) => encode_error(
+                id,
+                "connection_local_only",
+                "this method is only available through a client shell endpoint",
+            ),
             Method::UiPickClose(params) => {
                 if let Some(client_id) = self.finish_pick(&params.pick_id, UiPickOutcome::Cancelled)
                 {
                     if let Ok(message) = pick_close_message(&params.pick_id) {
                         self.send_to_client(client_id, message);
                     }
-                    success(id, ResponseResult::Ok {})
+                    encode_success(id, ResponseResult::Ok {})
                 } else {
-                    error(id, "pick_not_found", "no open picker with that id")
+                    encode_error(id, "pick_not_found", "no open picker with that id")
                 }
             }
             _ => return Some(msg),
@@ -117,10 +91,31 @@ impl HeadlessServer {
         None
     }
 
+    /// Applies `ui.pick.resolve` from the client lane. A client answers its
+    /// picker whatever it presents, so this needs no active surface.
+    pub(super) fn resolve_client_pick(
+        &mut self,
+        client_id: u64,
+        params: UiPickResolveParams,
+    ) -> Result<ResponseResult, (&'static str, String)> {
+        let owned = self
+            .pending_picks
+            .get(&params.pick_id)
+            .is_some_and(|pick| pick.client_id == client_id);
+        if !owned {
+            return Err((
+                "pick_not_found",
+                "no open picker with that id on this client".to_owned(),
+            ));
+        }
+        self.finish_pick(&params.pick_id, params.outcome);
+        Ok(ResponseResult::Ok {})
+    }
+
     /// Answers the waiting caller and returns the picker's client.
     fn finish_pick(&mut self, pick_id: &str, outcome: UiPickOutcome) -> Option<u64> {
         let pick = self.pending_picks.remove(pick_id)?;
-        let _ = pick.respond_to.send(success(
+        let _ = pick.respond_to.send(encode_success(
             pick_id.to_owned(),
             ResponseResult::UiPicked { outcome },
         ));

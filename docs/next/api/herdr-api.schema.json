@@ -79,6 +79,274 @@
           ],
           "type": "string"
         },
+        "ClientEndpointStatus": {
+          "oneOf": [
+            {
+              "enum": [
+                "connecting",
+                "online",
+                "reconnecting",
+                "disabled"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "attention",
+              "description": "The endpoint needs the user, for example to sign in or update.",
+              "type": "string"
+            }
+          ]
+        },
+        "ClientInfo": {
+          "description": "One attached client, as `client.list` and `client.changed` describe it.",
+          "properties": {
+            "client_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "report": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/event/$defs/ClientReport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The client's latest report; absent until it sends one."
+            }
+          },
+          "required": [
+            "client_id"
+          ],
+          "type": "object"
+        },
+        "ClientReport": {
+          "description": "What a client shows in its Agents list, across every endpoint it is\nattached to. Each report replaces the previous one.",
+          "properties": {
+            "active_endpoint_id": {
+              "description": "The endpoint the client is presenting.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agents": {
+              "description": "The Agents list in the client's display order.",
+              "items": {
+                "$ref": "#/schemas/event/$defs/ClientReportAgent"
+              },
+              "type": "array"
+            },
+            "endpoints": {
+              "items": {
+                "$ref": "#/schemas/event/$defs/ClientReportEndpoint"
+              },
+              "type": "array"
+            },
+            "focused": {
+              "description": "Whether the client's OS window or outer terminal has focus; `null`\nuntil the client knows.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "endpoints",
+            "agents"
+          ],
+          "type": "object"
+        },
+        "ClientReportAgent": {
+          "properties": {
+            "agent": {
+              "$ref": "#/schemas/event/$defs/ClientShellAgent",
+              "description": "The row's record from its endpoint's snapshot, as the client shows it."
+            },
+            "cwd": {
+              "description": "The pane's working directory, when its endpoint knows it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "focused": {
+              "description": "The agent the client has focused: the focused pane of the endpoint it\npresents. At most one row is focused; `agent.focused` is instead the\nfocus inside the row's own endpoint.",
+              "type": "boolean"
+            },
+            "foreground_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "description": "Label and number of the space the agent belongs to.",
+              "type": "string"
+            },
+            "workspace_number": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "endpoint_id",
+            "focused",
+            "workspace_label",
+            "workspace_number",
+            "agent"
+          ],
+          "type": "object"
+        },
+        "ClientReportEndpoint": {
+          "properties": {
+            "boot_id": {
+              "description": "Boot of the daemon behind the endpoint; `null` before its first snapshot.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "endpoint_id": {
+              "description": "The client's own id for the endpoint, such as `local` or `ssh:<profile>`.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/schemas/event/$defs/ClientEndpointStatus"
+            }
+          },
+          "required": [
+            "endpoint_id",
+            "label",
+            "status"
+          ],
+          "type": "object"
+        },
+        "ClientShellAgent": {
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_status": {
+              "$ref": "#/schemas/event/$defs/AgentStatus"
+            },
+            "display_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "priority_key": {
+              "default": "",
+              "description": "The agent's place in the `priority` order, with the priority-token\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first. Keys from different endpoints compare the same\nway; see [`crate::agent_priority::priority_key`].",
+              "type": "string"
+            },
+            "priority_mark": {
+              "default": null,
+              "description": "The mark of the agent's space: the value of the first\n`ui.agent_priority_tokens` entry the space carries, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state_change_seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state_labels": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "tab_id": {
+              "type": "string"
+            },
+            "terminal_title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "terminal_title_stripped": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tokens": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "workspace_id",
+            "tab_id",
+            "agent_status",
+            "state_change_seq",
+            "state_labels",
+            "tokens",
+            "focused"
+          ],
+          "type": "object"
+        },
         "EventData": {
           "oneOf": [
             {
@@ -760,6 +1028,36 @@
                 "layout"
               ],
               "type": "object"
+            },
+            {
+              "description": "A client attached, sent a different report, or detached.",
+              "properties": {
+                "client": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/schemas/event/$defs/ClientInfo"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The client as `client.list` now describes it; absent once it detached."
+                },
+                "client_id": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "client_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "client_id"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -791,7 +1089,8 @@
             "pane_cwd_changed",
             "pane_agent_detected",
             "pane_agent_status_changed",
-            "layout_updated"
+            "layout_updated",
+            "client_changed"
           ],
           "type": "string"
         },
@@ -1744,6 +2043,379 @@
           },
           "required": [
             "target"
+          ],
+          "type": "object"
+        },
+        "ClientEndpointStatus": {
+          "oneOf": [
+            {
+              "enum": [
+                "connecting",
+                "online",
+                "reconnecting",
+                "disabled"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "attention",
+              "description": "The endpoint needs the user, for example to sign in or update.",
+              "type": "string"
+            }
+          ]
+        },
+        "ClientJumpOutcome": {
+          "description": "How a client's jump ended.",
+          "oneOf": [
+            {
+              "description": "The client presents the endpoint with the pane focused.",
+              "properties": {
+                "type": {
+                  "const": "focused",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The endpoint now runs another boot, so the pane id may name another pane.",
+              "properties": {
+                "type": {
+                  "const": "stale_boot",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The client knows no such endpoint, or the endpoint no such pane.",
+              "properties": {
+                "type": {
+                  "const": "not_found",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The endpoint is not online.",
+              "properties": {
+                "type": {
+                  "const": "unavailable",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The client did not see the pane focused in time; it may still happen.",
+              "properties": {
+                "type": {
+                  "const": "timeout",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "failed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "message"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ClientJumpParams": {
+          "description": "Asks one client to show a pane, switching endpoint when it has to.",
+          "properties": {
+            "boot_id": {
+              "description": "The endpoint's boot the pane id was read from.",
+              "type": "string"
+            },
+            "client_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "endpoint_id": {
+              "description": "The endpoint, in the ids of that client's report.",
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "client_id",
+            "endpoint_id",
+            "boot_id",
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "ClientJumpResolveParams": {
+          "description": "Sent by the client that received the jump.",
+          "properties": {
+            "jump_id": {
+              "type": "string"
+            },
+            "outcome": {
+              "$ref": "#/schemas/request/$defs/ClientJumpOutcome"
+            }
+          },
+          "required": [
+            "jump_id",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        "ClientReport": {
+          "description": "What a client shows in its Agents list, across every endpoint it is\nattached to. Each report replaces the previous one.",
+          "properties": {
+            "active_endpoint_id": {
+              "description": "The endpoint the client is presenting.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agents": {
+              "description": "The Agents list in the client's display order.",
+              "items": {
+                "$ref": "#/schemas/request/$defs/ClientReportAgent"
+              },
+              "type": "array"
+            },
+            "endpoints": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/ClientReportEndpoint"
+              },
+              "type": "array"
+            },
+            "focused": {
+              "description": "Whether the client's OS window or outer terminal has focus; `null`\nuntil the client knows.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "endpoints",
+            "agents"
+          ],
+          "type": "object"
+        },
+        "ClientReportAgent": {
+          "properties": {
+            "agent": {
+              "$ref": "#/schemas/request/$defs/ClientShellAgent",
+              "description": "The row's record from its endpoint's snapshot, as the client shows it."
+            },
+            "cwd": {
+              "description": "The pane's working directory, when its endpoint knows it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "focused": {
+              "description": "The agent the client has focused: the focused pane of the endpoint it\npresents. At most one row is focused; `agent.focused` is instead the\nfocus inside the row's own endpoint.",
+              "type": "boolean"
+            },
+            "foreground_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "description": "Label and number of the space the agent belongs to.",
+              "type": "string"
+            },
+            "workspace_number": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "endpoint_id",
+            "focused",
+            "workspace_label",
+            "workspace_number",
+            "agent"
+          ],
+          "type": "object"
+        },
+        "ClientReportEndpoint": {
+          "properties": {
+            "boot_id": {
+              "description": "Boot of the daemon behind the endpoint; `null` before its first snapshot.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "endpoint_id": {
+              "description": "The client's own id for the endpoint, such as `local` or `ssh:<profile>`.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/schemas/request/$defs/ClientEndpointStatus"
+            }
+          },
+          "required": [
+            "endpoint_id",
+            "label",
+            "status"
+          ],
+          "type": "object"
+        },
+        "ClientShellAgent": {
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_status": {
+              "$ref": "#/schemas/request/$defs/AgentStatus"
+            },
+            "display_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "priority_key": {
+              "default": "",
+              "description": "The agent's place in the `priority` order, with the priority-token\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first. Keys from different endpoints compare the same\nway; see [`crate::agent_priority::priority_key`].",
+              "type": "string"
+            },
+            "priority_mark": {
+              "default": null,
+              "description": "The mark of the agent's space: the value of the first\n`ui.agent_priority_tokens` entry the space carries, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state_change_seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state_labels": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "tab_id": {
+              "type": "string"
+            },
+            "terminal_title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "terminal_title_stripped": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tokens": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "workspace_id",
+            "tab_id",
+            "agent_status",
+            "state_change_seq",
+            "state_labels",
+            "tokens",
+            "focused"
           ],
           "type": "object"
         },
@@ -4247,6 +4919,18 @@
                 "type"
               ],
               "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "client.changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -5044,6 +5728,72 @@
           "type": "object"
         },
         {
+          "description": "Client lane: replaces the calling client's report.",
+          "properties": {
+            "method": {
+              "const": "client.report",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ClientReport"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "client.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "client.jump",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ClientJumpParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Client lane: answers the jump the daemon sent this client.",
+          "properties": {
+            "method": {
+              "const": "client.jump.resolve",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ClientJumpResolveParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "method": {
               "const": "session.snapshot",
@@ -5531,6 +6281,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentTarget"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.mark_unread",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneTarget"
             }
           },
           "required": [
@@ -6978,6 +7744,274 @@
           ],
           "type": "string"
         },
+        "ClientEndpointStatus": {
+          "oneOf": [
+            {
+              "enum": [
+                "connecting",
+                "online",
+                "reconnecting",
+                "disabled"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "attention",
+              "description": "The endpoint needs the user, for example to sign in or update.",
+              "type": "string"
+            }
+          ]
+        },
+        "ClientInfo": {
+          "description": "One attached client, as `client.list` and `client.changed` describe it.",
+          "properties": {
+            "client_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "report": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/ClientReport"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The client's latest report; absent until it sends one."
+            }
+          },
+          "required": [
+            "client_id"
+          ],
+          "type": "object"
+        },
+        "ClientReport": {
+          "description": "What a client shows in its Agents list, across every endpoint it is\nattached to. Each report replaces the previous one.",
+          "properties": {
+            "active_endpoint_id": {
+              "description": "The endpoint the client is presenting.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agents": {
+              "description": "The Agents list in the client's display order.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/ClientReportAgent"
+              },
+              "type": "array"
+            },
+            "endpoints": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/ClientReportEndpoint"
+              },
+              "type": "array"
+            },
+            "focused": {
+              "description": "Whether the client's OS window or outer terminal has focus; `null`\nuntil the client knows.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "endpoints",
+            "agents"
+          ],
+          "type": "object"
+        },
+        "ClientReportAgent": {
+          "properties": {
+            "agent": {
+              "$ref": "#/schemas/success_response/$defs/ClientShellAgent",
+              "description": "The row's record from its endpoint's snapshot, as the client shows it."
+            },
+            "cwd": {
+              "description": "The pane's working directory, when its endpoint knows it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "endpoint_id": {
+              "type": "string"
+            },
+            "focused": {
+              "description": "The agent the client has focused: the focused pane of the endpoint it\npresents. At most one row is focused; `agent.focused` is instead the\nfocus inside the row's own endpoint.",
+              "type": "boolean"
+            },
+            "foreground_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "description": "Label and number of the space the agent belongs to.",
+              "type": "string"
+            },
+            "workspace_number": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "endpoint_id",
+            "focused",
+            "workspace_label",
+            "workspace_number",
+            "agent"
+          ],
+          "type": "object"
+        },
+        "ClientReportEndpoint": {
+          "properties": {
+            "boot_id": {
+              "description": "Boot of the daemon behind the endpoint; `null` before its first snapshot.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "endpoint_id": {
+              "description": "The client's own id for the endpoint, such as `local` or `ssh:<profile>`.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/ClientEndpointStatus"
+            }
+          },
+          "required": [
+            "endpoint_id",
+            "label",
+            "status"
+          ],
+          "type": "object"
+        },
+        "ClientShellAgent": {
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_status": {
+              "$ref": "#/schemas/success_response/$defs/AgentStatus"
+            },
+            "display_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "priority_key": {
+              "default": "",
+              "description": "The agent's place in the `priority` order, with the priority-token\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first. Keys from different endpoints compare the same\nway; see [`crate::agent_priority::priority_key`].",
+              "type": "string"
+            },
+            "priority_mark": {
+              "default": null,
+              "description": "The mark of the agent's space: the value of the first\n`ui.agent_priority_tokens` entry the space carries, if any.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "state_change_seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state_labels": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "tab_id": {
+              "type": "string"
+            },
+            "terminal_title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "terminal_title_stripped": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tokens": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "workspace_id",
+            "tab_id",
+            "agent_status",
+            "state_change_seq",
+            "state_labels",
+            "tokens",
+            "focused"
+          ],
+          "type": "object"
+        },
         "ClientWindowTitleReason": {
           "enum": [
             "set",
@@ -7675,6 +8709,36 @@
                 "layout"
               ],
               "type": "object"
+            },
+            {
+              "description": "A client attached, sent a different report, or detached.",
+              "properties": {
+                "client": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/schemas/success_response/$defs/ClientInfo"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The client as `client.list` now describes it; absent once it detached."
+                },
+                "client_id": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "client_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "client_id"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -7721,7 +8785,8 @@
             "pane_cwd_changed",
             "pane_agent_detected",
             "pane_agent_status_changed",
-            "layout_updated"
+            "layout_updated",
+            "client_changed"
           ],
           "type": "string"
         },
@@ -10291,6 +11356,57 @@
                 "type",
                 "changed",
                 "reason"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "boot_id": {
+                  "description": "This daemon's boot. A reported endpoint with the same `boot_id`\nis this daemon, so its panes answer to this API directly.",
+                  "type": "string"
+                },
+                "clients": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/ClientInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "client_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "boot_id",
+                "clients"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The client presents the endpoint with the pane focused.",
+              "properties": {
+                "client_id": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "endpoint_id": {
+                  "type": "string"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "client_jumped",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "client_id",
+                "endpoint_id",
+                "pane_id"
               ],
               "type": "object"
             },

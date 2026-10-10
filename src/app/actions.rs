@@ -464,10 +464,7 @@ impl AppState {
 
         let mut changed = false;
         for pane in tab.panes.values_mut() {
-            if !pane.seen {
-                pane.seen = true;
-                changed = true;
-            }
+            changed |= pane.mark_seen();
         }
         changed
     }
@@ -1753,7 +1750,9 @@ impl AppState {
         };
         if completion_reset {
             self.pending_agent_notifications.remove(&pane_id);
-            self.workspaces[ws_idx].pane_state_mut(pane_id)?.seen = true;
+            let pane = self.workspaces[ws_idx].pane_state_mut(pane_id)?;
+            pane.unread_hold = None;
+            pane.seen = true;
         }
         if mutation.session_ref_changed || managed_changed || agent_name_changed {
             self.mark_session_dirty();
@@ -1763,13 +1762,15 @@ impl AppState {
         let suppress_completion = force_suppress_completion
             || (change.state == AgentState::Idle && suppress_acquisition_completion);
         if change.previous_state != change.state {
-            self.next_agent_state_change_seq += 1;
+            let (sequence, stamp) = self.next_agent_order_event();
             if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
-                terminal.last_agent_state_change_seq = Some(self.next_agent_state_change_seq);
-                terminal.last_agent_completion_seq = (!suppress_completion
-                    && is_completion_transition(&change))
-                .then_some(self.next_agent_state_change_seq);
+                terminal.last_agent_state_change_seq = Some(sequence);
+                terminal.agent_order_stamp = Some(stamp);
+                terminal.last_agent_completion_seq =
+                    (!suppress_completion && is_completion_transition(&change)).then_some(sequence);
             }
+            // A real lifecycle change supersedes a completion held as unread.
+            self.workspaces[ws_idx].pane_state_mut(pane_id)?.unread_hold = None;
         }
         let seen = self.apply_pane_state_change(ws_idx, pane_id, &change, suppress_completion)?;
         let update = PaneStateUpdate {

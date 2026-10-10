@@ -306,6 +306,8 @@ mod tests {
             state_labels: Vec::new(),
             tokens: Vec::new(),
             focused: true,
+            priority_key: String::new(),
+            priority_mark: None,
         });
         state.set_snapshot(Box::new(snapshot));
 
@@ -331,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn finished_hint_waits_for_the_projected_completion_snapshot() {
+    fn finished_hint_waits_for_the_snapshot_that_shows_the_completion() {
         let mut config = ClientShellConfig::from_config(&Config::default());
         config.toast_delivery = crate::config::ToastDelivery::Terminal;
         config.toast_delay_seconds = 0;
@@ -352,6 +354,8 @@ mod tests {
             state_labels: Vec::new(),
             tokens: Vec::new(),
             focused: false,
+            priority_key: String::new(),
+            priority_mark: None,
         });
         state.set_snapshot(Box::new(snapshot.clone()));
         let now = std::time::Instant::now();
@@ -372,7 +376,7 @@ mod tests {
         assert_eq!(state.pending_notifications.len(), 1);
 
         snapshot.revision = snapshot.revision.saturating_add(1);
-        snapshot.agents[0].agent_status = crate::api::schema::AgentStatus::Idle;
+        snapshot.agents[0].agent_status = crate::api::schema::AgentStatus::Done;
         snapshot.agents[0].state_change_seq = 2;
         state.set_snapshot(Box::new(snapshot));
         let (effects, _) = state.tick_notifications(now + COMPLETION_RECHECK_INTERVAL);

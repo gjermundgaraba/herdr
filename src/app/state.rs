@@ -832,6 +832,12 @@ pub struct AppState {
     pub sidebar_agents: crate::config::AgentsSidebarConfig,
     pub sidebar_spaces: crate::config::SpacesSidebarConfig,
     pub next_agent_state_change_seq: u64,
+    /// Stamp of the latest agent ordering event; see
+    /// [`crate::agent_priority::priority_key`].
+    pub last_agent_order_stamp: u64,
+    /// Whether some pane may carry an unread hold. Lets the server skip its
+    /// per-event settle pass; it clears the flag once it finds none.
+    pub unread_holds_pending: bool,
     pub confirm_close: bool,
     pub pane_borders: crate::config::PaneBordersConfig,
     pub pane_outer_borders: bool,
@@ -1075,6 +1081,8 @@ impl AppState {
             sidebar_agents: crate::config::AgentsSidebarConfig::default(),
             sidebar_spaces: crate::config::SpacesSidebarConfig::default(),
             next_agent_state_change_seq: 0,
+            last_agent_order_stamp: 0,
+            unread_holds_pending: false,
             confirm_close: true,
             pane_borders: crate::config::PaneBordersConfig::Auto,
             pane_outer_borders: true,

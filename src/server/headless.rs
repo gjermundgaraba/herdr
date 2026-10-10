@@ -51,8 +51,7 @@ use crate::server::client_accept::{
     accept_pending_client_connections, reject_pending_client_connections,
 };
 use crate::server::client_shell::{
-    render_pane_surface as render_client_shell_pane_surface,
-    snapshot_with_completions as client_shell_snapshot,
+    render_pane_surface as render_client_shell_pane_surface, snapshot as client_shell_snapshot,
 };
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
@@ -75,8 +74,10 @@ use crate::server::socket_paths::{
 use crate::server::terminal_attach::paste_payload_for_runtime;
 
 mod bootstrap;
+mod client_reports;
 mod client_views;
 mod endpoint_requests;
+mod jumps;
 mod lifecycle;
 mod native_graphics;
 mod notifications;
@@ -84,6 +85,7 @@ mod picks;
 mod render;
 mod retained_surface;
 mod surface_interest;
+mod unread_holds;
 
 // Producers can refill even a bounded channel while it is being drained.
 // Yield to scheduled work and rendering between batches; select! below
@@ -233,6 +235,12 @@ pub struct HeadlessServer {
     terminal_attach_owners: HashMap<String, u64>,
     /// Open `ui.pick` pickers by pick id, each waiting on its API caller.
     pending_picks: HashMap<String, picks::PendingPick>,
+    /// Latest `client.report` per client.
+    client_reports: client_reports::ClientReports,
+    /// Open `client.jump` requests, each waiting on its client's answer.
+    client_jumps: jumps::ClientJumps,
+    /// Client presence the unread holds were last settled against.
+    unread_presence: unread_holds::UnreadPresence,
     /// Deferred application-history reads currently driving alternate-screen viewports.
     pending_alt_screen_reads: Vec<crate::server::alt_screen_read::PendingAltScreenRead>,
     /// Reads waiting for an alternate-screen traversal of the same terminal to finish.
@@ -384,6 +392,9 @@ impl HeadlessServer {
             server_config_diagnostic_without_keybindings,
             terminal_attach_owners: HashMap::new(),
             pending_picks: HashMap::new(),
+            client_reports: Default::default(),
+            client_jumps: Default::default(),
+            unread_presence: Default::default(),
             pending_alt_screen_reads: Vec::new(),
             deferred_alt_screen_reads: Vec::new(),
             next_activity_stamp: 1,
@@ -671,7 +682,8 @@ impl HeadlessServer {
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
-                    if self.handle_internal_event_with_forwarding(ev) {
+                    // A closing pane or space can move a client's focus too.
+                    if self.handle_internal_event_with_forwarding(ev) | self.settle_unread_holds() {
                         needs_render = true;
                         needs_full_render = true;
                         needs_graphics_render = false;
@@ -967,7 +979,14 @@ impl HeadlessServer {
         });
         let was_foreground = self.foreground_client_id == Some(client_id);
         self.cancel_client_picks(client_id);
+        self.cancel_client_jump(client_id);
         let removed = self.clients.remove(&client_id);
+        self.forget_client_report(
+            client_id,
+            removed
+                .as_ref()
+                .is_some_and(|client| client.is_shell_client()),
+        );
         self.tab_geometry_controllers
             .retain(|_, controller_id| *controller_id != client_id);
         if let Some(mut removed) = removed {
@@ -1852,6 +1871,12 @@ impl HeadlessServer {
 
     /// Handles a server event. Returns true if the event requires a re-render.
     fn handle_server_event(&mut self, ev: ServerEvent) -> bool {
+        let changed = self.dispatch_server_event(ev);
+        // Any client event can move a client off a pane or back onto it.
+        changed | self.settle_unread_holds()
+    }
+
+    fn dispatch_server_event(&mut self, ev: ServerEvent) -> bool {
         if self.handoff_in_progress && Self::ignore_client_event_during_handoff(&ev) {
             return false;
         }
@@ -1971,7 +1996,7 @@ impl HeadlessServer {
                 } else {
                     self.server_config_diagnostic_without_keybindings.as_deref()
                 };
-                let (seed_snapshot, completion_projection) = client_shell_snapshot(
+                let seed_snapshot = client_shell_snapshot(
                     &self.app,
                     &self.client_shell_boot_id,
                     connection.shell_projection_revision,
@@ -2003,27 +2028,17 @@ impl HeadlessServer {
                             return false;
                         }
                     };
-                let completion_message = match crate::protocol::endpoint::agent_completions_message(
-                    &completion_projection,
-                ) {
-                    Ok(message) => message,
-                    Err(err) => {
-                        warn!(client_id, err = %err, "failed to encode agent completions");
-                        return false;
-                    }
-                };
                 connection.shell_location = Some(location);
                 connection.shell_snapshot = Some(seed_snapshot);
-                connection.shell_agent_completions = Some(completion_projection);
                 connection.shell_agent_view = agent_view;
                 self.clients.insert(client_id, connection);
+                self.emit_client_changed(client_id);
                 if self.app.state.popup_pane.is_some() && self.popup_owner_tab_id.is_none() {
                     self.popup_owner_tab_id = self.shell_tab_id_for_client(client_id);
                 }
                 if let Some(message) = projection_message {
                     self.send_to_client(client_id, message);
                 }
-                self.send_to_client(client_id, completion_message);
                 self.send_to_client(client_id, snapshot_message);
                 if surface_active {
                     self.foreground_client_id = Some(client_id);
@@ -2961,6 +2976,11 @@ impl HeadlessServer {
         let Some(msg) = self.handle_ui_pick_request(msg) else {
             return true;
         };
+        let Some(msg) = self.handle_client_api_request(msg) else {
+            // The request changes nothing clients draw, but tokens that
+            // expired just above do.
+            return metadata_expired;
+        };
 
         if let api::schema::Method::NotificationShow(params) = &msg.request.method {
             let response =
@@ -3286,6 +3306,8 @@ impl HeadlessServer {
             return false;
         }
         let mut changed = false;
+
+        self.expire_client_jumps(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.

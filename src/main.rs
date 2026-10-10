@@ -346,7 +346,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Workspace metadata token keys that lift a space's blocked and done agents to the
 # top of the "priority" order while the space carries any of them with a non-empty
 # value. The agent picker marks those agents with the value of the first listed
-# token the space carries. Plugins set such tokens; empty lifts nothing.
+# token the space carries with a non-empty value. Plugins set such tokens; empty
+# lifts nothing.
 # agent_priority_tokens = []
 
 # Agent status indicators: "dots" preserves the compact color marks; "symbols" uses
