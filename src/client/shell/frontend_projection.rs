@@ -105,19 +105,6 @@ impl ClientShellState {
         }
     }
 
-    pub(crate) fn frontend_target_active(&self, target: &ClientEndpointFocusTarget) -> bool {
-        let Some(snapshot) = self.snapshot.as_ref() else {
-            return false;
-        };
-        match target {
-            ClientEndpointFocusTarget::Workspace(id) => {
-                snapshot.focused_workspace_id.as_ref() == Some(id)
-            }
-            ClientEndpointFocusTarget::Tab(id) => snapshot.focused_tab_id.as_ref() == Some(id),
-            ClientEndpointFocusTarget::Pane(id) => snapshot.focused_pane_id.as_ref() == Some(id),
-        }
-    }
-
     pub(crate) fn frontend_snapshot(
         &self,
         registry: &crate::client::endpoint::EndpointRegistry,

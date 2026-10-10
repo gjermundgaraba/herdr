@@ -449,7 +449,7 @@ action = "bootstrap"
 {"id":"req_plugin_invoke","method":"plugin.invoke","params":{"plugin_id":"example.worktree-bootstrap","entry_id":"bootstrap","pane_id":"w1:p2"}}
 ```
 
-`plugin.invoke` 是按键和右键菜单使用的路径。`pane_id`、`tab_id` 和 `workspace_id` 中最具体的一个决定调用上下文,较不具体的 id 必须指向同一目标,否则返回 `target_mismatch`;没有 id 时使用聚焦窗格。`pane_id` 中可选的 `selection` 会成为 `selected_text`。动作启动清单命令,并返回调用上下文和已启动命令的日志记录。窗格按清单位置打开:split 和 zoomed 拆分目标窗格,tab 在目标空间中打开,popup 和 overlay 只从目标获取上下文。调用被禁用插件的条目返回 `plugin_disabled` 错误。
+`plugin.invoke` 是按键使用的路径。`pane_id`、`tab_id` 和 `workspace_id` 中最具体的一个决定调用上下文,较不具体的 id 必须指向同一目标,否则返回 `target_mismatch`;没有 id 时使用聚焦窗格。`pane_id` 中可选的 `selection` 会成为 `selected_text`。动作启动清单命令,并返回调用上下文和已启动命令的日志记录。窗格按清单位置打开:split 和 zoomed 拆分目标窗格,tab 在目标空间中打开,popup 和 overlay 只从目标获取上下文。调用被禁用插件的条目返回 `plugin_disabled` 错误。
 
 Herdr 注入 `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ENV=1`、`HERDR_PLUGIN_ID`、`HERDR_PLUGIN_ROOT`、`HERDR_PLUGIN_CONFIG_DIR`、`HERDR_PLUGIN_STATE_DIR`、`HERDR_PLUGIN_CONTEXT_JSON`,以及可用的 `HERDR_WORKSPACE_ID`、`HERDR_TAB_ID` 和 `HERDR_PANE_ID` 值。动作命令还收到 `HERDR_PLUGIN_ACTION_ID`;事件钩子收到 `HERDR_PLUGIN_EVENT` 和 `HERDR_PLUGIN_EVENT_JSON`;窗格命令收到 `HERDR_PLUGIN_ENTRYPOINT_ID`。
 
@@ -658,7 +658,7 @@ workspace 的 get/list 响应会公开生成的 `tokens` 映射,空间侧边栏�
 窗格事件订阅包括 `pane.created`、`pane.updated`、`pane.closed`、`pane.focused`、`pane.moved`、`pane.exited`、`pane.cwd_changed`、`pane.agent_detected`、`pane.output_matched`、`pane.agent_status_changed` 和 `pane.scroll_changed`。`pane.closed` 和 `pane.exited` 包含窗格的 `tab_id`。当 shell 报告了不同的工作目录时,`pane.cwd_changed` 会发出 `pane_id`、`workspace_id`、`tab_id` 和新的 `cwd`。`pane.focused` 也会上报任意连接到此服务器的客户端手动选择窗格的变化，不会移动其他客户端的视图，且载荷不包含客户端身份。重复选择已选中的窗格不会再次发出事件。终端标题变化可能发出 `pane.updated`,但如果原始标题只有旋转指示符发生变化且 `terminal_title_stripped` 不变,则不会发出。`pane.scroll_changed` 只针对一个 `pane_id`,每当 Herdr 观察到滚动快照变化时,都会发出 `pane_id`、`workspace_id` 和当前 `scroll` 指标。
 布局事件订阅包括 `layout.updated`。该事件携带一个标签页更新后的 `PaneLayoutSnapshot`。使用 `session.snapshot` 维护缓存的客户端应将该事件作为重新读取受影响布局的通知；延迟到达的载荷可能早于最新快照。
 
-客户端事件订阅包括 `client.changed`。它在客户端连接、发送与上次不同的 Agents 列表报告或断开时触发,携带 `client_id`;除非客户端已断开,还携带与 `client.list` 返回内容相同的 `client`。
+客户端事件订阅包括 `client.changed`。它在客户端连接、发送与上次不同的 Agents 列表报告或断开时触发,只携带 `client_id`;要了解发生了什么变化,请调用 `client.list`。详见[客户端契约](/docs/client-contract/)(英文)。
 
 Worktree 事件订阅包括 `worktree.created`、`worktree.opened` 和 `worktree.removed`。Worktree 事件描述 Git 检出的生命周期。`worktree.created` 包含打开的 `workspace` 和创建的 `worktree`。`worktree.opened` 包含目标 `workspace`、打开的 `worktree` 和 `already_open`。`worktree.removed` 包含 `workspace_id`、被移除的 `worktree` 和 `forced`。
 

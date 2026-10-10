@@ -16,8 +16,6 @@ pub(crate) struct ClientShellEndpoint {
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
     /// Connection generation that produced `snapshot`. `None` is reserved for local tests.
     pub(crate) snapshot_generation: Option<u64>,
-    /// Client observation and manual requeue order, independent of lifecycle sequences.
-    pub(crate) agent_recency: HashMap<String, u64>,
     pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pending_agent_view_projection: Option<ClientEndpointAgentViewProjection>,
@@ -42,6 +40,20 @@ pub(crate) enum ClientEndpointFocusTarget {
         pane_id: String,
         boot_id: String,
     },
+}
+
+impl ClientShellEndpoint {
+    /// Which agent view projection the endpoint holds: at most one exists per
+    /// connection, boot, and snapshot revision.
+    pub(super) fn agent_view_identity(&self) -> Option<(Option<u64>, &str, u64)> {
+        self.agent_view_projection.as_ref().map(|projection| {
+            (
+                projection.generation,
+                projection.boot_id.as_str(),
+                projection.revision,
+            )
+        })
+    }
 }
 
 impl ClientShellState {
@@ -76,9 +88,6 @@ impl ClientShellState {
                 ),
                 snapshot: previous.and_then(|endpoint| endpoint.snapshot.clone()),
                 snapshot_generation: previous.and_then(|endpoint| endpoint.snapshot_generation),
-                agent_recency: previous
-                    .map(|endpoint| endpoint.agent_recency.clone())
-                    .unwrap_or_default(),
                 agent_presentation: previous
                     .map(|endpoint| endpoint.agent_presentation.clone())
                     .unwrap_or_default(),
@@ -139,7 +148,6 @@ impl ClientShellState {
             endpoint.snapshot = None;
             endpoint.snapshot_generation = None;
             endpoint.methods = None;
-            endpoint.agent_recency.clear();
             endpoint.agent_presentation = Default::default();
             endpoint.agent_view_projection = None;
             endpoint.pending_agent_view_projection = None;
@@ -618,45 +626,7 @@ impl ClientShellState {
                 .agent_presentation
                 .acknowledge_surface(&mut snapshot, surface, self.outer_focused);
         }
-        let mut agents = snapshot.agents.iter().collect::<Vec<_>>();
-        agents.sort_by_key(|agent| agent.state_change_seq);
-        let mut recency = self.endpoints[index].agent_recency.clone();
-        // Equal server sequences represent one event group. Allocate a fresh
-        // client serial only for changed agents in this snapshot, so unchanged
-        // agents retain their recency (including manual unread requeues).
-        let mut changed_group = None;
-        for agent in agents {
-            let changed = boot_changed
-                || self.endpoints[index]
-                    .snapshot
-                    .as_deref()
-                    .and_then(|snapshot| {
-                        snapshot
-                            .agents
-                            .iter()
-                            .find(|previous| previous.pane_id == agent.pane_id)
-                    })
-                    .is_none_or(|previous| previous.state_change_seq != agent.state_change_seq);
-            if changed {
-                let event_order = match changed_group {
-                    Some((sequence, serial)) if sequence == agent.state_change_seq => serial,
-                    _ => {
-                        let serial = self.next_agent_order_serial();
-                        changed_group = Some((agent.state_change_seq, serial));
-                        serial
-                    }
-                };
-                recency.insert(agent.pane_id.clone(), event_order);
-            }
-        }
-        recency.retain(|pane_id, _| {
-            snapshot
-                .agents
-                .iter()
-                .any(|agent| &agent.pane_id == pane_id)
-        });
         let endpoint = &mut self.endpoints[index];
-        endpoint.agent_recency = recency;
         endpoint.snapshot_generation = generation;
         endpoint.snapshot = Some(snapshot);
         let pending_matches =
@@ -721,88 +691,29 @@ impl ClientShellState {
         self.agent_projection_revision = self.agent_projection_revision.saturating_add(1);
     }
 
-    /// Hold the focused agent's acknowledged completion so its badge comes back
-    /// once the user leaves the pane. Only an acknowledged completion (shown as
-    /// idle) can be forgotten; working, blocked, and still-badged agents have
-    /// nothing to restore.
-    pub(super) fn mark_focused_agent_unread(&mut self, outcome: &mut ClientShellInput) {
-        let target = self.snapshot.as_deref().and_then(|snapshot| {
-            let pane_id = snapshot.focused_pane_id.clone()?;
-            let agent = snapshot
-                .agents
-                .iter()
-                .find(|agent| agent.pane_id == pane_id)?;
-            matches!(agent.agent_status, crate::api::schema::AgentStatus::Idle).then(|| {
-                ClientUnreadTarget {
-                    endpoint_id: self.active_endpoint_id.clone(),
-                    pane_id,
-                    boot_id: snapshot.boot_id.clone(),
-                    sequence: agent.state_change_seq,
-                }
-            })
-        });
-        let (title, body) = match &target {
-            Some(_) => (
-                "Marked unread",
-                "The badge returns and the agent moves back in the queue when you leave this pane.",
-            ),
-            None => (
-                "Nothing to mark",
-                "The focused pane has no acknowledged completion.",
-            ),
-        };
-        self.pending_unread = target;
-        outcome.repaint |= self.push_endpoint_notice(
-            ClientEndpointNoticeKind::Rejected,
-            "mark_unread",
-            title,
-            body,
-        );
-    }
-
-    /// Apply the held unread mark once the active snapshot shows the user has
-    /// left the marked pane.
-    pub(super) fn settle_pending_unread(&mut self) {
-        let Some(target) = self.pending_unread.take() else {
-            return;
-        };
-        let still_there = target.endpoint_id == self.active_endpoint_id
-            && self
-                .snapshot
-                .as_deref()
-                .and_then(|snapshot| snapshot.focused_pane_id.as_deref())
-                == Some(target.pane_id.as_str());
-        if still_there {
-            self.pending_unread = Some(target);
-            return;
-        }
-        let Some(index) = self
-            .endpoints
-            .iter()
-            .position(|endpoint| endpoint.endpoint_id == target.endpoint_id)
+    /// Asks the daemon that owns the focused pane to hold its agent's
+    /// acknowledged completion (`agent.mark_unread`). The daemon keeps the
+    /// hold and decides when the badge comes back and when it clears, so this
+    /// client records nothing: it shows what the next snapshots say.
+    pub(super) fn mark_focused_pane_unread(&mut self, outcome: &mut ClientShellInput) {
+        let Some(pane_id) = self
+            .snapshot
+            .as_deref()
+            .and_then(|snapshot| snapshot.focused_pane_id.clone())
         else {
+            outcome.repaint |= self.push_endpoint_notice(
+                ClientEndpointNoticeKind::Rejected,
+                "mark_unread",
+                "Nothing to mark",
+                "No pane is focused.",
+            );
             return;
         };
-        let endpoint = &mut self.endpoints[index];
-        let Some(snapshot) = endpoint.snapshot.as_deref_mut() else {
-            return;
-        };
-        if snapshot.boot_id != target.boot_id
-            || !endpoint.agent_presentation.unacknowledge(
-                snapshot,
-                &target.pane_id,
-                target.sequence,
-            )
-        {
-            return;
-        }
-        let event_order = self.next_agent_order_serial();
-        let endpoint = &mut self.endpoints[index];
-        endpoint.agent_recency.insert(target.pane_id, event_order);
-        if target.endpoint_id == self.active_endpoint_id {
-            self.snapshot = endpoint.snapshot.clone();
-        }
-        self.bump_agent_projection_revision();
+        self.push_endpoint_method_with_kind(
+            crate::api::schema::Method::AgentMarkUnread(crate::api::schema::PaneTarget { pane_id }),
+            PendingEndpointKind::MarkUnread,
+            outcome,
+        );
     }
 
     #[cfg(test)]
@@ -865,7 +776,6 @@ pub(super) fn local_endpoint() -> ClientShellEndpoint {
         status: ClientEndpointStatus::Online,
         snapshot: None,
         snapshot_generation: None,
-        agent_recency: HashMap::new(),
         agent_presentation: Default::default(),
         agent_view_projection: None,
         pending_agent_view_projection: None,

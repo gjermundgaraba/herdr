@@ -16,36 +16,18 @@ mod surface_interest_tests;
 mod surface_scroll_tests;
 mod unread_holds;
 
-fn client_shell_projection(
-    receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
-) -> (
-    Box<protocol::ClientShellSnapshot>,
-    protocol::endpoint::EndpointAgentCompletions,
-) {
-    let read_control = |expected| {
-        let ServerMessage::EndpointControl { kind, data } = read_server_message(
-            receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("endpoint projection"),
-        ) else {
-            panic!("expected endpoint control {expected}");
-        };
-        assert_eq!(kind, expected);
-        data
-    };
-    let completions: protocol::endpoint::EndpointAgentCompletions =
-        serde_json::from_str(&read_control(protocol::endpoint::AGENT_COMPLETIONS_KIND)).unwrap();
-    let snapshot: Box<protocol::ClientShellSnapshot> =
-        serde_json::from_str(&read_control(protocol::endpoint::ENDPOINT_SNAPSHOT_KIND)).unwrap();
-    assert_eq!(completions.boot_id, snapshot.boot_id);
-    assert_eq!(completions.revision, snapshot.revision);
-    (snapshot, completions)
-}
-
 fn client_shell_snapshot(
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
 ) -> Box<protocol::ClientShellSnapshot> {
-    client_shell_projection(receiver).0
+    let ServerMessage::EndpointControl { kind, data } = read_server_message(
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("endpoint snapshot"),
+    ) else {
+        panic!("expected an endpoint snapshot");
+    };
+    assert_eq!(kind, protocol::endpoint::ENDPOINT_SNAPSHOT_KIND);
+    serde_json::from_str(&data).unwrap()
 }
 
 fn client_agent_view_projection(
@@ -754,65 +736,6 @@ async fn client_shell_attach_seeds_workspace() {
     assert_eq!(server.app.state.workspaces.len(), 1);
     assert_eq!(server.app.state.active, Some(0));
     shutdown_test_runtimes(&mut server);
-}
-
-#[tokio::test]
-async fn completion_guard_endpoint_pairs_runtime_completions_with_snapshots() {
-    let mut server = test_headless_server();
-    let workspace = crate::workspace::Workspace::test_new("endpoint");
-    let pane_id = workspace.tabs[0].root_pane;
-    server.app.state.workspaces = vec![workspace];
-    server.app.state.ensure_test_terminals();
-    server.app.state.active = Some(0);
-    let (writer, control_rx, _render_rx) = test_client_writer();
-    server.handle_server_event(ServerEvent::ClientShellConnected {
-        client_id: 78,
-        surface_cols: 80,
-        surface_rows: 24,
-        cell_width_px: 0,
-        cell_height_px: 0,
-        pixel_mouse: false,
-        direct_graphics: false,
-        endpoint_keybindings: false,
-        mouse_capture: false,
-        surface_active: false,
-        surface_reuse: false,
-        surface_delta: false,
-        surface_scroll: false,
-        writer,
-    });
-    let (_, initial) = client_shell_projection(&control_rx);
-    assert!(initial.completions.is_empty());
-    for first_state in [
-        crate::detect::AgentState::Working,
-        crate::detect::AgentState::Unknown,
-    ] {
-        for state in [first_state, crate::detect::AgentState::Idle] {
-            server.app.state.handle_app_event(AppEvent::StateChanged {
-                pane_id,
-                agent: Some(crate::detect::Agent::Pi),
-                state,
-                visible_blocker: false,
-                visible_working: state == crate::detect::AgentState::Working,
-                process_exited: false,
-                observed_at: Instant::now(),
-            });
-        }
-        server.render_and_stream();
-        let (snapshot, completions) = client_shell_projection(&control_rx);
-        assert_eq!(snapshot.agents.len(), 1);
-        let agent = &snapshot.agents[0];
-        let expected =
-            (first_state == crate::detect::AgentState::Working).then_some(agent.state_change_seq);
-        assert_eq!(
-            completions.completions.get(&agent.pane_id).copied(),
-            expected
-        );
-        assert_eq!(
-            server.app.session_snapshot().agents[0].completion_seq,
-            expected
-        );
-    }
 }
 
 #[tokio::test]
@@ -8343,7 +8266,7 @@ fn no_handle_internal_event_bypass_in_module() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn plugin_actions_from_a_client_request_receive_that_client_id() {
+async fn plugin_key_commands_from_a_client_receive_that_client_id() {
     let root = std::env::temp_dir().join(format!(
         "herdr-plugin-client-origin-{}-{}",
         std::process::id(),
@@ -8379,6 +8302,21 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_CLIENT_ID\" > client.tmp && mv clie
         .state
         .installed_plugins
         .insert(plugin.plugin_id.clone(), plugin);
+    // A client reaches a plugin through a `type = "plugin"` key command.
+    server
+        .app
+        .set_custom_commands_for_test(&[crate::config::CustomCommandKeybind {
+            bindings: crate::config::ActionKeybinds::prefix("z"),
+            label: "prefix+z".into(),
+            command: "example.client-origin.record".into(),
+            action: crate::config::CustomCommandAction::Plugin,
+            description: None,
+            width: None,
+            height: None,
+        }]);
+    let command_id = server.app.client_shell_command_manifest()[0]
+        .command_id
+        .clone();
     let (_control, _) = connect_matching_test_shell(&mut server, 61);
 
     let (respond_to, _response_rx) = std::sync::mpsc::channel();
@@ -8387,10 +8325,9 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_CLIENT_ID\" > client.tmp && mv clie
         crate::api::ApiRequestMessage {
             request: crate::api::schema::Request {
                 id: "record-origin".into(),
-                method: crate::api::schema::Method::PluginInvoke(
-                    crate::api::schema::PluginInvokeParams {
-                        plugin_id: "example.client-origin".into(),
-                        entry_id: "record".into(),
+                method: crate::api::schema::Method::CommandInvoke(
+                    crate::api::schema::CommandInvokeParams {
+                        command_id,
                         workspace_id: None,
                         tab_id: None,
                         pane_id: None,

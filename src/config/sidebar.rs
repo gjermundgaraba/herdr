@@ -69,22 +69,14 @@ impl Serialize for SidebarTokenColor {
     }
 }
 
-impl<'de> Deserialize<'de> for SidebarTokenColor {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
+impl SidebarTokenColor {
+    /// Parses `#RGB` or `#RRGGBB`, the forms config and client snapshots use.
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         let hex = value.strip_prefix('#').filter(|hex| {
             hex.is_ascii()
                 && matches!(hex.len(), 3 | 6)
                 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
-        });
-        let Some(hex) = hex else {
-            return Err(serde::de::Error::custom(
-                "sidebar token fg must be #RGB or #RRGGBB",
-            ));
-        };
+        })?;
         let (r, g, b) = if hex.len() == 3 {
             let mut digits = hex
                 .bytes()
@@ -101,7 +93,18 @@ impl<'de> Deserialize<'de> for SidebarTokenColor {
                 u8::from_str_radix(&hex[4..6], 16).expect("validated hex digits"),
             )
         };
-        Ok(Self { r, g, b })
+        Some(Self { r, g, b })
+    }
+}
+
+impl<'de> Deserialize<'de> for SidebarTokenColor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(&value)
+            .ok_or_else(|| serde::de::Error::custom("sidebar token fg must be #RGB or #RRGGBB"))
     }
 }
 
@@ -148,6 +151,8 @@ pub struct SidebarTokenSpec<T> {
     pub token: T,
     pub style: SidebarTokenStyle,
     pub rules: Vec<SidebarTokenRule>,
+    /// Replaces the row's separator before this occurrence. Herdr GPUI reads
+    /// the same option in `crates/herdr-gpui/src/config/sidebar.rs`.
     pub separator_before: Option<Arc<str>>,
 }
 

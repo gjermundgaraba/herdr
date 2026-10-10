@@ -201,17 +201,6 @@
       "description": null
     }
   ],
-  "plugin_entries": [
-    {
-      "plugin_id": "example.plugin",
-      "entry_id": "toggle",
-      "title": "Toggle",
-      "contexts": [
-        "workspace"
-      ],
-      "popup": false
-    }
-  ],
   "pinned_sections": [
     {
       "title": "Priority",

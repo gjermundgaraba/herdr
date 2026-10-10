@@ -269,8 +269,6 @@ pub struct PluginManifestPane {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platforms: Option<Vec<PluginPlatform>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub contexts: Vec<PluginActionContext>,
     #[serde(default)]
     pub placement: PluginPanePlacement,
     #[serde(default, skip_serializing_if = "Option::is_none")]

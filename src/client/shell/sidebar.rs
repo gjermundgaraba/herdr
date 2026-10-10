@@ -196,8 +196,7 @@ pub(crate) fn render_sidebar(
             .add_modifier(Modifier::BOLD),
     );
 
-    let entries =
-        space_groups::sidebar_rows(snapshot, state.collapsed_groups, &config.spaces.pinned);
+    let entries = space_groups::sidebar_rows(snapshot, state.collapsed_groups);
     let body = Rect::new(
         workspace_area.x,
         workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),

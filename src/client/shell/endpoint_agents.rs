@@ -13,7 +13,6 @@ pub(super) fn render_collapsed(
         endpoints,
         active_endpoint_id,
         config.agent_panel_sort,
-        &config.agent_priority_tokens,
     );
     let federated = endpoints.len() > 1;
     for (index, row) in rows.into_iter().take(area.height as usize).enumerate() {
@@ -171,7 +170,6 @@ fn agent_rows(
         endpoints,
         active_endpoint_id,
         config.agent_panel_sort,
-        &config.agent_priority_tokens,
     )
     .into_iter()
     .filter_map(|row| {

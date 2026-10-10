@@ -67,7 +67,7 @@ impl ClientShellState {
                     return;
                 }
                 if action == crate::input::KeybindAction::MarkUnread {
-                    self.mark_focused_agent_unread(outcome);
+                    self.mark_focused_pane_unread(outcome);
                     return;
                 }
                 if action == crate::input::KeybindAction::Help {
@@ -567,6 +567,14 @@ impl ClientShellState {
                 reply.settle(&result);
                 return (false, Vec::new());
             }
+            // A tool asked for the jump, so its failure answers the tool
+            // instead of raising a notice. Success is observed, not reported.
+            PendingEndpointKind::ClientJump { origin, jump_id } => {
+                if let Err(error) = &result {
+                    self.fail_client_jump(&origin, &jump_id, error);
+                }
+                return (false, Vec::new());
+            }
             kind => PendingEndpointRequest { kind, ..pending },
         };
         if pending.boot_id != boot_id
@@ -632,6 +640,22 @@ impl ClientShellState {
         }
         match pending.kind {
             PendingEndpointKind::Generic => {}
+            PendingEndpointKind::Frontend(_) | PendingEndpointKind::ClientJump { .. } => {
+                unreachable!("handled above")
+            }
+            PendingEndpointKind::MarkUnread => {
+                if result.is_ok() {
+                    return (
+                        self.push_endpoint_notice(
+                            ClientEndpointNoticeKind::Rejected,
+                            "mark_unread",
+                            "Marked unread",
+                            "The badge returns and the agent moves back in the queue when you leave this pane.",
+                        ),
+                        Vec::new(),
+                    );
+                }
+            }
             PendingEndpointKind::HistoryStep { visit } => {
                 if let Err(error) = &result {
                     let pane_closed = error.code.as_deref() == Some("pane_not_found");

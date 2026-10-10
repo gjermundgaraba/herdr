@@ -130,9 +130,6 @@ pub(crate) enum ActivationCompletion {
     Activated,
     RestoredSource {
         error: String,
-        /// A newer endpoint-qualified selection arrived while this handoff was frozen. It is
-        /// started only after the original source has been coherently restored.
-        successor: Option<EndpointActivationIntent>,
     },
 }
 
@@ -168,7 +165,8 @@ pub(crate) struct PendingEndpointActivation {
     pub(super) epoch: u64,
     pub(super) next_focus_serial: u64,
     pub(super) rollback_error: Option<String>,
-    /// A different endpoint was selected while this source-off-first transaction was in flight.
-    /// Keep only the latest intent until source restoration commits.
+    /// A newer endpoint-qualified selection arrived while this transaction was in flight. Keep
+    /// only the latest intent; it is started once the transaction has completed, which for a
+    /// reversed one is after the original source has been coherently restored.
     pub(super) successor: Option<EndpointActivationIntent>,
 }

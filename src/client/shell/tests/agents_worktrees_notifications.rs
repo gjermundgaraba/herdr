@@ -676,7 +676,7 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
             state_labels: Vec::new(),
             tokens: vec![("summary".into(), "review complete".into())],
             focused: true,
-            priority_key: String::new(),
+            priority_key: crate::agent_priority::priority_key(false, AgentStatus::Done, 10),
             priority_mark: None,
         },
         ClientShellAgent {
@@ -694,7 +694,7 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
             state_labels: vec![("blocked".into(), "needs input".into())],
             tokens: vec![("summary".into(), "waiting for Can".into())],
             focused: false,
-            priority_key: String::new(),
+            priority_key: crate::agent_priority::priority_key(false, AgentStatus::Blocked, 20),
             priority_mark: None,
         },
     ];

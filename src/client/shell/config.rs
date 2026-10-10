@@ -124,7 +124,6 @@ impl ClientShellConfig {
             spaces: config.ui.sidebar.spaces.clone(),
             agents: config.ui.sidebar.agents.clone(),
             agent_panel_sort: config.ui.agent_panel_sort,
-            agent_priority_tokens: config.ui.agent_priority_tokens.clone(),
             status_indicators: config.ui.status_indicators,
             sound_enabled: config.ui.sound.enabled,
             toast_delivery: config.ui.toast.delivery,
@@ -321,6 +320,16 @@ impl ClientShellConfig {
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
 
         if !invalid_section("keys")
+            && self.keybinding_source == ClientShellKeybindingSource::Endpoint
+        {
+            // The endpoint's profile stays in effect. Only the client's own
+            // actions are the local config's, as when the client started.
+            self.local_client_actions = config.keybinds();
+            self.keybinds
+                .keybinds
+                .copy_client_actions(&self.local_client_actions);
+        }
+        if !invalid_section("keys")
             && self.keybinding_source != ClientShellKeybindingSource::Endpoint
         {
             match config.live_keybinds_with_diagnostics() {
@@ -357,7 +366,6 @@ impl ClientShellConfig {
                 self.spaces = ui.sidebar.spaces.clone();
                 self.agents = ui.sidebar.agents.clone();
                 self.agent_panel_sort = ui.agent_panel_sort;
-                self.agent_priority_tokens = ui.agent_priority_tokens.clone();
                 self.status_indicators = ui.status_indicators;
                 self.sound_enabled = ui.sound.enabled;
                 self.toast_delivery = ui.toast.delivery;
@@ -489,11 +497,9 @@ mod tests {
         next.ui.sidebar_width = 31;
         next.ui.tab_bar_position = TabBarPositionConfig::Bottom;
         next.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
-        next.ui.agent_priority_tokens = vec!["lift".into()];
         next.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
         next.ui.sidebar.agents = toml::from_str("rows = [[{ token = 'machine', rules = [{ equals = 'Local', bold = true }] }]]\nrow_gap = 2").unwrap();
-        next.ui.sidebar.spaces =
-            toml::from_str("[[pinned]]\ntitle = 'Priority'\ntoken = 'prio'").unwrap();
+        next.ui.sidebar.spaces = toml::from_str("row_gap = 3").unwrap();
         next.keys.prefix = crate::config::BindingConfig::one("ctrl+a");
 
         let diagnostics = shell.apply_live_config(&next, &[], &[]);
@@ -505,14 +511,12 @@ mod tests {
             shell.agent_panel_sort,
             crate::config::AgentPanelSortConfig::Priority
         );
-        assert_eq!(shell.agent_priority_tokens, ["lift"]);
         assert_eq!(
             shell.status_indicators,
             crate::config::StatusIndicatorStyle::Symbols
         );
         assert_eq!(shell.agents.row_gap, 2);
-        assert_eq!(shell.spaces.pinned.len(), 1);
-        assert_eq!(shell.spaces.pinned[0].title, "Priority");
+        assert_eq!(shell.spaces.row_gap, 3);
         assert_eq!(
             shell.agents.rows[0][0]
                 .style_for_value("Local")
@@ -531,6 +535,81 @@ mod tests {
             shell.keybinds.prefix,
             vec![(KeyCode::Char('a'), KeyModifiers::CONTROL)]
         );
+    }
+
+    #[test]
+    fn live_reload_under_an_endpoint_profile_rereads_only_the_client_actions() {
+        let local: Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ctrl+a"
+history_back = "alt+left"
+"#,
+        )
+        .unwrap();
+        let endpoint: Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ctrl+x"
+new_tab = "prefix+n"
+"#,
+        )
+        .unwrap();
+        let profile = endpoint.local_keybindings_profile_toml().unwrap();
+        let mut shell = ClientShellConfig::from_config(&local)
+            .with_keybinding_source(ClientShellKeybindingSource::Endpoint);
+        shell
+            .apply_snapshot_keybindings(Some(&profile), &[])
+            .unwrap();
+        let labels = |shell: &ClientShellConfig| {
+            let keybinds = &shell.keybinds.keybinds;
+            (
+                shell.keybinds.prefix.clone(),
+                keybinds.new_tab.label(),
+                keybinds.history_back.label(),
+                keybinds.mark_unread.label(),
+            )
+        };
+        let profile_prefix = vec![(KeyCode::Char('x'), KeyModifiers::CONTROL)];
+        assert_eq!(
+            labels(&shell),
+            (
+                profile_prefix.clone(),
+                Some("prefix+n".to_owned()),
+                Some("alt+left".to_owned()),
+                None
+            )
+        );
+
+        // The local config changes while the profile is in effect.
+        let next: Config = toml::from_str(
+            r#"
+[keys]
+prefix = "ctrl+b"
+new_tab = "prefix+t"
+history_back = "alt+up"
+mark_unread = "prefix+u"
+"#,
+        )
+        .unwrap();
+        let reloaded = (
+            profile_prefix,
+            Some("prefix+n".to_owned()),
+            Some("alt+up".to_owned()),
+            Some("prefix+u".to_owned()),
+        );
+        assert!(shell.apply_live_config(&next, &[], &[]).is_empty());
+        assert_eq!(labels(&shell), reloaded);
+        // The profile is applied again after a reload and with every change
+        // of it: the reloaded actions stay.
+        shell
+            .apply_snapshot_keybindings(Some(&profile), &[])
+            .unwrap();
+        assert_eq!(labels(&shell), reloaded);
+
+        // A `[keys]` section that failed to load changes nothing.
+        shell.apply_live_config(&Config::default(), &[], &["keys".to_owned()]);
+        assert_eq!(labels(&shell), reloaded);
     }
 
     #[test]

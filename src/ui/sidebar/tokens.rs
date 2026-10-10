@@ -9,6 +9,8 @@ use crate::config::{
 pub(crate) struct ResolvedToken {
     pub kind: ResolvedTokenKind,
     pub style: SidebarTokenStyle,
+    /// The configured `separator_before`. Herdr GPUI resolves it in
+    /// `crates/herdr-gpui/src/sidebar/tokens.rs`.
     pub separator_before: Option<Arc<str>>,
 }
 

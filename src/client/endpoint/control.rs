@@ -9,10 +9,10 @@ pub(crate) struct DecodedAgentViewProjection {
 pub(crate) enum EndpointControlMessage {
     HealthPong,
     AgentViewProjection(DecodedAgentViewProjection),
-    AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
     PickOpen(crate::protocol::endpoint::EndpointPickOpen),
     PickClose(crate::protocol::endpoint::EndpointPickClose),
+    ClientJump(crate::protocol::endpoint::EndpointClientJump),
     Ignored,
 }
 
@@ -33,9 +33,9 @@ pub(crate) fn decode_endpoint_control(
             .map(EndpointControlMessage::PickClose)
             .unwrap_or(EndpointControlMessage::Ignored));
     }
-    if kind == crate::protocol::endpoint::AGENT_COMPLETIONS_KIND {
+    if kind == crate::protocol::endpoint::CLIENT_JUMP_KIND {
         return Ok(serde_json::from_str(data)
-            .map(EndpointControlMessage::AgentCompletions)
+            .map(EndpointControlMessage::ClientJump)
             .unwrap_or(EndpointControlMessage::Ignored));
     }
     if kind == crate::protocol::endpoint::AGENT_VIEW_PROJECTION_KIND {
@@ -96,25 +96,41 @@ mod tests {
     }
 
     #[test]
-    fn completion_guard_optional_control_round_trips_without_changing_snapshot_codec() {
-        let projection = crate::protocol::endpoint::EndpointAgentCompletions {
-            boot_id: "boot".into(),
-            revision: 3,
-            completions: [("pane".into(), 7)].into_iter().collect(),
+    fn a_forwarded_jump_decodes_from_the_daemons_control() {
+        let jump = crate::protocol::endpoint::EndpointClientJump {
+            jump_id: "jump-3".into(),
+            endpoint_id: "ssh:0123456789abcdef0123456789abcdef".into(),
+            boot_id: "boot-b".into(),
+            pane_id: "w1:p4".into(),
         };
         let crate::protocol::ServerMessage::EndpointControl { kind, data } =
-            crate::protocol::endpoint::agent_completions_message(&projection).unwrap()
+            crate::protocol::endpoint::client_jump_message(&jump).unwrap()
         else {
-            panic!("expected optional control");
+            panic!("expected a control");
         };
-        let EndpointControlMessage::AgentCompletions(decoded) =
+
+        let EndpointControlMessage::ClientJump(decoded) =
             decode_endpoint_control(&kind, &data).unwrap()
         else {
-            panic!("expected completion projection");
+            panic!("expected a jump");
         };
-        assert_eq!(decoded, projection);
+
+        assert_eq!(decoded, jump);
+        // The contract fixture is the same payload.
+        let EndpointControlMessage::ClientJump(fixture) = decode_endpoint_control(
+            &kind,
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/endpoint-client-jump-v1.json"
+            )),
+        )
+        .unwrap() else {
+            panic!("expected a jump");
+        };
+        assert_eq!(fixture, jump);
+        // A jump this client cannot read has no id to answer under.
         assert!(matches!(
-            decode_endpoint_control(&kind, "invalid").unwrap(),
+            decode_endpoint_control(&kind, "{}").unwrap(),
             EndpointControlMessage::Ignored
         ));
     }

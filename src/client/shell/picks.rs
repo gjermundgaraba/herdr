@@ -1,23 +1,61 @@
-//! `ui.pick` pickers the server asks this client to show. Every exit path
-//! answers the server with `ui.pick.resolve`, so the waiting plugin never
-//! hangs on a picker the user dismissed.
+//! `ui.pick` pickers a daemon asks this client to show. Every picker is
+//! answered with `ui.pick.resolve` on the connection that opened it: the
+//! user's choice, or `cancelled` when the picker goes away by any other path,
+//! such as a switch to another endpoint or another overlay replacing it, or
+//! when the choice is created text too long to send. The waiting plugin
+//! therefore never hangs on a picker this client dropped.
+//!
+//! Only the presented endpoint shows pickers. A picker from another endpoint
+//! is cancelled as it arrives.
+//!
+//! Mirrored client logic: Herdr GPUI's counterpart is
+//! `crates/herdr-gpui/src/picker.rs` and `picker/` (see "Sibling fork: Herdr
+//! GPUI" in `FORK.md`).
 
 use crossterm::event::{KeyCode, KeyModifiers};
 
 use super::*;
-use crate::api::schema::{Method, UiPickOutcome, UiPickResolveParams};
+use crate::api::schema::UiPickOutcome;
 use crate::protocol::endpoint::{EndpointPickClose, EndpointPickOpen};
 
+/// The picker this client shows, by the connection that opened it.
+#[derive(Debug)]
+struct OpenPick {
+    origin: ControlOrigin,
+    pick_id: String,
+}
+
+/// A picker answer ready to send.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedPick {
+    pub(crate) origin: ControlOrigin,
+    pub(crate) pick_id: String,
+    pub(crate) outcome: UiPickOutcome,
+}
+
+/// The open picker, and answers not yet collected.
+#[derive(Debug, Default)]
+pub(crate) struct ClientPicks {
+    open: Option<OpenPick>,
+    resolved: Vec<ResolvedPick>,
+}
+
 impl ClientShellState {
-    /// Shows a picker from the active endpoint. Returns whether to repaint.
+    /// Shows a picker from the presented endpoint. Returns whether to repaint.
     pub(crate) fn receive_pick_open(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        origin: ControlOrigin,
         open: EndpointPickOpen,
     ) -> bool {
-        if endpoint_id != &self.active_endpoint_id {
+        if origin.endpoint_id != self.active_endpoint_id {
+            self.picks.resolved.push(ResolvedPick {
+                origin,
+                pick_id: open.pick_id,
+                outcome: UiPickOutcome::Cancelled,
+            });
             return false;
         }
+        self.cancel_pick();
         let pick = ClientPickOverlay {
             pick_id: open.pick_id,
             title: open.title,
@@ -31,6 +69,10 @@ impl ClientShellState {
                 |row| matches!(row, ClientPickRow::Item(index) if pick.items[*index].id == id),
             )
         });
+        self.picks.open = Some(OpenPick {
+            origin,
+            pick_id: pick.pick_id.clone(),
+        });
         self.overlay = Some(ClientShellOverlay::Pick(ClientPickOverlay {
             selected: selected.unwrap_or(0),
             ..pick
@@ -38,21 +80,63 @@ impl ClientShellState {
         true
     }
 
-    /// Closes a picker the server resolved without this client.
+    /// Closes a picker the daemon resolved without this client, which
+    /// therefore does not answer it. Returns whether to repaint.
     pub(crate) fn receive_pick_close(
         &mut self,
-        endpoint_id: &ClientEndpointId,
+        origin: &ControlOrigin,
         close: EndpointPickClose,
     ) -> bool {
-        let showing = endpoint_id == &self.active_endpoint_id
-            && matches!(
-                &self.overlay,
-                Some(ClientShellOverlay::Pick(pick)) if pick.pick_id == close.pick_id
-            );
+        if self
+            .picks
+            .open
+            .take_if(|open| &open.origin == origin && open.pick_id == close.pick_id)
+            .is_none()
+        {
+            return false;
+        }
+        let showing = matches!(
+            &self.overlay,
+            Some(ClientShellOverlay::Pick(pick)) if pick.pick_id == close.pick_id
+        );
         if showing {
             self.overlay = None;
         }
         showing
+    }
+
+    /// Dismisses the open picker, if any, and answers it `cancelled`.
+    pub(super) fn cancel_pick(&mut self) {
+        let Some(open) = self.picks.open.take() else {
+            return;
+        };
+        if matches!(
+            &self.overlay,
+            Some(ClientShellOverlay::Pick(pick)) if pick.pick_id == open.pick_id
+        ) {
+            self.overlay = None;
+        }
+        self.picks.resolved.push(ResolvedPick {
+            origin: open.origin,
+            pick_id: open.pick_id,
+            outcome: UiPickOutcome::Cancelled,
+        });
+    }
+
+    /// Returns every picker answer that is ready, after answering `cancelled`
+    /// for an open picker whose overlay something else removed. Called once
+    /// per client-loop turn.
+    pub(crate) fn settle_picks(&mut self) -> Vec<ResolvedPick> {
+        let showing = self.picks.open.as_ref().is_some_and(|open| {
+            matches!(
+                &self.overlay,
+                Some(ClientShellOverlay::Pick(pick)) if pick.pick_id == open.pick_id
+            )
+        });
+        if !showing {
+            self.cancel_pick();
+        }
+        std::mem::take(&mut self.picks.resolved)
     }
 
     pub(super) fn insert_pick_text(&mut self, text: &str) -> bool {
@@ -114,16 +198,31 @@ impl ClientShellState {
         let Some(ClientShellOverlay::Pick(pick)) = self.overlay.take() else {
             return;
         };
+        outcome.repaint = true;
+        let Some(open) = self.picks.open.take_if(|open| open.pick_id == pick.pick_id) else {
+            return;
+        };
         let choice = outcome_choice
             .or_else(|| pick.outcome())
             .unwrap_or(UiPickOutcome::Cancelled);
-        self.push_endpoint_method(
-            Method::UiPickResolve(UiPickResolveParams {
-                pick_id: pick.pick_id,
-                outcome: choice,
-            }),
-            outcome,
-        );
-        outcome.repaint = true;
+        // The picker has closed, so its plugin must hear something. Text too
+        // long for one command could never be sent: the picker is cancelled
+        // instead, as Herdr GPUI does, and the user is told why.
+        let choice = if crate::client::client_contract::pick_answer_fits(&open.pick_id, &choice) {
+            choice
+        } else {
+            self.push_endpoint_notice(
+                ClientEndpointNoticeKind::Rejected,
+                "ui.pick.resolve:too_large",
+                "Picker cancelled",
+                "The text for the new entry is too long to send.",
+            );
+            UiPickOutcome::Cancelled
+        };
+        self.picks.resolved.push(ResolvedPick {
+            origin: open.origin,
+            pick_id: open.pick_id,
+            outcome: choice,
+        });
     }
 }
