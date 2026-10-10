@@ -508,28 +508,41 @@ impl ClientShellState {
                 crate::api::schema::Method::PaneFocus(crate::api::schema::PaneTarget { pane_id })
             }
         };
-        let mut outcome = ClientShellInput::default();
-        self.push_endpoint_method(method, &mut outcome);
-        outcome.actions
-    }
-
-    /// Track a frontend-socket request so its reply settles with the result.
-    pub(crate) fn register_frontend_request(
-        &mut self,
-        request_id: String,
-        boot_id: String,
-        method_name: String,
-        reply: crate::client::frontend_api::FrontendReply,
-    ) {
-        self.pending_requests.insert(
-            request_id,
-            PendingEndpointRequest {
-                boot_id,
-                method_name,
-                confirmation_workspace_id: None,
-                kind: PendingEndpointKind::Frontend(reply),
+        // The client loop routes a focus on the endpoint it already presents
+        // back here. When that is a history step's, the request keeps the
+        // step's kind, so its result ends the wait as on the direct route.
+        let step = self.history_handoff.take_if(|step| {
+            step.visit.endpoint_id == self.active_endpoint_id
+                && matches!(&method, crate::api::schema::Method::PaneFocus(target)
+                    if target.pane_id == step.visit.pane_id)
+        });
+        // Otherwise it may be the open jump's, whose request keeps the
+        // jump's kind for the same reason: a rejection answers the tool
+        // that asked and raises no notice.
+        let jump = match &method {
+            crate::api::schema::Method::PaneFocus(target) if step.is_none() => {
+                self.routed_client_jump(&target.pane_id)
+            }
+            _ => None,
+        };
+        let kind = match (&step, &jump) {
+            (Some(step), _) => PendingEndpointKind::HistoryStep { step: step.clone() },
+            (None, Some((origin, jump_id))) => PendingEndpointKind::ClientJump {
+                origin: origin.clone(),
+                jump_id: jump_id.clone(),
             },
-        );
+            (None, None) => PendingEndpointKind::Generic,
+        };
+        let mut outcome = ClientShellInput::default();
+        if !self.push_endpoint_method_with_kind(method, kind, &mut outcome) {
+            if let Some(step) = step {
+                self.fail_history_step(&step, false);
+            }
+            if let Some((origin, jump_id)) = jump {
+                self.client_jump_not_sent(&origin, &jump_id);
+            }
+        }
+        outcome.actions
     }
 
     pub(crate) fn cancel_endpoint_request(&mut self, request_id: &str) -> bool {
@@ -562,21 +575,14 @@ impl ClientShellState {
         let Some(pending) = self.pending_requests.remove(request_id) else {
             return (false, Vec::new());
         };
-        let pending = match pending.kind {
-            PendingEndpointKind::Frontend(reply) => {
-                reply.settle(&result);
-                return (false, Vec::new());
+        // A tool asked for the jump, so its failure answers the tool
+        // instead of raising a notice. Success is observed, not reported.
+        if let PendingEndpointKind::ClientJump { origin, jump_id } = &pending.kind {
+            if let Err(error) = &result {
+                self.fail_client_jump(origin, jump_id, error);
             }
-            // A tool asked for the jump, so its failure answers the tool
-            // instead of raising a notice. Success is observed, not reported.
-            PendingEndpointKind::ClientJump { origin, jump_id } => {
-                if let Err(error) = &result {
-                    self.fail_client_jump(&origin, &jump_id, error);
-                }
-                return (false, Vec::new());
-            }
-            kind => PendingEndpointRequest { kind, ..pending },
-        };
+            return (false, Vec::new());
+        }
         if pending.boot_id != boot_id
             || self
                 .snapshot
@@ -639,10 +645,8 @@ impl ClientShellState {
             }
         }
         match pending.kind {
-            PendingEndpointKind::Generic => {}
-            PendingEndpointKind::Frontend(_) | PendingEndpointKind::ClientJump { .. } => {
-                unreachable!("handled above")
-            }
+            // A jump's result was handled above.
+            PendingEndpointKind::Generic | PendingEndpointKind::ClientJump { .. } => {}
             PendingEndpointKind::MarkUnread => {
                 if result.is_ok() {
                     return (
@@ -656,12 +660,13 @@ impl ClientShellState {
                     );
                 }
             }
-            PendingEndpointKind::HistoryStep { visit } => {
-                if let Err(error) = &result {
+            PendingEndpointKind::HistoryStep { step } => match &result {
+                Ok(_) => self.answer_history_step(&step),
+                Err(error) => {
                     let pane_closed = error.code.as_deref() == Some("pane_not_found");
-                    self.history.traversal_failed(&visit, pane_closed);
+                    self.fail_history_step(&step, pane_closed);
                 }
-            }
+            },
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
                 return match result {

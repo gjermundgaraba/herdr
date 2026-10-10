@@ -5,7 +5,7 @@ impl HeadlessServer {
         &mut self,
         client_id: u64,
         boot_id: String,
-        mut request: Box<api::schema::Request>,
+        request: Box<api::schema::Request>,
     ) -> bool {
         let Some(client) = self.clients.get(&client_id) else {
             return false;
@@ -35,48 +35,12 @@ impl HeadlessServer {
             self.send_to_client(client_id, message);
             return false;
         }
-        // The public API installs an asynchronous prompt waiter; this command lane
-        // only submits prompts and must not silently accept unsupported wait semantics.
-        if matches!(&request.method, api::schema::Method::AgentPrompt(params) if params.wait.is_some())
-        {
-            self.send_to_client(
-                client_id,
-                crate::server::client_commands::error_message(
-                    boot_id,
-                    request_id,
-                    "invalid_params",
-                    "agent.prompt wait is not supported through the endpoint command lane",
-                ),
-            );
-            return false;
-        }
-        // A client reports and answers jumps whatever it is presenting, so
-        // these neither need an active surface nor take the command lease.
-        if matches!(
-            &request.method,
-            api::schema::Method::ClientReport(_) | api::schema::Method::ClientJumpResolve(_)
-        ) {
-            let result = match request.method {
-                api::schema::Method::ClientReport(report) => {
-                    self.accept_client_report(client_id, report)
-                }
-                api::schema::Method::ClientJumpResolve(params) => {
-                    self.resolve_client_jump(client_id, params)
-                }
-                _ => return false,
-            };
-            let message = match result {
-                Ok(result) => crate::server::client_commands::success_message_with_result(
-                    boot_id, request_id, result,
-                ),
-                Err((code, message)) => crate::server::client_commands::error_message(
-                    boot_id, request_id, code, message,
-                ),
-            };
-            self.send_to_client(client_id, message);
-            return false;
-        }
         let surface_active = client.shell_surface_active;
+        let command_in_flight = client.shell_endpoint_command_in_flight;
+        let Some(mut request) = self.handle_client_lane_request(client_id, &boot_id, request)
+        else {
+            return false;
+        };
         if let api::schema::Method::ClientShellSurfaceSet(params) = &request.method {
             let Some((changed, projection_revision)) =
                 self.set_client_shell_surface_active(client_id, params.active)
@@ -96,7 +60,7 @@ impl HeadlessServer {
             );
             return changed;
         }
-        if client.shell_endpoint_command_in_flight {
+        if command_in_flight {
             let message = crate::server::client_commands::error_message(
                 boot_id,
                 request_id,
@@ -170,5 +134,42 @@ impl HeadlessServer {
                     response_write_complete: None,
                 },
             )
+    }
+
+    /// Answers the client-lane methods a client sends whatever it presents:
+    /// its report and its answers to jumps and pickers. They neither need an
+    /// active surface nor take the command lease. Returns any other request.
+    fn handle_client_lane_request(
+        &mut self,
+        client_id: u64,
+        boot_id: &str,
+        mut request: Box<api::schema::Request>,
+    ) -> Option<Box<api::schema::Request>> {
+        let result = match request.method {
+            api::schema::Method::ClientReport(report) => {
+                self.accept_client_report(client_id, report)
+            }
+            api::schema::Method::ClientJumpResolve(params) => {
+                self.resolve_client_jump(client_id, params)
+            }
+            api::schema::Method::UiPickResolve(params) => {
+                self.resolve_client_pick(client_id, params)
+            }
+            method => {
+                request.method = method;
+                return Some(request);
+            }
+        };
+        let boot_id = boot_id.to_owned();
+        let message = match result {
+            Ok(result) => crate::server::client_commands::success_message_with_result(
+                boot_id, request.id, result,
+            ),
+            Err((code, message)) => {
+                crate::server::client_commands::error_message(boot_id, request.id, code, message)
+            }
+        };
+        self.send_to_client(client_id, message);
+        None
     }
 }

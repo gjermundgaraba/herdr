@@ -27,7 +27,6 @@ mod events;
 mod frame_output;
 #[cfg(test)]
 mod frame_output_tests;
-mod frontend_api;
 mod handshake;
 mod image_files;
 mod input;
@@ -543,20 +542,6 @@ async fn run_client_loop(
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
     let mut client_contract = client_contract::ClientContract::default();
 
-    // Frontend socket: same-user automation for tools running on the TUI host. A
-    // missing socket only disables those tools; the session does not depend on it.
-    let mut frontend_api = if state.shell.is_some() {
-        match frontend_api::FrontendApi::start(event_tx.clone()) {
-            Ok(api) => Some(api),
-            Err(error) => {
-                warn!(%error, "frontend API unavailable");
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     // Spawn the stdin reader thread.
     let will_query_host_terminal_theme = state.attach_escape.is_none();
     let host_theme_query_pending = Arc::new(AtomicU32::new(0));
@@ -799,13 +784,11 @@ async fn run_client_loop(
                 &supervisor_tx,
             );
         }
-        // Frontend publication runs at the loop boundary, covering event arms
-        // that end in `continue`. Publish after dispatch and housekeeping, and
-        // settle navigation replies from observed state before the next event.
-        if let (Some(api), Some(shell)) = (frontend_api.as_mut(), state.shell.as_mut()) {
-            api.publish(shell, state.presentation_frozen, &write_stream);
-            api.settle_selects(shell, std::time::Instant::now());
-        }
+        report_held_activations(
+            &mut state,
+            pending_activation.as_ref(),
+            scheduled_activation.as_ref(),
+        );
         // The same boundary coalesces the client contract: however many
         // events changed the Agents list, one report follows them.
         if let Some(shell) = state.shell.as_mut() {
@@ -853,49 +836,6 @@ async fn run_client_loop(
         }
 
         match event {
-            ClientLoopEvent::FrontendApi(event) => {
-                if let (Some(api), Some(shell)) = (frontend_api.as_mut(), state.shell.as_mut()) {
-                    let dispatch = api.handle(
-                        event,
-                        shell,
-                        state.presentation_frozen,
-                        &mut write_stream,
-                        &mut endpoint_commands,
-                    );
-                    match dispatch {
-                        None => {}
-                        Some(frontend_api::Dispatch::Input { id, reply, input }) => {
-                            let frame = input
-                                .repaint
-                                .then(|| {
-                                    shell.compose(state.reported_size.0, state.reported_size.1)
-                                })
-                                .flatten();
-                            if finish_client_shell_input(
-                                &mut state,
-                                input,
-                                frame,
-                                &mut write_stream,
-                                &mut pending_activation,
-                                &mut endpoint_commands,
-                                &mut prefix_input_source,
-                                &mut scheduled_activation,
-                            )? {
-                                return Ok(());
-                            }
-                            let _ = reply
-                                .send(frontend_api::success(id, serde_json::json!({"ok": true})));
-                        }
-                        Some(frontend_api::Dispatch::Select { endpoint, target }) => {
-                            scheduled_activation = Some(ClientLoopEvent::ActivateEndpoint {
-                                endpoint_id: endpoint,
-                                target: Some(target),
-                                force: false,
-                            });
-                        }
-                    }
-                }
-            }
             ClientLoopEvent::EndpointCatalog(reload) => pending_catalog = Some(reload),
             #[cfg(unix)]
             ClientLoopEvent::StdinInput(data) => {
@@ -2187,19 +2127,13 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
-                            Ok(endpoint::EndpointControlMessage::AgentCompletions(projection)) => {
-                                if let Some(shell) = state.shell.as_mut() {
-                                    shell.set_endpoint_agent_completions(
-                                        &endpoint_id,
-                                        generation,
-                                        projection,
-                                    );
-                                }
-                                continue;
-                            }
                             Ok(endpoint::EndpointControlMessage::PickOpen(open)) => {
                                 if let Some(shell) = state.shell.as_mut() {
-                                    if shell.receive_pick_open(&endpoint_id, open) {
+                                    let origin = shell::ControlOrigin {
+                                        endpoint_id: endpoint_id.clone(),
+                                        generation,
+                                    };
+                                    if shell.receive_pick_open(origin, open) {
                                         if let Some(frame) = shell
                                             .compose(state.reported_size.0, state.reported_size.1)
                                         {
@@ -2211,7 +2145,11 @@ async fn run_client_loop(
                             }
                             Ok(endpoint::EndpointControlMessage::PickClose(close)) => {
                                 if let Some(shell) = state.shell.as_mut() {
-                                    if shell.receive_pick_close(&endpoint_id, close) {
+                                    let origin = shell::ControlOrigin {
+                                        endpoint_id: endpoint_id.clone(),
+                                        generation,
+                                    };
+                                    if shell.receive_pick_close(&origin, close) {
                                         if let Some(frame) = shell
                                             .compose(state.reported_size.0, state.reported_size.1)
                                         {
@@ -2226,7 +2164,7 @@ async fn run_client_loop(
                                     continue;
                                 };
                                 let outcome = shell.receive_client_jump(
-                                    shell::ClientJumpOrigin {
+                                    shell::ControlOrigin {
                                         endpoint_id: endpoint_id.clone(),
                                         generation,
                                     },

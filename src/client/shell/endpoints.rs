@@ -16,7 +16,6 @@ pub(crate) struct ClientShellEndpoint {
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
     /// Connection generation that produced `snapshot`. `None` is reserved for local tests.
     pub(crate) snapshot_generation: Option<u64>,
-    pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pending_agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pub(crate) agent_view_projection_supported: bool,
@@ -88,9 +87,6 @@ impl ClientShellState {
                 ),
                 snapshot: previous.and_then(|endpoint| endpoint.snapshot.clone()),
                 snapshot_generation: previous.and_then(|endpoint| endpoint.snapshot_generation),
-                agent_presentation: previous
-                    .map(|endpoint| endpoint.agent_presentation.clone())
-                    .unwrap_or_default(),
                 agent_view_projection: previous
                     .and_then(|endpoint| endpoint.agent_view_projection.clone()),
                 pending_agent_view_projection: previous
@@ -148,7 +144,6 @@ impl ClientShellState {
             endpoint.snapshot = None;
             endpoint.snapshot_generation = None;
             endpoint.methods = None;
-            endpoint.agent_presentation = Default::default();
             endpoint.agent_view_projection = None;
             endpoint.pending_agent_view_projection = None;
             endpoint.agent_view_projection_supported = false;
@@ -188,10 +183,10 @@ impl ClientShellState {
             self.pending_integration_installs = 0;
             self.pane_scroll_in_flight.clear();
             self.pane_scroll_queued.clear();
-            // The server cancels the picker when this connection drops.
-            if matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
-                self.overlay = None;
-            }
+            // The picker goes with the connection that opened it, whose
+            // daemon cancels it when the connection drops. The answer names
+            // that connection, so it is never sent on a later one.
+            self.cancel_pick();
         }
     }
 
@@ -262,9 +257,7 @@ impl ClientShellState {
             self.pane_surface = None;
             self.pending_pane_surface = None;
             // A picker belongs to the endpoint that opened it.
-            if matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
-                self.overlay = None;
-            }
+            self.cancel_pick();
         }
         self.apply_active_snapshot(snapshot, generation);
         if switching_endpoint {
@@ -347,23 +340,6 @@ impl ClientShellState {
             .snapshot
             .as_deref()
             .map(|snapshot| (snapshot.boot_id.as_str(), snapshot.revision))
-    }
-
-    pub(crate) fn set_endpoint_agent_completions(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        projection: crate::protocol::endpoint::EndpointAgentCompletions,
-    ) {
-        if let Some(endpoint) = self
-            .endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        {
-            endpoint
-                .agent_presentation
-                .receive_completions(Some(generation), projection);
-        }
     }
 
     pub(crate) fn set_endpoint_agent_view_projection_for_generation(
@@ -544,7 +520,7 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot, true);
+        self.store_endpoint_snapshot(endpoint_id, None, snapshot);
     }
 
     pub(crate) fn cache_endpoint_snapshot_for_generation(
@@ -553,26 +529,17 @@ impl ClientShellState {
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, true);
+        self.store_endpoint_snapshot(endpoint_id, Some(generation), snapshot);
     }
 
-    /// Metadata delivered while an endpoint surface is inactive must never advance this
-    /// aggregate client's viewed watermark, even if the frozen source frame still exists.
-    pub(crate) fn cache_endpoint_snapshot_inactive_for_generation(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        generation: u64,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, false);
-    }
-
-    fn cache_endpoint_snapshot_with_surface(
+    /// Retains an endpoint's snapshot as its daemon sent it. Agent statuses,
+    /// and so completion badges, are the daemon's: this client keeps no
+    /// record of what it has shown.
+    fn store_endpoint_snapshot(
         &mut self,
         endpoint_id: &ClientEndpointId,
         generation: Option<u64>,
         mut snapshot: Box<ClientShellSnapshot>,
-        acknowledge_surface: bool,
     ) {
         snapshot
             .commands
@@ -613,19 +580,6 @@ impl ClientShellState {
         if boot_changed {
             self.retire_endpoint_notifications(endpoint_id);
         }
-        self.endpoints[index]
-            .agent_presentation
-            .project_snapshot_for_generation(&mut snapshot, generation);
-        let presented_surface = if acknowledge_surface && endpoint_id == &self.active_endpoint_id {
-            self.pane_surface.as_ref()
-        } else {
-            None
-        };
-        if let Some(surface) = presented_surface {
-            self.endpoints[index]
-                .agent_presentation
-                .acknowledge_surface(&mut snapshot, surface, self.outer_focused);
-        }
         let endpoint = &mut self.endpoints[index];
         endpoint.snapshot_generation = generation;
         endpoint.snapshot = Some(snapshot);
@@ -660,41 +614,12 @@ impl ClientShellState {
         }
     }
 
-    pub(crate) fn acknowledge_active_surface_agents(&mut self, surface: &PaneSurfaceFrame) -> bool {
-        let Some(index) = self
-            .endpoints
-            .iter()
-            .position(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
-        else {
-            return false;
-        };
-        let changed = {
-            let endpoint = &mut self.endpoints[index];
-            let Some(snapshot) = endpoint.snapshot.as_deref_mut() else {
-                return false;
-            };
-            endpoint
-                .agent_presentation
-                .acknowledge_surface(snapshot, surface, self.outer_focused)
-        };
-        if changed {
-            self.snapshot = self.endpoints[index].snapshot.clone();
-            self.bump_agent_projection_revision();
-        }
-        changed
-    }
-
-    /// In-place agent status rewrites leave snapshot identity (boot, revision)
-    /// intact; bump the projection revision so the frontend observation
-    /// republishes them.
-    pub(super) fn bump_agent_projection_revision(&mut self) {
-        self.agent_projection_revision = self.agent_projection_revision.saturating_add(1);
-    }
-
     /// Asks the daemon that owns the focused pane to hold its agent's
     /// acknowledged completion (`agent.mark_unread`). The daemon keeps the
     /// hold and decides when the badge comes back and when it clears, so this
-    /// client records nothing: it shows what the next snapshots say.
+    /// client records nothing: it shows what the next snapshots say. Herdr
+    /// GPUI's counterpart is `crates/herdr-gpui/src/window/commands.rs`, with
+    /// the daemon's answer handled in `client_contract/follow.rs`.
     pub(super) fn mark_focused_pane_unread(&mut self, outcome: &mut ClientShellInput) {
         let Some(pane_id) = self
             .snapshot
@@ -776,7 +701,6 @@ pub(super) fn local_endpoint() -> ClientShellEndpoint {
         status: ClientEndpointStatus::Online,
         snapshot: None,
         snapshot_generation: None,
-        agent_presentation: Default::default(),
         agent_view_projection: None,
         pending_agent_view_projection: None,
         agent_view_projection_supported: false,

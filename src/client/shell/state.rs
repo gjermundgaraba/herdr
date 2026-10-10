@@ -719,9 +719,10 @@ impl ClientShellOverlay {
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
     Generic,
-    /// A Back/Forward focus request; failure rewinds the history cursor.
+    /// A Back/Forward focus request. Its result ends the wait for the step:
+    /// failure rewinds the history cursor.
     HistoryStep {
-        visit: super::history::Visit,
+        step: super::history::Step,
     },
     ProductAnnouncementDismiss {
         version: String,
@@ -759,11 +760,9 @@ pub(super) enum PendingEndpointKind {
     PaneLinkResolve {
         target: super::link_hover::LinkHoverTarget,
     },
-    /// A frontend-socket request; the reply settles from this request's result.
-    Frontend(crate::client::frontend_api::FrontendReply),
     /// The focus request of a daemon's jump; a failure answers the jump.
     ClientJump {
-        origin: super::client_jump::ClientJumpOrigin,
+        origin: super::ControlOrigin,
         jump_id: String,
     },
     /// `agent.mark_unread` for the focused pane; success is confirmed to the user.
@@ -1013,12 +1012,22 @@ pub(crate) struct ClientShellState {
     pub(super) endpoints: Vec<ClientShellEndpoint>,
     /// Bounded Back/Forward visit history across endpoints.
     pub(crate) history: super::history::History,
+    /// Whether the client loop holds an endpoint activation it has not
+    /// finished: one this shell asked for since the loop last said, or one
+    /// the loop said it holds. Only the loop knows. A handoff shows its
+    /// target rounds before it completes and takes no request until then,
+    /// and a reversed one shows its source again ahead of the activation
+    /// that replaced it. See `receive_endpoint_activations_held`.
+    pub(super) endpoint_activation_held: bool,
+    /// The Back/Forward step that left the shell as an endpoint activation
+    /// and has not been settled. An activation sends no request the shell
+    /// tracks, so the step is settled by what the client loop says of its
+    /// activations: see `receive_endpoint_activated` and
+    /// `receive_endpoint_activations_held`.
+    pub(super) history_handoff: Option<super::history::Step>,
     /// Jumps daemons asked this client to perform.
     pub(super) client_jumps: super::client_jump::ClientJumps,
-    /// Bumped when an in-place snapshot mutation (agent acknowledgement) changes
-    /// observed output without a snapshot revision change. Visible to the
-    /// frontend observation fingerprint so stale subscriptions never hide the change.
-    pub(super) agent_projection_revision: u64,
+    pub(super) picks: super::picks::ClientPicks,
     pub(crate) active_endpoint_id: ClientEndpointId,
     pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
     pub(super) mode: ClientShellMode,
@@ -1240,8 +1249,10 @@ impl ClientShellState {
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
             history: Default::default(),
+            endpoint_activation_held: false,
+            history_handoff: None,
             client_jumps: Default::default(),
-            agent_projection_revision: 0,
+            picks: Default::default(),
             outer_focused: None,
             ascii_input_source_active: false,
             pending_input_source_changes: Vec::new(),
@@ -1806,7 +1817,6 @@ impl ClientShellState {
         if surface.projection_revision != snapshot.revision {
             self.hits = ShellHitMap::default();
         }
-        self.acknowledge_active_surface_agents(&surface);
         let previous_popup = self.popup_terminal_id.clone();
         let next_popup = surface
             .popup

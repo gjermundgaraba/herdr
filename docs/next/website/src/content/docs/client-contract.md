@@ -9,8 +9,8 @@ snapshot. Each client reports its Agents list to the daemon, and tools read
 those reports and ask a client to jump through the ordinary socket API.
 
 The private binary protocol is unchanged (`protocol` stays 23). Everything on
-this page is JSON: optional snapshot fields, client-lane methods the endpoint
-advertises in its welcome, one endpoint control kind, and socket API methods.
+this page is JSON: optional snapshot fields, client methods the endpoint
+advertises in its welcome, three endpoint control kinds, and socket API methods.
 
 ## Snapshot additions
 
@@ -47,7 +47,10 @@ Each entry of `agents` has two more fields:
 `priority_key` is the agent's place in the `priority` order, with the
 `ui.agent_priority_tokens` lift already applied. It is opaque. To order agents,
 compare the keys as plain strings, byte by byte, smallest first. Every key has
-the same length. A client that sorts by space instead ignores the key.
+the same length. An empty key, which is what an agent of a daemon that sends no
+keys decodes to, sorts after every non-empty key; agents with equal keys, empty
+ones included, keep the tie order described below. A client that sorts by
+space instead ignores the key.
 
 `priority_mark` is the value of the first `ui.agent_priority_tokens` entry the
 agent's space carries with a non-empty value, or `null`. The agent picker shows
@@ -71,13 +74,53 @@ in their snapshot.
 A client applies its own rules on top: for example, the TUI lists the agents of
 a reconnecting machine after all others.
 
+### Agent status
+
+A client shows each agent's `agent_status` exactly as the snapshot sends it.
+Whether a finished agent is `done`, a completion nobody has seen, or `idle` is
+the daemon's seen state, so every client attached to a daemon shows the same
+badge, and an agent's status always matches its `priority_key`. A client keeps
+no record of the completions it has shown.
+
+The daemon counts a completion as seen when it lands in the tab the daemon is
+on, unless the window of its foreground client is known to be in the
+background. A client's command-lane request puts the daemon on that client's
+tab, and a focus request, from a client or from the socket API, then moves it.
+The foreground client is the client with an active surface that acted last in
+any way: a command-lane request, input to a pane, a resize, its surface
+becoming active, or its window gaining focus. That is usually the client whose
+tab the daemon is on, but not always.
+
+A badge clears when the daemon goes to the agent's tab, which a client causes
+with `pane.focus`, `tab.focus`, `workspace.focus`, or any other command-lane
+request it sends from that tab. A badge in the tab the daemon is already on
+clears when a client whose window is focused acts in one of the ways listed
+above, and so becomes or stays the foreground client; the window gaining focus
+is one of them. The daemon then marks the tab it is on, whichever tab that
+client is on. While the foreground client's window is focused, the daemon
+also marks its tab again when it handles an agent's status change, and with
+most socket API requests.
+
+Two consequences follow from the daemon being on one tab at a time. A
+completion in that tab is seen even while every client presents another
+machine, so it never becomes a badge. And a second client that sits on a
+different tab does not clear a badge there until it sends a command-lane
+request: one that takes the command lease, such as `pane.focus`.
+`client.report`, `client.jump.resolve`, and `ui.pick.resolve` do not take it
+and change nothing here.
+
+This build's daemon does not send the `endpoint.agent-completions.v1` control
+and does not advertise the `agent_completions` capability. A client attached to
+a daemon that still sends the control ignores it.
+
 ## Unread hold
 
 `agent.mark_unread` takes `{"pane_id": "..."}` and holds an acknowledged
-completion: an agent that shows as `idle`. It is available on the client lane
-and on the socket API, and returns the agent as `agent_info`. Other agents are
-rejected with `agent_not_idle`, a pane without an agent with `agent_not_found`,
-and an unknown pane with `pane_not_found`.
+completion: an agent that shows as `idle`. A client sends it as a command-lane
+request, which needs an active surface and takes the command lease, and it is
+also a socket API method. It returns the agent as `agent_info`. Other agents
+are rejected with `agent_not_idle`, a pane without an agent with
+`agent_not_found`, and an unknown pane with `pane_not_found`.
 
 The daemon keeps the hold, so every client shows the same thing:
 
@@ -86,15 +129,15 @@ The daemon keeps the hold, so every client shows the same thing:
    for this endpoint is active.
 2. When that client focuses another pane, tab, or space, switches to another
    machine, or detaches, the completion comes back. The agent's `agent_status`
-   is `done` again, it gets a new `state_change_seq` and `priority_key`, and
-   `endpoint.agent-completions.v1` lists that sequence as its completion. It
+   is `done` again, and it gets a new `state_change_seq` and `priority_key`. It
    queues behind the completions already waiting in its priority group, and
    later completions queue behind it. `pane.agent_status_changed` reports the
    change; plugin event hooks do not run for it.
 3. The badge stays while clients merely keep the pane in view. It clears when a
    client arrives at the pane: it starts presenting it, or its window regains
-   focus while it does. The agent is `idle` again and, with its newer time,
-   leads the idle agents.
+   focus while it does. A client whose window is known to be unfocused does
+   not arrive, whatever it presents. The agent is `idle` again and, with its
+   newer time, leads the idle agents.
 
 A mark from the socket API has no client, so the completion comes back as soon
 as no client presents the pane, at once if none does. A real status change ends
@@ -105,8 +148,8 @@ a hold. Holds are in memory and do not survive a server restart or handoff.
 A client tells the daemon what its Agents list shows, across every machine it
 is attached to, with the client-lane method `client.report`. A report replaces
 the client's previous one. It needs neither an active surface nor the command
-lease, so a client sends it while it presents another machine or waits on
-another command:
+lease, so the daemon takes it while the client presents another machine or
+has another command in flight:
 
 ```json
 {"id":"client-shell:7","method":"client.report","params":{
@@ -130,27 +173,68 @@ another command:
 ```
 
 - `focused` is whether the client's window or outer terminal has focus, or
-  `null` until the client knows. It travels in the report because a client
-  tells only the machine it presents about focus.
-- `active_endpoint_id` names the machine the client presents. Endpoint ids are
-  the client's own.
+  `null` until the client knows. The TUI knows only after its terminal's first
+  focus event, so a tool treats `null` as unknown, not as unfocused. The field
+  travels in the report because a client tells only the machine it presents
+  about focus.
+- `active_endpoint_id` names the machine the client presents, or is `null`
+  when the report does not list that machine. Endpoint ids are the client's
+  own.
 - `endpoints[].status` is `connecting`, `online`, `reconnecting`, `attention`,
   or `disabled`. `boot_id` is `null` before the endpoint's first snapshot.
 - `agents` is the list in the client's display order. Each row's `agent` is the
-  record from its endpoint's snapshot as the client shows it. The row's own
+  record from its endpoint's snapshot, unchanged. The row's own
   `focused` marks the one agent the client has focused; `agent.focused` is the
   focus inside the row's endpoint.
 
-A report lists at most 64 endpoints and 512 agents, and ids are at most 128
-bytes. The daemon rejects a report beyond those limits, or one whose rows name
-an unlisted endpoint, with `invalid_params`. Display text longer than 512 bytes
-is cut, and an agent keeps at most 32 state labels and 32 tokens.
+The daemon checks a report in this order, and rejects it with `invalid_params`
+naming the first check that failed, keeping the client's previous report, when:
+
+1. it lists more than 64 endpoints or more than 512 agents;
+2. an endpoint, taken in list order, has an `endpoint_id` that is empty or
+   longer than 128 bytes, a `boot_id` longer than 128 bytes, or the
+   `endpoint_id` of an endpoint listed before it;
+3. `active_endpoint_id` names an endpoint the report does not list;
+4. a row's `endpoint_id` names an endpoint the report does not list;
+5. more than one row is `focused`;
+6. a row's `agent.pane_id` is empty or longer than 128 bytes, or its
+   `agent.workspace_id` or `agent.tab_id` is longer than 128 bytes.
+
+The daemon then cuts text longer than 512 bytes, on a character boundary: each
+endpoint's `label`; each row's `workspace_label`, `cwd`, and `foreground_cwd`;
+and the agent's `name`, `display_agent`, `agent`, `title`, `terminal_title`,
+`terminal_title_stripped`, `priority_mark`, and `priority_key`. An agent keeps
+its first 32 `state_labels` and first 32 `tokens`, each key and value cut the
+same way. A daemon's `priority_key` is far shorter than the limit, so only a
+key a client made up is ever cut.
+
+The whole request must also fit one client-lane command, which is at most
+1 MiB (`MAX_ENDPOINT_COMMAND_BYTES`) of JSON, and the daemon closes a
+connection that sends a larger one. 512 rows of long text can exceed that, so a
+client measures the encoded request and drops rows from the end of `agents`
+until it fits.
+
+A client sends its report to exactly one daemon: the local one. It sends none
+to the other machines it is attached to, so each client appears with a report
+in one daemon's `client.list`, and that is the daemon tools ask to jump it. A
+client without a local connection, or whose local daemon does not advertise
+`client.report`, reports to nobody.
+
+When a client-lane request leaves a client depends on the client. The TUI
+sends a report, a jump's answer, and a picker's answer at once, beside a
+command it has in flight. Herdr GPUI holds one request per connection, so it
+queues all three behind the request that connection is waiting on, until that
+one is answered. A report that waited is the latest one, not a backlog. A
+request that is not answered within 60 seconds ends the connection instead:
+what was queued behind it is never sent, the daemon sees the client detach,
+and a jump that client had not answered ends as `client_departed`.
 
 The daemon keeps the latest report of each client in memory and drops it when
 the client disconnects. A client is one connection, identified by the
 `client_id` the daemon gave it. A client with several connections to one
-daemon, as Herdr GPUI has per window, reports on one of them and receives jumps
-on that same connection.
+daemon, as Herdr GPUI has per window, reports on one of them. A tool jumps a
+client by the `client_id` it read the report under, so the jump arrives on the
+connection that carries the report.
 
 ## Reading clients
 
@@ -168,15 +252,16 @@ is this daemon, so a tool calls the socket API directly for its panes. A client
 without `report` has not sent one.
 
 Subscribe to `client.changed` to stay current. It fires when a client attaches,
-sends a report that differs from its last one, or detaches:
+sends a report that differs from its last one, or detaches, and names only the
+client:
 
 ```json
-{"event":"client_changed","data":{"type":"client_changed","client_id":7,"client":{"client_id":7,"report":{}}}}
 {"event":"client_changed","data":{"type":"client_changed","client_id":7}}
 ```
 
-`client` is the client as `client.list` would now return it, and is absent once
-the client has detached. Subscribe first and call `client.list` afterwards, so
+Call `client.list` to see what changed; a client it no longer lists has
+detached. The event carries no report, so the daemon's event history never
+holds copies of reports. Subscribe first and call `client.list` afterwards, so
 no change falls between the two. `client.changed` does not run plugin event
 hooks.
 
@@ -211,32 +296,148 @@ an error:
 | Code | Meaning |
 | --- | --- |
 | `client_not_found` | No client with that id is attached. |
-| `jump_pending` | That client is still performing another jump. |
-| `client_departed` | The client detached before it answered. |
+| `client_not_reporting` | The client is attached but has not sent a report, so it does not answer jumps. |
+| `jump_superseded` | A newer jump to the same client replaced this one before the client answered. |
+| `client_departed` | The client detached before it answered, or the daemon could not send it the jump. |
 | `stale_boot` | The client reports that the endpoint now runs another boot. |
 | `jump_target_not_found` | The client knows no such endpoint or pane. |
-| `jump_endpoint_unavailable` | The endpoint is not online. |
+| `jump_endpoint_unavailable` | The endpoint is not online, or the client's navigation did not reach it or was withdrawn. |
 | `jump_timeout` | The client did not see the pane focused in time, or did not answer within 20 seconds. |
-| `jump_failed` | The client could not perform the jump; the message is the client's. |
+| `jump_failed` | The client could not perform the jump. The message is the client's, trimmed and cut to 512 bytes, or the daemon's own when the client sent none. |
 | `invalid_params` | An id is empty or longer than 128 bytes. |
 
-After `client_departed` and `jump_timeout` the jump may still have happened.
+After `client_departed`, `jump_timeout`, and `jump_superseded` the jump may
+still have happened. So it may after a `jump_endpoint_unavailable` that a TUI
+answered for a request it withdrew in flight; see
+[Choosing the outcome](#choosing-the-outcome).
+
+The daemon does not notice a caller that disconnects while it waits. The jump
+stays pending until the client answers it, a newer jump replaces it, the
+client detaches, or the 20 seconds pass.
+
+### The newest jump wins
+
+A client performs one jump at a time. When `client.jump` names a client that is
+still performing a jump, the daemon forwards the new jump under a new
+`jump_id`, answers the earlier caller `jump_superseded` at once, and forgets
+the earlier jump. A jump the daemon rejects, or cannot forward, replaces
+nothing.
+
+A client that receives a jump while it performs another drops the earlier one
+and never answers it. If its answer to the earlier jump was already on its way,
+the daemon answers that `client.jump.resolve` with `jump_not_found`, which the
+client ignores.
+
+The earlier jump's navigation may still be under way when the newer jump
+arrives. The client therefore always performs the newer navigation, even when
+it already presents the pane the newer jump names, so that navigation is the
+last one it starts and the one it ends on. Only a client that is performing no
+jump skips the navigation for a pane it already presents, and the TUI only
+while it is not switching machines: a switch under way may still leave the
+pane. A client that skips the navigation answers `focused` at once.
+
+### Choosing the outcome
+
+A client answers `focused` only once it presents the endpoint with the pane
+focused, and `timeout` when that has not happened 12 seconds after the jump
+arrived. The TUI also waits for a switch of machine to complete. It shows the
+machine it switches to shortly before the switch is done, and until then it
+sends that machine no request and may still go back, so a caller could not
+jump again on an answer given any earlier. A switch that is still under way
+at the 12 second mark ends the jump as `timeout`, though the pane may show.
+Before navigating, and again on every turn while it waits, the client checks
+what it holds, and the first of these that applies is the outcome:
+
+1. it knows no such endpoint: `not_found`;
+2. the endpoint has sent no snapshot yet: `unavailable`;
+3. the endpoint's snapshot is of another boot: `stale_boot`;
+4. the endpoint is not online: `unavailable`;
+5. the endpoint's snapshot has no such pane: `not_found`.
+
+On the endpoint the client already presents, the navigation is a `pane.focus`
+request. The TUI makes two exceptions and activates the endpoint instead: for
+a pane on its local machine while it is attached to more than one machine,
+and while a switch of machine is under way, whatever started it. Such an
+activation takes the place of that switch, or follows it when the switch
+already shows the jump's endpoint. When no switch is under way and the
+endpoint's surface is active, there is nothing to activate, and the TUI sends
+the `pane.focus` request after all. When the endpoint rejects the request,
+the client maps the error code:
+
+| `pane.focus` error | Outcome |
+| --- | --- |
+| `pane_not_found` | `not_found` |
+| `stale_boot` | `stale_boot` |
+| anything else | `failed`, with the error's message |
+
+A request the endpoint never answers is not in the table: the jump ends as
+`timeout` at the 12 second mark, long before a client gives up on the request
+itself.
+
+On another endpoint, the two clients navigate differently:
+
+- The TUI activates that endpoint with the pane as the activation's target,
+  as it does in its two exceptions above. The table does not apply to an
+  activation: one that fails, is cancelled, or is replaced reports nothing to
+  the jump, which therefore ends as `timeout` at the 12 second mark unless
+  one of the checks above ends it first.
+- Herdr GPUI switches to that endpoint and, once the endpoint's surface is
+  ready, sends it the same `pane.focus` request as on the endpoint it already
+  presents. A rejection of that request ends the jump by the table, and a
+  request it could not send ends it as `unavailable`. A surface that is not
+  ready in time leaves the jump to end as `timeout`.
+
+A client answers `unavailable` when its navigation did not reach the endpoint
+or was withdrawn:
+
+- it could dispatch neither the request nor an activation;
+- it could not hand the request to the endpoint's connection;
+- in the TUI, the endpoint it presents disconnected with the request in
+  flight, or the user activated another machine before the request was
+  answered. The TUI withdraws the request in both cases and does not learn
+  whether the endpoint carried it out.
+
+## Pickers
+
+A daemon shows a plugin's `ui.pick` on one client by sending it the control
+`endpoint.pick.open.v1`, and sends `endpoint.pick.close.v1` when the plugin
+closes the picker itself. The client answers with the client-lane method
+`ui.pick.resolve` on the connection the picker arrived on. Like
+`client.jump.resolve`, it needs neither an active surface nor the command
+lease, so a client answers a picker after it switched to another machine:
+
+```json
+{"id":"client-pick:3","method":"ui.pick.resolve","params":{"pick_id":"req_pick","outcome":{"type":"cancelled"}}}
+```
+
+A client answers every picker the daemon did not close: with the user's choice,
+or `cancelled` when the picker goes away for any other reason, such as a switch
+to another machine. A picker from a machine the client does not present is
+answered `cancelled` as it arrives. Until a client answers, the daemon refuses
+that client's next picker with `ui_busy`. A pick id the client does not hold
+answers `pick_not_found`, and the socket API answers `ui.pick.resolve` with
+`connection_local_only`.
+
+An answer must fit one client-lane command. A client whose `created` text is
+too long for that answers `cancelled` instead and tells the user.
 
 ## Fixtures
 
-`tests/fixtures/` holds one canonical example of each shape. Herdr GPUI's
-protocol crate keeps verbatim copies:
+`tests/fixtures/` holds one canonical example of each shape. Each consumer
+keeps verbatim copies of the fixtures for the shapes it reads or writes, and
+no others: Herdr GPUI's protocol crate, which speaks the endpoint side, and
+the plugins SDK, which reads reports through the socket API.
 
-| File | Shape |
-| --- | --- |
-| `endpoint-snapshot-shared-v1.json` | Snapshot with `pinned_sections`, `priority_key`, and `priority_mark` |
-| `endpoint-client-report-v1.json` | `client.report` request |
-| `endpoint-client-jump-v1.json` | `endpoint.client-jump.v1` control data |
-| `endpoint-client-jump-resolve-v1.json` | `client.jump.resolve` requests, one per outcome |
-| `endpoint-agent-mark-unread-v1.json` | `agent.mark_unread` request |
-| `endpoint-pick-open-v1.json` | `endpoint.pick.open.v1` control data |
-| `endpoint-pick-close-v1.json` | `endpoint.pick.close.v1` control data |
-| `endpoint-pick-resolve-v1.json` | `ui.pick.resolve` params, one per outcome |
-| `api-client-list-v1.json` | `client.list` response |
-| `api-client-changed-v1.json` | `client.changed` events: attached, reported, detached |
-| `api-client-jump-v1.json` | `client.jump` request and its success response |
+| File | Shape | Copied by |
+| --- | --- | --- |
+| `endpoint-snapshot-shared-v1.json` | Snapshot with `pinned_sections`, `priority_key`, and `priority_mark` | Herdr GPUI, plugins SDK |
+| `endpoint-client-report-v1.json` | `client.report` request | Herdr GPUI, plugins SDK |
+| `endpoint-client-jump-v1.json` | `endpoint.client-jump.v1` control data | Herdr GPUI |
+| `endpoint-client-jump-resolve-v1.json` | `client.jump.resolve` requests, one per outcome | Herdr GPUI |
+| `endpoint-agent-mark-unread-v1.json` | `agent.mark_unread` request | Herdr GPUI |
+| `endpoint-pick-open-v1.json` | `endpoint.pick.open.v1` control data | Herdr GPUI |
+| `endpoint-pick-close-v1.json` | `endpoint.pick.close.v1` control data | Herdr GPUI |
+| `endpoint-pick-resolve-v1.json` | `ui.pick.resolve` params, one per outcome | Herdr GPUI |
+| `api-client-list-v1.json` | `client.list` response | plugins SDK |
+| `api-client-changed-v1.json` | `client.changed` event | plugins SDK |
+| `api-client-jump-v1.json` | `client.jump` request and its success response | plugins SDK |
