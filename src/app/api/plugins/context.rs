@@ -3,9 +3,10 @@ use crate::api::schema::{ErrorBody, EventData, PluginInvocationContext};
 use crate::app::App;
 
 impl App {
-    /// Context for an invocation target. The most specific id supplies it,
-    /// so a menu or key invocation describes what it targets, not what has
-    /// focus; less specific ids must agree. Without ids, focus supplies it.
+    /// Context for the target of a `plugin.invoke` request. The most
+    /// specific id supplies it, so the invocation describes what it targets,
+    /// not what has focus; less specific ids must agree. Without ids, focus
+    /// supplies it, as it does for a keybinding, which names no target.
     pub(super) fn plugin_context_for_target(
         &self,
         workspace_id: Option<&str>,
@@ -167,6 +168,8 @@ impl App {
                     context.tab_id = Some(tab_id.clone());
                     context
                 }),
+            // Never reaches a plugin hook; a client is not a session location.
+            EventData::ClientChanged { .. } => empty_plugin_context(correlation_id),
             EventData::LayoutUpdated { layout } => self
                 .plugin_context_for_tab_id(&layout.tab_id, correlation_id)
                 .or_else(|| {

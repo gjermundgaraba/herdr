@@ -19,6 +19,8 @@ fn agent(index: usize, status: AgentStatus, sequence: u64) -> ClientShellAgent {
         state_labels: Vec::new(),
         tokens: Vec::new(),
         focused: index == 1,
+        priority_key: String::new(),
+        priority_mark: None,
     }
 }
 

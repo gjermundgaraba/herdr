@@ -202,6 +202,18 @@ pub enum ResponseResult {
         changed: bool,
         reason: ClientWindowTitleReason,
     },
+    ClientList {
+        /// This daemon's boot. A reported endpoint with the same `boot_id`
+        /// is this daemon, so its panes answer to this API directly.
+        boot_id: String,
+        clients: Vec<super::clients::ClientInfo>,
+    },
+    /// The client presents the endpoint with the pane focused.
+    ClientJumped {
+        client_id: u64,
+        endpoint_id: String,
+        pane_id: String,
+    },
     IntegrationList {
         integrations: Vec<super::integrations::IntegrationInfo>,
     },

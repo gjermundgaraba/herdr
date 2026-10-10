@@ -13,7 +13,10 @@ pub(crate) const MAX_ENDPOINT_REQUEST_ID_BYTES: usize = 128;
 const ENDPOINT_RESPONSE_CHUNK_BYTES: usize = 512 * 1024;
 
 const CLIENT_SHELL_METHODS: &[&str] = &[
+    "agent.mark_unread",
     "agent.prompt",
+    "client.jump.resolve",
+    "client.report",
     "client_shell.surface.set",
     "command.invoke",
     "integration.install",
@@ -311,6 +314,18 @@ mod tests {
         assert_eq!(
             actual.remove("plugin.invoke").as_deref(),
             Some("878ce26e607769f35f34302a73d8f9ef593138a36a92d4f1efaf9be6e68a719d")
+        );
+        assert_eq!(
+            actual.remove("client.report").as_deref(),
+            Some("0037ea039c1ab2037c64d51e6bfe1cf2f6f7c0c618902376e46dee792cedcbc3")
+        );
+        assert_eq!(
+            actual.remove("client.jump.resolve").as_deref(),
+            Some("56603c696ed9fd9261c466a00a63ac02b8bcd5ec2b3e8505f1130b79586ff17f")
+        );
+        assert_eq!(
+            actual.remove("agent.mark_unread").as_deref(),
+            Some("463122bae84c81d00653c26d97d3e40f253e30f12868cfd2c2ffe7bfae7ee169")
         );
 
         assert_eq!(

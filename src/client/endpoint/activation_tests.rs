@@ -68,6 +68,7 @@ fn test_snapshot(boot_id: &str, revision: u64) -> crate::protocol::ClientShellSn
         agents: Vec::new(),
         commands: Vec::new(),
         plugin_entries: Vec::new(),
+        pinned_sections: Vec::new(),
     }
 }
 
@@ -437,6 +438,7 @@ fn activation_requires_an_exact_snapshot_surface_revision_pair() {
         agents: Vec::new(),
         commands: Vec::new(),
         plugin_entries: Vec::new(),
+        pinned_sections: Vec::new(),
     };
     assert_eq!(
         activation.receive_snapshot(&target, 7, &snapshot),

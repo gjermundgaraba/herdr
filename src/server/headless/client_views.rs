@@ -904,7 +904,7 @@ impl HeadlessServer {
         }
         let geometry_changed =
             method_claims_geometry && self.reapply_controlled_shell_tab_geometry(false);
-        changed | geometry_changed
+        changed | geometry_changed | self.settle_unread_holds()
     }
 
     pub(super) fn handle_client_shell_api_request(

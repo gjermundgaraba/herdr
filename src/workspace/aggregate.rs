@@ -14,6 +14,7 @@ pub struct PaneDetail {
     pub state: AgentState,
     pub seen: bool,
     pub last_agent_state_change_seq: Option<u64>,
+    pub agent_order_stamp: Option<u64>,
     pub tokens: HashMap<String, String>,
 }
 
@@ -40,6 +41,7 @@ impl Tab {
                     state: terminal.state,
                     seen: pane.seen,
                     last_agent_state_change_seq: terminal.last_agent_state_change_seq,
+                    agent_order_stamp: terminal.agent_order_stamp,
                     tokens: terminal.metadata_tokens.values(),
                 })
             })

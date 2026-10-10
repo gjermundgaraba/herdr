@@ -1058,8 +1058,8 @@ pub struct UiConfig {
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Workspace metadata token keys that lift a space's blocked and done agents
     /// to the top of the "priority" order while the space carries any of them with
-    /// a non-empty value. The first listed token's value marks the space's agents
-    /// in the agent picker. Default: empty.
+    /// a non-empty value. The value of the first listed token that has a non-empty
+    /// one marks the space's agents in the agent picker. Default: empty.
     #[serde(deserialize_with = "deserialize_agent_priority_tokens")]
     pub agent_priority_tokens: Vec<String>,
     /// Retired setting that Herdr wrote before the workspace filter was removed.

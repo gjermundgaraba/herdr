@@ -50,6 +50,32 @@ impl HeadlessServer {
             );
             return false;
         }
+        // A client reports and answers jumps whatever it is presenting, so
+        // these neither need an active surface nor take the command lease.
+        if matches!(
+            &request.method,
+            api::schema::Method::ClientReport(_) | api::schema::Method::ClientJumpResolve(_)
+        ) {
+            let result = match request.method {
+                api::schema::Method::ClientReport(report) => {
+                    self.accept_client_report(client_id, report)
+                }
+                api::schema::Method::ClientJumpResolve(params) => {
+                    self.resolve_client_jump(client_id, params)
+                }
+                _ => return false,
+            };
+            let message = match result {
+                Ok(result) => crate::server::client_commands::success_message_with_result(
+                    boot_id, request_id, result,
+                ),
+                Err((code, message)) => crate::server::client_commands::error_message(
+                    boot_id, request_id, code, message,
+                ),
+            };
+            self.send_to_client(client_id, message);
+            return false;
+        }
         let surface_active = client.shell_surface_active;
         if let api::schema::Method::ClientShellSurfaceSet(params) = &request.method {
             let Some((changed, projection_revision)) =

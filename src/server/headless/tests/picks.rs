@@ -1,3 +1,4 @@
+use super::client_contract::lane;
 use super::*;
 use crate::api::schema::{
     Method, Request, ResponseResult, UiPickItem, UiPickOutcome, UiPickParams,
@@ -34,23 +35,10 @@ fn request_pick(
     response_rx
 }
 
-fn client_request(server: &mut HeadlessServer, client_id: u64, method: Method) -> String {
-    let (respond_to, response_rx) = std::sync::mpsc::channel();
-    server.handle_client_shell_api_request(
-        client_id,
-        api::ApiRequestMessage {
-            request: Request {
-                id: "client".into(),
-                method,
-            },
-            respond_to,
-            response_write_complete: None,
-        },
-    );
-    response_rx.try_recv().expect("client request response")
-}
-
-fn next_control(receiver: &std::sync::mpsc::Receiver<Vec<u8>>, expected: &str) -> String {
+pub(super) fn next_control(
+    receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
+    expected: &str,
+) -> String {
     loop {
         let message = read_server_message(
             receiver
@@ -73,7 +61,7 @@ fn outcome(response: &str) -> UiPickOutcome {
     outcome
 }
 
-fn error_code(response: &str) -> String {
+pub(super) fn error_code(response: &str) -> String {
     let response: api::schema::ErrorResponse = serde_json::from_str(response).expect(response);
     response.error.code
 }
@@ -101,13 +89,70 @@ async fn only_the_showing_client_resolves_a_pick() {
     )));
     let picked = UiPickOutcome::Picked { id: "w1:t2".into() };
 
-    let wrong = client_request(&mut server, 61, resolve("pick-1", picked.clone()));
+    let wrong = lane(
+        &mut server,
+        &first,
+        61,
+        "test-boot",
+        resolve("pick-1", picked.clone()),
+    );
     assert_eq!(error_code(&wrong), "pick_not_found");
     assert!(waiting.try_recv().is_err());
 
-    client_request(&mut server, 62, resolve("pick-1", picked.clone()));
+    lane(
+        &mut server,
+        &second,
+        62,
+        "test-boot",
+        resolve("pick-1", picked.clone()),
+    );
     assert_eq!(outcome(&waiting.try_recv().unwrap()), picked);
     assert!(server.pending_picks.is_empty());
+    shutdown_test_runtimes(&mut server);
+}
+
+#[tokio::test]
+async fn a_client_answers_its_pick_whatever_it_presents_and_however_busy_it_is() {
+    let mut server = test_headless_server();
+    let (control, _) = connect_matching_test_shell(&mut server, 61);
+    let waiting = request_pick(&mut server, "pick-1", Some(61));
+    next_control(&control, PICK_OPEN_KIND);
+    // The client switched to another endpoint, and a command is still running.
+    server.set_client_shell_surface_active(61, false).unwrap();
+    server
+        .clients
+        .get_mut(&61)
+        .unwrap()
+        .shell_endpoint_command_in_flight = true;
+
+    let answered = lane(
+        &mut server,
+        &control,
+        61,
+        "test-boot",
+        resolve("pick-1", UiPickOutcome::Cancelled),
+    );
+    assert!(answered.contains(r#""type":"ok""#), "{answered}");
+    assert_eq!(
+        outcome(&waiting.try_recv().unwrap()),
+        UiPickOutcome::Cancelled
+    );
+    assert!(server.clients[&61].shell_endpoint_command_in_flight);
+
+    // Pick answers come from a client connection only.
+    let (respond_to, response) = std::sync::mpsc::channel();
+    server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+        request: Request {
+            id: "api".into(),
+            method: resolve("pick-1", UiPickOutcome::Cancelled),
+        },
+        respond_to,
+        response_write_complete: None,
+    });
+    assert_eq!(
+        error_code(&response.try_recv().unwrap()),
+        "connection_local_only"
+    );
     shutdown_test_runtimes(&mut server);
 }
 

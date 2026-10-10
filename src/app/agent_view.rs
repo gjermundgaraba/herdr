@@ -79,7 +79,7 @@ pub(crate) fn apply_agent_view(app: &AppState, entries: &mut Vec<AgentPanelEntry
                     })
                 }),
                 super::api_helpers::pane_agent_status(entry.state, entry.seen),
-                entry.last_agent_state_change_seq.unwrap_or_default(),
+                entry.agent_order_stamp.unwrap_or_default(),
             )
         });
     }
@@ -531,6 +531,7 @@ mod tests {
 
     #[test]
     fn priority_order_queues_waiting_agents_oldest_first() {
+        // The order reads the stamps `priority_key` carries, not the sequences.
         let mut state = AppState::test_new();
         state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
         state.workspaces = vec![
@@ -540,7 +541,7 @@ mod tests {
         ];
         state.ensure_test_terminals();
         state.active = Some(0);
-        for (ws_idx, seq) in [(0, Some(7)), (1, None), (2, Some(3))] {
+        for (ws_idx, stamp) in [(0, Some(7)), (1, None), (2, Some(3))] {
             let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
             let pane = state.workspaces[ws_idx].tabs[0]
                 .panes
@@ -551,7 +552,8 @@ mod tests {
             let terminal = state.terminals.get_mut(&terminal_id).unwrap();
             terminal.detected_agent = Some(Agent::Claude);
             terminal.state = AgentState::Idle;
-            terminal.last_agent_state_change_seq = seq;
+            terminal.agent_order_stamp = stamp;
+            terminal.last_agent_state_change_seq = stamp.map(|stamp| 10 - stamp);
         }
 
         // No recorded change means none since the server started: oldest.

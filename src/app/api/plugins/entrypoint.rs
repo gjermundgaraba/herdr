@@ -1,6 +1,6 @@
 //! Resolve and invoke plugin entrypoints. Actions and panes share one id
 //! namespace per plugin, so `plugin_id.entrypoint` names exactly one of them.
-//! Keys, menus, and `plugin.invoke` all run entrypoints through
+//! Keys and `plugin.invoke` both run entrypoints through
 //! `invoke_plugin_entrypoint`. Callers reload the plugin registry before
 //! resolving.
 

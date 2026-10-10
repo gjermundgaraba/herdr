@@ -53,6 +53,11 @@ impl SidebarTokenColor {
     pub(crate) fn ratatui(self) -> ratatui::style::Color {
         ratatui::style::Color::Rgb(self.r, self.g, self.b)
     }
+
+    /// The color as `#rrggbb`, the form config and client snapshots use.
+    pub(crate) fn hex(self) -> String {
+        format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
+    }
 }
 
 impl Serialize for SidebarTokenColor {
@@ -60,7 +65,7 @@ impl Serialize for SidebarTokenColor {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b))
+        serializer.serialize_str(&self.hex())
     }
 }
 

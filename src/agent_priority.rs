@@ -1,8 +1,10 @@
 //! The fork's `priority` agent order, shared by server and client sorts.
 //!
 //! Blocked and done agents are waiting on the user, so they queue oldest
-//! first; working and idle agents show the newest first. The server uses
-//! lifecycle sequences; built-in client lists use observation and manual requeue order.
+//! first; working and idle agents show the newest first. The server computes
+//! the order and sends each agent's place in it as `priority_key`, so clients
+//! sort and merge endpoints without knowing the rule. Built-in TUI lists still
+//! use their own observation and manual requeue order.
 //!
 //! `ui.agent_priority_tokens` lists workspace metadata token keys. A space that
 //! carries any of them with a non-empty value is lifted: its blocked and done
@@ -22,6 +24,36 @@ pub(crate) fn sort_key(lifted: bool, status: AgentStatus, recency: u64) -> (u8, 
     let waiting = matches!(status, AgentStatus::Blocked | AgentStatus::Done);
     let age = if waiting { recency } else { u64::MAX - recency };
     (u8::from(!(lifted && waiting)), rank(status), age)
+}
+
+/// The wire form of [`sort_key`], sent as `priority_key` in client snapshots:
+/// `<tier>.<rank>.<age>`, where tier is `0` for a lifted waiting agent and `1`
+/// otherwise, rank counts down from blocked (`0`) to unknown (`4`), and age is
+/// 16 hex digits. Every key has the same length, so byte order is key order.
+///
+/// `stamp` comes from [`next_stamp`], which makes keys from different daemons
+/// comparable. Equal keys are possible (agents with no ordering event since
+/// their daemon started all have stamp 0); a client breaks such a tie by its
+/// own endpoint order, then by the agents' order in their snapshot.
+pub(crate) fn priority_key(lifted: bool, status: AgentStatus, stamp: u64) -> String {
+    let (tier, rank, age) = sort_key(lifted, status, stamp);
+    format!("{tier}.{rank}.{age:016x}")
+}
+
+/// The next stamp of the clock that orders agents within a priority group.
+///
+/// A daemon's lifecycle sequences count only its own changes, so they cannot
+/// order agents of different daemons. Stamps are wall-clock microseconds since
+/// the Unix epoch instead, pushed forward to stay strictly increasing within
+/// one daemon whatever its clock does. Across daemons they order events as
+/// well as the hosts' clocks agree.
+pub(crate) fn next_stamp(previous: u64) -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| {
+            u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX)
+        });
+    now.max(previous.saturating_add(1))
 }
 
 /// Status rank for the priority order, most urgent first. The fork owns
@@ -120,6 +152,67 @@ mod tests {
         let tokens = [("lift", "★")];
         assert_eq!(mark(&[], lookup(&tokens)), None);
         assert!(!lifted(&[], lookup(&tokens)));
+    }
+
+    #[test]
+    fn wire_keys_order_like_sort_keys() {
+        let statuses = [
+            AgentStatus::Blocked,
+            AgentStatus::Done,
+            AgentStatus::Working,
+            AgentStatus::Idle,
+            AgentStatus::Unknown,
+        ];
+        let stamps = [0, 1, 9, 1_790_000_000_000_000, u64::MAX];
+        let mut cases = Vec::new();
+        for lifted in [false, true] {
+            for status in statuses {
+                for stamp in stamps {
+                    cases.push((lifted, status, stamp));
+                }
+            }
+        }
+        for &(lifted, status, stamp) in &cases {
+            let key = priority_key(lifted, status, stamp);
+            assert_eq!(key.len(), 20, "{key}");
+            for &(other_lifted, other_status, other_stamp) in &cases {
+                assert_eq!(
+                    key.cmp(&priority_key(other_lifted, other_status, other_stamp)),
+                    sort_key(lifted, status, stamp).cmp(&sort_key(
+                        other_lifted,
+                        other_status,
+                        other_stamp
+                    )),
+                    "{lifted} {status:?} {stamp} vs {other_lifted} {other_status:?} {other_stamp}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wire_key_spells_tier_rank_and_age() {
+        assert_eq!(
+            priority_key(true, AgentStatus::Done, 0x2a),
+            "0.1.000000000000002a"
+        );
+        // Working and idle agents show the newest first, so their age inverts.
+        assert_eq!(
+            priority_key(true, AgentStatus::Working, 0x2a),
+            "1.2.ffffffffffffffd5"
+        );
+        assert_eq!(
+            priority_key(false, AgentStatus::Blocked, 0),
+            "1.0.0000000000000000"
+        );
+    }
+
+    #[test]
+    fn stamps_never_repeat_or_go_back() {
+        let first = next_stamp(0);
+        assert!(first > 1_700_000_000_000_000, "{first}");
+        assert_eq!(next_stamp(u64::MAX - 1), u64::MAX);
+        let ahead = first + 3_600_000_000;
+        assert_eq!(next_stamp(ahead), ahead + 1);
     }
 
     #[test]
