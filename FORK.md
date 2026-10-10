@@ -23,24 +23,27 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
 
 ## What the fork adds
 
-- The per-TUI frontend socket and its protocol, documented in
-  `docs/next/website/src/content/docs/frontend-api.md`
-- The `herdr-frontend` Rust client crate in `sdk/frontend`, including TUI
-  discovery with one push subscription per TUI (`directory`)
 - Client-side `[keys]` actions: agent and workspace lists, Back/Forward
-  history, and `mark_unread`, which asks the daemon for the unread hold
+  history, and `mark_unread`, which asks the daemon for the unread hold,
+  documented in `docs/next/website/src/content/docs/client-actions.md`
 - The client contract, documented in
   `docs/next/website/src/content/docs/client-contract.md`: a client sends
   `client.report` with its cross-host Agents list, its endpoints, and whether
   its window is focused, and handles `endpoint.client-jump.v1`. Tools read
-  `client.list`, follow `client.changed`, and call `client.jump`
+  `client.list`, follow `client.changed`, and call `client.jump`; a newer jump
+  to the same client replaces a pending one, whose caller gets
+  `jump_superseded`
   (`src/api/schema/clients.rs`, `src/server/headless/client_reports.rs`,
   `src/server/headless/jumps.rs`, `src/client/client_contract.rs`)
 - The unread hold in the daemon: `agent.mark_unread` restores a seen
   completion once the marking client stops presenting the pane, so every
   client shows the same badge (`src/app/unread_hold.rs`)
-- The `agent.prompt` method in the client command lane
-  (`CLIENT_SHELL_METHODS` in `src/server/client_commands.rs`)
+- Agent status comes from the daemon alone: the TUI's per-client completion
+  ledger and the `endpoint.agent-completions.v1` control are removed, so the
+  TUI shows each agent's `agent_status` as the snapshot sends it, like Herdr
+  GPUI. A completion in the daemon's current tab therefore never becomes a
+  badge while every client presents another machine; see "Agent status" in
+  the client contract
 - Space groups: the `space_group` workspace metadata token puts runs of
   spaces under collapsible, draggable sidebar headers. `workspace.set_group`
   assigns and places a worktree family, moved families take the group of
@@ -58,18 +61,20 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
 - Agent priority tokens: `ui.agent_priority_tokens` lists workspace metadata
   token keys, and a space carrying any of them with a non-empty value lifts
   its blocked and done agents to the top of the `priority` agent order; the
-  agent picker shows the first listed token's value. That order also queues
-  blocked and done agents oldest state change first. The daemon sends it as a
+  agent picker shows the value of the first listed token that has a non-empty
+  one. That order also queues blocked and done agents oldest state change
+  first. The daemon sends it as a
   `priority_key` per agent, which clients compare as plain strings, also
   across hosts, and sends the mark as `priority_mark` (`src/agent_priority.rs`)
 - One invoke path: `type = "plugin"` keybindings and `plugin.invoke`
   (which replaces `plugin.action.invoke`) run any manifest entrypoint with a
   target pane, tab, or space and its selection as context. Actions and panes
   share one id namespace and one resolver (`src/app/api/plugins/entrypoint.rs`)
-- Plugin invocation context: key and API targets supply the context
-  instead of focus; actions, panes, and startup hooks also get the invoking
-  TUI's `client_id` (`HERDR_CLIENT_ID`), the target pane's agent session, the
-  space's tabs, and every space (`src/app/api/plugins/context.rs`)
+- Plugin invocation context: the target a `plugin.invoke` call names
+  supplies the context instead of focus; actions, panes, and startup hooks
+  also get the invoking TUI's `client_id` (`HERDR_CLIENT_ID`), the target
+  pane's agent session, the space's tabs, and every space
+  (`src/app/api/plugins/context.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
   saves tokens in the session snapshot, so plugin state such as space groups
   and priority tokens survives restarts and handoffs (`src/metadata_tokens.rs`)
@@ -85,10 +90,9 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   reports only the session (`src/pane/osc.rs`, `src/terminal/state.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
-The main consumers are the Micro and Deck plugins in the `herdr-plugins`
-repository. They depend on `herdr-frontend` as a git dependency on the
-`custom-v3` branch of `origin`, so their `Cargo.lock` pins a pushed fork
-commit.
+The main consumers are the plugins in the `herdr-plugins` repository. Its
+device tools, Micro and Deck, use only the socket API: `client.list`,
+`client.changed`, and `client.jump`.
 
 ## Sibling fork: Herdr GPUI
 
@@ -114,15 +118,15 @@ first two kinds below.
 | Feature | Here (TUI) | Herdr GPUI | In step |
 | --- | --- | --- | --- |
 | Sidebar `separator_before` | `src/config/sidebar.rs`, `src/ui/sidebar/tokens.rs` | `crates/herdr-gpui/src/config/sidebar.rs`, `crates/herdr-gpui/src/sidebar/tokens.rs` | yes |
-| Plugin picker | `src/client/shell/picks.rs`, `src/client/shell/pick_overlay.rs` | `crates/herdr-gpui/src/picker.rs`, `crates/herdr-gpui/src/picker/` | yes |
-| Agent priority order | `src/client/shell/aggregate_navigation.rs` | `crates/herdr-gpui/src/sidebar/agents.rs`, `crates/herdr-gpui/src/sidebar/order.rs` | yes |
-| Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/group_row.rs` | no: group headers do not drag in Herdr GPUI |
+| Plugin picker | `src/client/shell/picks.rs`, `src/client/shell/pick_overlay.rs` | `crates/herdr-gpui/src/picker.rs`, `crates/herdr-gpui/src/picker/` | yes, except a picker that arrives while a menu or dialog is open: Herdr GPUI answers `cancelled`, the TUI replaces its overlay and shows the picker |
+| Agent priority order | `src/client/shell/aggregate_navigation.rs` | `crates/herdr-gpui/src/sidebar/agents.rs`, `crates/herdr-gpui/src/sidebar/order.rs` | yes, except under a plugin agent view: Herdr GPUI keeps each host's own view order, the TUI applies the active host's view across hosts |
+| Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/group_row.rs` | no: group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
 | Mark unread | `src/client/shell/endpoints.rs`, `src/client/shell/actions.rs` | `crates/herdr-gpui/src/window/commands.rs`, `crates/herdr-gpui/src/client_contract/follow.rs` | yes |
-| Client report | `src/client/shell/client_report.rs`, `src/client/client_contract.rs` | `crates/herdr-gpui/src/client_contract.rs`, `crates/herdr-gpui/src/client_contract/report.rs` | yes |
-| Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes |
-| Agent and workspace pickers | `src/client/shell/aggregate_navigation.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker |
-| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/history.rs`, `crates/herdr-gpui/src/history/sync.rs` | yes |
-| Client-side keys stay local | `src/config/keybinds.rs` | `crates/herdr-gpui/src/keymap/daemon.rs` | yes |
+| Client report | `src/client/shell/client_report.rs`, `src/client/client_contract.rs` | `crates/herdr-gpui/src/client_contract.rs`, `crates/herdr-gpui/src/client_contract/report.rs` | yes, except Herdr GPUI sends a report, and a jump or picker answer, only after the request its connection holds is answered |
+| Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes, except under an open menu (Herdr GPUI leaves it open, so the jump waits for it and can time out) and for a refused cross-host jump (Herdr GPUI answers from the refusal of its `pane.focus`, the TUI's activation ends as `timeout`), and when the user leaves the jump's host before the pane shows (Herdr GPUI keeps the jump open until its 12 seconds are up, the TUI withdraws the request and answers `unavailable`) |
+| Agent and workspace pickers | `src/client/shell/aggregate_navigation.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
+| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/history.rs`, `crates/herdr-gpui/src/history/sync.rs` | yes, except the TUI clears all history when Local becomes unavailable and Herdr GPUI keeps it, and between a step's request being accepted and its pane showing, the TUI records a pane off the traversed path as a visit at once, where Herdr GPUI records nothing and takes the step back if the pane has not shown after 5 seconds |
+| Client-side keys stay local | `src/config/keybinds.rs` | `crates/herdr-gpui/src/keymap/daemon.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
 
 Add a row, in both `FORK.md` files, when a mirrored feature lands in either
 client.
@@ -179,10 +183,6 @@ cmp target/release/herdr "$dest"
 herdr config check
 ```
 
-`just ci` does not build `sdk/frontend`, which sits outside the Cargo
-workspace. When it or the frontend protocol changes, or after a rebase, also
-run `cargo test --locked` in `sdk/frontend`.
-
 Always copy to a temporary file and rename it over the installed binary. On
 macOS, copying straight over the existing file can leave a stale code-signature
 cache that makes the kernel kill the new binary (exit 137). Verify with `cmp`
@@ -214,10 +214,5 @@ changes need just a TUI relaunch. Never use `herdr server stop` or kill Herdr
 processes to activate a build. Until servers are handed off, the new CLI may
 report a protocol mismatch against them; use the backup binary for those calls.
 
-## After changing `sdk/frontend` or the frontend protocol
-
-Plugins only see a change after it is pushed to `origin/custom-v3`. Then run
-`cargo update -p herdr-frontend` in the `herdr-plugins` repository and rebuild
-the affected plugins by following that repository's `AGENTS.md`. Plugin daemons
-such as Micro and Hub may need a restart after a server handoff; follow their
-lifecycle docs.
+Plugin daemons such as Micro and Hub may need a restart after a server
+handoff; follow their lifecycle docs in the `herdr-plugins` repository.

@@ -12,7 +12,8 @@ mod agents;
 mod api;
 #[cfg(test)]
 pub(crate) use api::test_support::exiting_test_command;
-pub(crate) mod api_helpers;
+mod api_helpers;
+pub(crate) use api::responses::{encode_error, encode_success};
 pub(crate) use api_helpers::limit_snapshot_lines;
 mod creation;
 mod custom_commands;

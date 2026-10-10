@@ -543,14 +543,11 @@ impl ClientShellState {
                 | PendingEndpointKind::CopySearch { .. },
                 Err(_),
             ) => true,
-            // Frontend replies, jumps, and unread marks settle in
-            // `handle_endpoint_result` before any worktree handling.
-            (
-                PendingEndpointKind::Frontend(_)
-                | PendingEndpointKind::ClientJump { .. }
-                | PendingEndpointKind::MarkUnread,
-                Err(_),
-            ) => true,
+            // Jumps and unread marks settle in `handle_endpoint_result` before
+            // any worktree handling.
+            (PendingEndpointKind::ClientJump { .. } | PendingEndpointKind::MarkUnread, Err(_)) => {
+                true
+            }
         }
     }
 }

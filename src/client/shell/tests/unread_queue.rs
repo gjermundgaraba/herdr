@@ -425,7 +425,6 @@ fn the_restored_queue_is_shared_by_picker_and_keyboard_navigation() {
 fn the_restored_queue_is_shared_by_desktop_and_mobile_surfaces() {
     for federated in [false, true] {
         let (mut state, expected) = restored_state(federated);
-        state.outer_focused = Some(false);
         let mut presented = surface();
         presented.projection_revision = state.snapshot.as_ref().unwrap().revision;
         state.set_pane_surface(presented);
@@ -475,8 +474,6 @@ fn unread_queue_render_scale_profile() {
                         daemon.restore_hold("pane_1");
                         daemon.send(&mut state);
                     }
-                    state.visible_endpoint_notice = None;
-                    state.outer_focused = Some(false);
                     let mut next = surface();
                     next.projection_revision = state.snapshot.as_ref().unwrap().revision;
                     next.frame = FrameData::from_ratatui_buffer(

@@ -1943,31 +1943,6 @@ fn agent_picker_shows_the_priority_mark_the_endpoint_sent() {
 }
 
 #[test]
-fn unselected_endpoint_completion_projects_done_client_side() {
-    use crate::api::schema::AgentStatus;
-
-    let (mut state, endpoint_id) = state_with_remote();
-    let mut remote = snapshot();
-    remote.boot_id = "remote-boot".into();
-    remote.agents = vec![agent("background agent", AgentStatus::Working, 2)];
-    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
-    remote.revision = 2;
-    remote.agents = vec![agent("background agent", AgentStatus::Idle, 3)];
-
-    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
-
-    let status = state
-        .endpoints
-        .iter()
-        .find(|endpoint| endpoint.endpoint_id == endpoint_id)
-        .and_then(|endpoint| endpoint.snapshot.as_deref())
-        .and_then(|snapshot| snapshot.agents.first())
-        .map(|agent| agent.agent_status);
-    assert_eq!(status, Some(AgentStatus::Done));
-    assert_eq!(state.active_endpoint_id, ClientEndpointId::Local);
-}
-
-#[test]
 fn clicking_remote_machine_name_requests_activation_without_mutating_projection() {
     let (mut state, endpoint_id) = state_with_remote();
     state.compose(100, 28).expect("combined endpoint frame");
@@ -2243,13 +2218,13 @@ fn new_connection_generation_accepts_a_lower_same_boot_projection_revision() {
     previous.boot_id = "shared-server-boot".into();
     previous.revision = 9;
     previous.workspaces[0].label = "old connection".into();
-    state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 4, Box::new(previous));
+    state.cache_endpoint_snapshot_for_generation(&endpoint_id, 4, Box::new(previous));
     let mut reconnected = snapshot();
     reconnected.boot_id = "shared-server-boot".into();
     reconnected.revision = 1;
     reconnected.workspaces[0].label = "new connection".into();
 
-    state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 5, Box::new(reconnected));
+    state.cache_endpoint_snapshot_for_generation(&endpoint_id, 5, Box::new(reconnected));
 
     let endpoint = state
         .endpoints
@@ -2271,7 +2246,7 @@ fn reconnect_same_endpoint_accepts_new_generation_surface_revision() {
         let mut previous = snapshot();
         previous.boot_id = "shared-server-boot".into();
         previous.revision = previous_revision;
-        state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 4, Box::new(previous));
+        state.cache_endpoint_snapshot_for_generation(&endpoint_id, 4, Box::new(previous));
         assert!(state.activate_endpoint_projection(&endpoint_id));
         let mut previous_surface = surface();
         previous_surface.boot_id = "shared-server-boot".into();
@@ -2287,11 +2262,7 @@ fn reconnect_same_endpoint_accepts_new_generation_surface_revision() {
         let mut reconnected = snapshot();
         reconnected.boot_id = "shared-server-boot".into();
         reconnected.revision = 1;
-        state.cache_endpoint_snapshot_inactive_for_generation(
-            &endpoint_id,
-            5,
-            Box::new(reconnected),
-        );
+        state.cache_endpoint_snapshot_for_generation(&endpoint_id, 5, Box::new(reconnected));
         assert_eq!(state.snapshot.as_ref().unwrap().revision, previous_revision);
         assert_eq!(state.pane_surface.as_ref().unwrap().surface_revision, 9);
 
@@ -2350,7 +2321,7 @@ fn state_with_reconnecting_agents(remote: bool) -> (ClientShellState, ClientEndp
             ..pane_template.clone()
         })
         .collect();
-    state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 4, Box::new(previous));
+    state.cache_endpoint_snapshot_for_generation(&endpoint_id, 4, Box::new(previous));
     assert!(state.activate_endpoint_projection(&endpoint_id));
     state.set_pane_surface(surface());
     state.outer_focused = Some(false);
@@ -2377,7 +2348,7 @@ fn state_with_reconnecting_agents(remote: bool) -> (ClientShellState, ClientEndp
             ..pane_template.clone()
         })
         .collect();
-    state.cache_endpoint_snapshot_inactive_for_generation(&endpoint_id, 5, Box::new(replacement));
+    state.cache_endpoint_snapshot_for_generation(&endpoint_id, 5, Box::new(replacement));
     (state, endpoint_id)
 }
 
@@ -3281,98 +3252,4 @@ fn navigator_foreign_workspace_heading_keeps_the_workspace_target() {
             target: Some(ClientEndpointFocusTarget::Workspace(workspace_id)),
         }] if activated == &endpoint_id && workspace_id == "ws_1"
     ));
-}
-
-#[test]
-fn acknowledgment_is_scoped_to_the_active_endpoint() {
-    use crate::api::schema::AgentStatus;
-
-    fn endpoint_agent_status(
-        state: &ClientShellState,
-        endpoint_id: &ClientEndpointId,
-    ) -> Option<AgentStatus> {
-        state
-            .endpoints
-            .iter()
-            .find(|endpoint| endpoint.endpoint_id == *endpoint_id)
-            .and_then(|endpoint| endpoint.snapshot.as_deref())
-            .and_then(|snapshot| snapshot.agents.first())
-            .map(|agent| agent.agent_status)
-    }
-
-    let (mut state, remote) = state_with_remote();
-    // The remote agent completes while the endpoint is inactive: the client
-    // never presented the completion, so it stays projected Done.
-    let mut working = snapshot();
-    working.boot_id = "remote-boot".into();
-    working.agents = vec![agent("remote agent", AgentStatus::Working, 1)];
-    state.set_endpoint_snapshot(&remote, Box::new(working));
-    let mut completion = snapshot();
-    completion.boot_id = "remote-boot".into();
-    completion.revision = 2;
-    completion.agents = vec![agent("remote agent", AgentStatus::Idle, 2)];
-    state.set_endpoint_snapshot(&remote, Box::new(completion));
-    assert_eq!(
-        endpoint_agent_status(&state, &remote),
-        Some(AgentStatus::Done)
-    );
-
-    // A surface belonging to the inactive remote endpoint must never be
-    // acknowledged through the active local endpoint's projection.
-    let mut remote_surface = surface();
-    remote_surface.boot_id = "remote-boot".into();
-    remote_surface.projection_revision = 2;
-    assert!(!state.acknowledge_active_surface_agents(&remote_surface));
-    assert_eq!(
-        endpoint_agent_status(&state, &remote),
-        Some(AgentStatus::Done)
-    );
-
-    // Presenting the same surface through the activated endpoint acknowledges.
-    assert!(state.activate_endpoint_projection(&remote));
-    state.set_pane_surface(remote_surface);
-    assert_eq!(
-        endpoint_agent_status(&state, &remote),
-        Some(AgentStatus::Idle)
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn acknowledged_completion_repubishes_the_frontend_observation() {
-    use crate::api::schema::AgentStatus;
-    use crate::client::endpoint::EndpointRegistry;
-
-    let (mut state, remote) = state_with_remote();
-    let mut working = snapshot();
-    working.boot_id = "remote-boot".into();
-    working.agents = vec![agent("remote agent", AgentStatus::Working, 1)];
-    state.set_endpoint_snapshot(&remote, Box::new(working));
-    let mut completion = snapshot();
-    completion.boot_id = "remote-boot".into();
-    completion.revision = 2;
-    completion.agents = vec![agent("remote agent", AgentStatus::Idle, 2)];
-    state.set_endpoint_snapshot(&remote, Box::new(completion));
-    let mut remote_surface = surface();
-    remote_surface.boot_id = "remote-boot".into();
-    remote_surface.projection_revision = 2;
-    let registry = EndpointRegistry::empty();
-
-    // A cross-endpoint no-op leaves the observation fingerprint untouched.
-    let before = state.frontend_observation_fingerprint(&registry, false);
-    assert!(!state.acknowledge_active_surface_agents(&remote_surface));
-    assert_eq!(
-        state.frontend_observation_fingerprint(&registry, false),
-        before
-    );
-
-    // The in-place rewrite keeps snapshot identity (boot, revision,
-    // generation) fixed; the projection revision alone must republish it.
-    assert!(state.activate_endpoint_projection(&remote));
-    let active = state.frontend_observation_fingerprint(&registry, false);
-    state.set_pane_surface(remote_surface);
-    assert_ne!(
-        state.frontend_observation_fingerprint(&registry, false),
-        active
-    );
 }
