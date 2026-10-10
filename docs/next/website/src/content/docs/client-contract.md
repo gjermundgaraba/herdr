@@ -234,6 +234,9 @@ protocol crate keeps verbatim copies:
 | `endpoint-client-jump-v1.json` | `endpoint.client-jump.v1` control data |
 | `endpoint-client-jump-resolve-v1.json` | `client.jump.resolve` requests, one per outcome |
 | `endpoint-agent-mark-unread-v1.json` | `agent.mark_unread` request |
+| `endpoint-pick-open-v1.json` | `endpoint.pick.open.v1` control data |
+| `endpoint-pick-close-v1.json` | `endpoint.pick.close.v1` control data |
+| `endpoint-pick-resolve-v1.json` | `ui.pick.resolve` params, one per outcome |
 | `api-client-list-v1.json` | `client.list` response |
 | `api-client-changed-v1.json` | `client.changed` events: attached, reported, detached |
 | `api-client-jump-v1.json` | `client.jump` request and its success response |

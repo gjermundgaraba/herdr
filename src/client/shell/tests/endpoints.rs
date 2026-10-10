@@ -37,7 +37,9 @@ fn agent(
         state_labels: Vec::new(),
         tokens: Vec::new(),
         focused: true,
-        priority_key: String::new(),
+        // What a daemon without priority tokens sends, with the lifecycle
+        // sequence standing in for its stamp.
+        priority_key: crate::agent_priority::priority_key(false, status, state_change_seq),
         priority_mark: None,
     }
 }
@@ -532,7 +534,6 @@ fn agent_navigation_keeps_scroll_when_target_is_visible() {
         &state.endpoints,
         &state.active_endpoint_id,
         state.config.agent_panel_sort,
-        &state.config.agent_priority_tokens,
     );
     let index = rows
         .iter()
@@ -1699,13 +1700,11 @@ fn mixed_legacy_fallback_priority_merges_agents_across_endpoints() {
             &state.endpoints,
             &state.active_endpoint_id,
             AgentPanelSortConfig::Priority,
-            &state.config.agent_priority_tokens,
         ),
         aggregate_navigation::online_agent_rows(
             &state.endpoints,
             &state.active_endpoint_id,
             AgentPanelSortConfig::Priority,
-            &state.config.agent_priority_tokens,
         ),
     ] {
         assert_eq!(rows.len(), 4);
@@ -1876,7 +1875,6 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
         &state.endpoints,
         &state.active_endpoint_id,
         crate::config::AgentPanelSortConfig::Priority,
-        &state.config.agent_priority_tokens,
     )
     .into_iter()
     .map(|row| row.agent.name.as_deref().expect("agent name"))
@@ -1884,141 +1882,8 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
     assert_eq!(names, ["pane two", "pane nine", "tab nine"]);
 }
 
-/// Deliver snapshots with the completion projection a live server sends beside
-/// them, which reports each Done agent as completed work.
-pub(super) trait CompletedSnapshots {
-    fn set_snapshot_with_completions(&mut self, snapshot: Box<ClientShellSnapshot>);
-    fn set_endpoint_snapshot_with_completions(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        snapshot: Box<ClientShellSnapshot>,
-    );
-}
-
-impl CompletedSnapshots for ClientShellState {
-    fn set_snapshot_with_completions(&mut self, snapshot: Box<ClientShellSnapshot>) {
-        let endpoint_id = self.active_endpoint_id.clone();
-        self.set_endpoint_snapshot_with_completions(&endpoint_id, snapshot);
-    }
-
-    fn set_endpoint_snapshot_with_completions(
-        &mut self,
-        endpoint_id: &ClientEndpointId,
-        snapshot: Box<ClientShellSnapshot>,
-    ) {
-        let completions = crate::protocol::endpoint::EndpointAgentCompletions {
-            boot_id: snapshot.boot_id.clone(),
-            revision: snapshot.revision,
-            completions: snapshot
-                .agents
-                .iter()
-                .filter(|agent| agent.agent_status == crate::api::schema::AgentStatus::Done)
-                .map(|agent| (agent.pane_id.clone(), agent.state_change_seq))
-                .collect(),
-        };
-        self.endpoints
-            .iter_mut()
-            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-            .expect("endpoint")
-            .agent_presentation
-            .receive_completions(None, completions);
-        self.set_endpoint_snapshot(endpoint_id, snapshot);
-    }
-}
-
 #[test]
-fn priority_order_lifts_token_spaces_and_queues_waiting_agents() {
-    use crate::api::schema::AgentStatus;
-
-    let mut snapshot = snapshot();
-    let mut other = snapshot.workspaces[0].clone();
-    other.workspace_id = "ws_2".into();
-    other.number = 2;
-    other.focused = false;
-    snapshot.workspaces.push(other);
-    snapshot.workspaces[1].tokens = vec![("lift".into(), "★".into())];
-    let placed = |name: &str, workspace: &str, status, seq| {
-        let mut agent = agent(name, status, seq);
-        agent.workspace_id = workspace.into();
-        agent.pane_id = format!("{workspace}:{name}");
-        agent.focused = false;
-        agent
-    };
-    snapshot.agents = vec![
-        placed("blocked elsewhere", "ws_1", AgentStatus::Blocked, 5),
-        placed("priority new done", "ws_2", AgentStatus::Done, 3),
-        placed("priority working", "ws_2", AgentStatus::Working, 9),
-        placed("priority old done", "ws_2", AgentStatus::Done, 1),
-        placed("priority blocked", "ws_2", AgentStatus::Blocked, 2),
-        placed("working elsewhere", "ws_1", AgentStatus::Working, 8),
-    ];
-    // Waiting agents queue oldest first; working agents show newest first.
-    let expected = [
-        "priority blocked",
-        "priority old done",
-        "priority new done",
-        "blocked elsewhere",
-        "priority working",
-        "working elsewhere",
-    ];
-
-    // Reconcile the snapshot through endpoint state before checking either
-    // surface. The initial empty snapshot lets done agents arrive unread.
-    let mut config = Config::default();
-    config.ui.agent_priority_tokens = vec!["lift".into()];
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    let mut empty = snapshot.clone();
-    empty.agents.clear();
-    state.set_snapshot(Box::new(empty));
-    state.set_snapshot_with_completions(Box::new(snapshot));
-    let sidebar = aggregate_navigation::online_agent_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        crate::config::AgentPanelSortConfig::Priority,
-        &state.config.agent_priority_tokens,
-    );
-    let sidebar_names = sidebar
-        .iter()
-        .map(|row| row.agent.pane_id.split_once(':').expect("placed pane id").1)
-        .collect::<Vec<_>>();
-    assert_eq!(sidebar_names, expected);
-
-    let names = aggregate_navigation::aggregate_agent_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        crate::config::AgentPanelSortConfig::Priority,
-        &state.config.agent_priority_tokens,
-    )
-    .into_iter()
-    .map(|row| row.agent.name.as_deref().expect("agent name"))
-    .collect::<Vec<_>>();
-    assert_eq!(names, expected);
-
-    // Without configured tokens, the space's waiting agents are not lifted.
-    let names = aggregate_navigation::aggregate_agent_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        crate::config::AgentPanelSortConfig::Priority,
-        &[],
-    )
-    .into_iter()
-    .map(|row| row.agent.name.as_deref().expect("agent name"))
-    .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        [
-            "priority blocked",
-            "blocked elsewhere",
-            "priority old done",
-            "priority new done",
-            "priority working",
-            "working elsewhere",
-        ]
-    );
-}
-
-#[test]
-fn agent_picker_shows_the_first_configured_priority_token() {
+fn agent_picker_shows_the_priority_mark_the_endpoint_sent() {
     use crate::api::schema::AgentStatus;
 
     let mut snapshot = snapshot();
@@ -2027,20 +1892,17 @@ fn agent_picker_shows_the_first_configured_priority_token() {
     marked.number = 2;
     marked.label = "urgent".into();
     marked.focused = false;
-    marked.tokens = vec![
-        ("unlisted".into(), "x".into()),
-        ("urgent".into(), "!".into()),
-        ("lift".into(), "★".into()),
-    ];
+    // The space's own tokens are not consulted: the endpoint resolved the
+    // mark from its `ui.agent_priority_tokens`.
+    marked.tokens = vec![("urgent".into(), "!".into())];
     snapshot.workspaces.push(marked);
     let mut priority = agent("priority idle", AgentStatus::Idle, 2);
     priority.pane_id = "pane_2".into();
     priority.workspace_id = "ws_2".into();
     priority.focused = false;
+    priority.priority_mark = Some("★".into());
     snapshot.agents = vec![agent("blocked", AgentStatus::Blocked, 1), priority];
-    let mut config = Config::default();
-    config.ui.agent_priority_tokens = vec!["lift".into(), "urgent".into()];
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.config.theme_runtime.auto_switch = false;
     state.set_snapshot(Box::new(snapshot));
     state.set_pane_surface(surface());
@@ -2053,7 +1915,6 @@ fn agent_picker_shows_the_first_configured_priority_token() {
         &state.endpoints,
         &state.active_endpoint_id,
         navigator,
-        &state.config.agent_priority_tokens,
     );
     assert_eq!(
         rows.iter()
@@ -2079,82 +1940,6 @@ fn agent_picker_shows_the_first_configured_priority_token() {
     let buffer = frame.to_ratatui_buffer().expect("buffer");
     assert_eq!(buffer[mark].fg, state.config.palette.yellow);
     assert_eq!(buffer[(mark.0 + 2, mark.1)].fg, state.config.palette.text);
-}
-
-#[test]
-fn aggregate_priority_uses_client_observed_recency_across_machines() {
-    use crate::api::schema::AgentStatus;
-    use crate::config::AgentSidebarToken;
-
-    let mut config = Config::default();
-    config.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
-    config.ui.sidebar.agents.rows = vec![vec![
-        AgentSidebarToken::Machine.into(),
-        AgentSidebarToken::Agent.into(),
-    ]];
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
-    let profile = remote_profile();
-    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
-    state.set_endpoint_catalog(&[profile]);
-    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
-
-    let mut local = snapshot();
-    local.agents = vec![agent("local agent", AgentStatus::Idle, 1)];
-    state.set_snapshot(Box::new(local));
-    state.set_pane_surface(surface());
-    let mut remote = snapshot();
-    remote.boot_id = "remote-boot".into();
-    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 1)];
-    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
-
-    let mut local = snapshot();
-    local.agents = vec![agent("local agent", AgentStatus::Idle, 2)];
-    state.set_snapshot(Box::new(local));
-    let frame_text = |state: &mut ClientShellState| {
-        let frame = state.compose(100, 28).expect("combined endpoint frame");
-        frame
-            .cells
-            .chunks(frame.width as usize)
-            .map(|row| {
-                row.iter()
-                    .map(|cell| cell.symbol.as_str())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-    let text = frame_text(&mut state);
-    assert!(
-        text.find("Local · local agent").expect("local agent")
-            < text.find("Build · remote agent").expect("remote agent")
-    );
-
-    remote.agents = vec![agent("remote agent", AgentStatus::Working, 2)];
-    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
-    let text = frame_text(&mut state);
-    assert!(
-        text.find("Build · remote agent").expect("remote agent")
-            < text.find("Local · local agent").expect("local agent")
-    );
-
-    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 3)];
-    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
-    let text = frame_text(&mut state);
-    assert!(
-        text.find("Build · remote agent").expect("remote agent")
-            < text.find("Local · local agent").expect("local agent")
-    );
-    let mut outcome = ClientShellInput::default();
-    assert!(
-        state.handle_endpoint_navigation(crate::input::KeybindAction::FocusAgent(0), &mut outcome,)
-    );
-    assert!(matches!(
-        outcome.actions.as_slice(),
-        [ClientShellAction::ActivateEndpoint {
-            endpoint_id: activated,
-            target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
-        }] if activated == &endpoint_id && pane_id == "pane_1"
-    ));
 }
 
 #[test]
@@ -2616,7 +2401,6 @@ fn reconnect_agent_cache_updates_metadata_order_and_picker_focus() {
         &state.endpoints,
         &state.active_endpoint_id,
         AgentPanelSortConfig::Priority,
-        &state.config.agent_priority_tokens,
     );
     assert_eq!(
         rows.iter()
@@ -2635,14 +2419,12 @@ fn reconnect_agent_cache_updates_metadata_order_and_picker_focus() {
         &state.endpoints,
         &state.active_endpoint_id,
         AgentPanelSortConfig::Priority,
-        &state.config.agent_priority_tokens
     )
     .is_empty());
     let picker = aggregate_navigation::navigator_rows(
         &state.endpoints,
         &state.active_endpoint_id,
         &reconnect_agent_navigator(),
-        &state.config.agent_priority_tokens,
     );
     assert_eq!(picker.len(), 2);
     assert!(picker[0].label.contains("latest blocked"));
@@ -2747,7 +2529,6 @@ fn reconnect_picker_agent_selection_routes_local_and_rejects_remote() {
             &state.endpoints,
             &state.active_endpoint_id,
             &navigator,
-            &state.config.agent_priority_tokens,
         );
         state.overlay = Some(ClientShellOverlay::Navigator(ClientNavigatorOverlay {
             selected: Some(rows[0].target.clone()),
@@ -2985,12 +2766,8 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     else {
         panic!("expected navigator");
     };
-    let rows = render::client_navigator_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        navigator,
-        &state.config.agent_priority_tokens,
-    );
+    let rows =
+        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator);
     let machines = rows
         .iter()
         .filter(|row| matches!(row.target, ClientNavigatorTarget::Machine { .. }))
@@ -3049,12 +2826,8 @@ fn navigator_uses_machine_parents_only_for_federated_clients() {
     else {
         panic!("expected navigator");
     };
-    let rows = render::client_navigator_rows(
-        &local.endpoints,
-        &local.active_endpoint_id,
-        navigator,
-        &local.config.agent_priority_tokens,
-    );
+    let rows =
+        render::client_navigator_rows(&local.endpoints, &local.active_endpoint_id, navigator);
     assert!(rows
         .iter()
         .all(|row| !matches!(row.target, ClientNavigatorTarget::Machine { .. })));
@@ -3081,12 +2854,8 @@ fn navigator_keeps_saved_machine_visible_before_metadata_arrives() {
         panic!("expected navigator");
     };
 
-    let rows = render::client_navigator_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        navigator,
-        &state.config.agent_priority_tokens,
-    );
+    let rows =
+        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator);
 
     assert!(rows.iter().any(|row| {
         matches!(
@@ -3117,21 +2886,16 @@ fn navigator_machine_selection_opens_its_remembered_view() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(
-            &state.endpoints,
-            &state.active_endpoint_id,
-            navigator,
-            &state.config.agent_priority_tokens,
-        )
-        .into_iter()
-        .find(|row| {
-            matches!(
-                &row.target,
-                ClientNavigatorTarget::Machine { endpoint_id: target } if target == &endpoint_id
-            )
-        })
-        .map(|row| row.target)
-        .expect("remote machine row")
+        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator)
+            .into_iter()
+            .find(|row| {
+                matches!(
+                    &row.target,
+                    ClientNavigatorTarget::Machine { endpoint_id: target } if target == &endpoint_id
+                )
+            })
+            .map(|row| row.target)
+            .expect("remote machine row")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);
@@ -3159,24 +2923,19 @@ fn navigator_foreign_pane_selection_activates_its_endpoint() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(
-            &state.endpoints,
-            &state.active_endpoint_id,
-            navigator,
-            &state.config.agent_priority_tokens,
-        )
-        .iter()
-        .find(|row| {
-            matches!(
-                &row.target,
-                ClientNavigatorTarget::Pane {
-                    endpoint_id: target_endpoint,
-                    pane_id,
-                } if target_endpoint == &endpoint_id && pane_id == "pane_1"
-            )
-        })
-        .map(|row| row.target.clone())
-        .expect("remote pane row")
+        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator)
+            .iter()
+            .find(|row| {
+                matches!(
+                    &row.target,
+                    ClientNavigatorTarget::Pane {
+                        endpoint_id: target_endpoint,
+                        pane_id,
+                    } if target_endpoint == &endpoint_id && pane_id == "pane_1"
+                )
+            })
+            .map(|row| row.target.clone())
+            .expect("remote pane row")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);
@@ -3298,12 +3057,8 @@ fn cached_offline_navigator_and_mobile_targets_are_dimmed_and_disabled() {
         else {
             panic!("expected navigator");
         };
-        let rows = render::client_navigator_rows(
-            &state.endpoints,
-            &state.active_endpoint_id,
-            navigator,
-            &state.config.agent_priority_tokens,
-        );
+        let rows =
+            render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator);
         let machine = rows
             .iter()
             .find(|row| {
@@ -3498,24 +3253,19 @@ fn navigator_foreign_workspace_heading_keeps_the_workspace_target() {
         else {
             panic!("expected navigator");
         };
-        render::client_navigator_rows(
-            &state.endpoints,
-            &state.active_endpoint_id,
-            navigator,
-            &state.config.agent_priority_tokens,
-        )
-        .iter()
-        .find(|row| {
-            matches!(
-                &row.target,
-                ClientNavigatorTarget::Workspace {
-                    endpoint_id: target_endpoint,
-                    workspace_id,
-                } if target_endpoint == &endpoint_id && workspace_id == "ws_1"
-            )
-        })
-        .map(|row| row.target.clone())
-        .expect("remote workspace heading")
+        render::client_navigator_rows(&state.endpoints, &state.active_endpoint_id, navigator)
+            .iter()
+            .find(|row| {
+                matches!(
+                    &row.target,
+                    ClientNavigatorTarget::Workspace {
+                        endpoint_id: target_endpoint,
+                        workspace_id,
+                    } if target_endpoint == &endpoint_id && workspace_id == "ws_1"
+                )
+            })
+            .map(|row| row.target.clone())
+            .expect("remote workspace heading")
     };
     if let Some(ClientShellOverlay::Navigator(navigator)) = state.overlay.as_mut() {
         navigator.selected = Some(selected);
@@ -3625,37 +3375,4 @@ fn acknowledged_completion_repubishes_the_frontend_observation() {
         state.frontend_observation_fingerprint(&registry, false),
         active
     );
-}
-
-#[test]
-fn marked_unread_agent_regains_its_badge_after_leaving_and_clears_on_revisit() {
-    let (mut state, remote) = state_with_remote();
-    let mut local_snapshot = snapshot();
-    local_snapshot.agents = vec![agent("local", AgentStatus::Idle, 4)];
-    state.set_endpoint_snapshot(&ClientEndpointId::Local, Box::new(local_snapshot));
-    state.set_pane_surface(surface());
-    let local_status = |state: &ClientShellState| {
-        state
-            .endpoints
-            .iter()
-            .find(|endpoint| endpoint.endpoint_id == ClientEndpointId::Local)
-            .and_then(|endpoint| endpoint.snapshot.as_deref())
-            .map(|snapshot| snapshot.agents[0].agent_status)
-    };
-    assert_eq!(local_status(&state), Some(AgentStatus::Idle));
-
-    let mut outcome = ClientShellInput::default();
-    state.mark_focused_agent_unread(&mut outcome);
-    assert!(state.pending_unread.is_some());
-    // Still on the pane: nothing changes until the user leaves.
-    assert_eq!(local_status(&state), Some(AgentStatus::Idle));
-
-    assert!(state.activate_endpoint_projection(&remote));
-    assert!(state.pending_unread.is_none());
-    assert_eq!(local_status(&state), Some(AgentStatus::Done));
-
-    // Coming back and presenting the pane acknowledges it like any completion.
-    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-    state.set_pane_surface(surface());
-    assert_eq!(local_status(&state), Some(AgentStatus::Idle));
 }

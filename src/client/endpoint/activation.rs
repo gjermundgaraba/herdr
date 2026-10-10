@@ -200,6 +200,19 @@ impl PendingEndpointActivation {
         &self.target.endpoint_id
     }
 
+    /// The navigation target this activation carries on its endpoint: the latest one, after
+    /// any retarget.
+    pub(crate) fn focus(&self) -> Option<&crate::client::shell::ClientEndpointFocusTarget> {
+        self.focus.as_ref()
+    }
+
+    /// The latest selection retained while this activation was pending, for the caller to
+    /// start once the activation has completed. It is read then and not when the completion is
+    /// first known: a selection can still replace it in the rounds that follow.
+    pub(crate) fn take_successor(&mut self) -> Option<EndpointActivationIntent> {
+        self.successor.take()
+    }
+
     fn geometry(&self) -> crate::protocol::ClientSurfaceSize {
         resize_geometry(&self.resize).expect("activation resize was validated before construction")
     }
@@ -229,30 +242,49 @@ impl PendingEndpointActivation {
     }
 
     /// Replace an in-flight handoff with the latest endpoint-qualified intent. The current
-    /// transaction is still reversed through target-off/source-on; the replacement is launched
-    /// by the caller only after the source's coherent restoration commits.
+    /// transaction is still reversed through target-off/source-on, unless the intent is for the
+    /// endpoint it already presents; the replacement is launched by the caller only after this
+    /// transaction has completed.
     pub(crate) fn supersede(
         &mut self,
         endpoint_id: ClientEndpointId,
         target: Option<crate::client::shell::ClientEndpointFocusTarget>,
         endpoints: &mut EndpointRegistry,
     ) -> ActivationRollback {
+        // Once this transaction is being reversed, target-off or source-on is already ordered
+        // and must finish before any replacement is allowed to begin. Later rapid selections
+        // only replace the retained intent, in every round of the reversal; they never close a
+        // target that may still acknowledge its release, or turn a safe restoration into an
+        // unavailable state.
+        let reversing = match &self.phase {
+            ActivationPhase::ReleasingTargetForRollback { .. }
+            | ActivationPhase::RestoringSource { .. } => true,
+            ActivationPhase::SynchronizingPresentation { completion, .. }
+            | ActivationPhase::AwaitingPresentationEffects { completion, .. } => {
+                matches!(
+                    completion.as_ref(),
+                    ActivationCompletion::RestoredSource { .. }
+                )
+            }
+            ActivationPhase::ReleasingSource { .. } | ActivationPhase::ActivatingTarget { .. } => {
+                false
+            }
+        };
+        // The target is presented and only its presentation is still being synchronized. An
+        // intent for that endpoint has nothing to reverse: it waits for this transaction to
+        // complete and needs no handoff then.
+        let target_presented = !reversing
+            && endpoint_id == self.target.endpoint_id
+            && matches!(
+                self.phase,
+                ActivationPhase::SynchronizingPresentation { .. }
+                    | ActivationPhase::AwaitingPresentationEffects { .. }
+            );
         self.successor = Some(EndpointActivationIntent {
             endpoint_id,
             target,
         });
-        // Source-on is already ordered and must finish before any replacement is allowed to
-        // begin. Later rapid selections only replace the retained intent; they never turn a
-        // safe restoration into an unavailable state.
-        let source_restoration_in_flight = matches!(
-            self.phase,
-            ActivationPhase::RestoringSource { .. }
-        ) || matches!(
-            &self.phase,
-            ActivationPhase::SynchronizingPresentation { completion, .. }
-                if matches!(completion.as_ref(), ActivationCompletion::RestoredSource { .. })
-        );
-        if source_restoration_in_flight {
+        if reversing || target_presented {
             return ActivationRollback::Pending;
         }
         self.rollback(
@@ -942,7 +974,6 @@ impl PendingEndpointActivation {
                         .rollback_error
                         .clone()
                         .unwrap_or_else(|| "endpoint handoff was rolled back".into()),
-                    successor: self.successor.clone(),
                 };
                 (
                     self.source.clone(),

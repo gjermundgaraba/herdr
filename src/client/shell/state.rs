@@ -5,17 +5,6 @@ pub(super) const NEW_TAB_WIDTH: u16 = 3;
 pub(super) const WORKSPACE_HEADER_ROWS: u16 = 2;
 const ENDPOINT_ERROR_TIMEOUT_SECS: u64 = 5;
 
-/// A client-local unread restoration for one captured agent lifecycle. The
-/// connection generation is deliberately absent: a reconnect does not
-/// invalidate the completion identity, only a server boot change does.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ClientUnreadTarget {
-    pub(crate) endpoint_id: ClientEndpointId,
-    pub(crate) pane_id: String,
-    pub(crate) boot_id: String,
-    pub(crate) sequence: u64,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClientShellKeybindingSource {
     Local,
@@ -35,7 +24,6 @@ pub(crate) struct ClientShellConfig {
     pub(super) spaces: SpacesSidebarConfig,
     pub(super) agents: crate::config::AgentsSidebarConfig,
     pub(super) agent_panel_sort: crate::config::AgentPanelSortConfig,
-    pub(super) agent_priority_tokens: Vec<String>,
     pub(super) status_indicators: crate::config::StatusIndicatorStyle,
     pub(super) sound_enabled: bool,
     pub(super) toast_delivery: crate::config::ToastDelivery,
@@ -635,8 +623,6 @@ pub(super) enum ClientContextMenuAction {
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
-    /// Index into the menu's `plugin_entries`.
-    PluginEntry(usize),
 }
 
 #[derive(Debug)]
@@ -659,23 +645,19 @@ pub(super) enum ClientContextMenuTarget {
         source_pane_id: Option<String>,
         has_manual_label: bool,
         right_click_passthrough: bool,
-        /// The visible selection in this pane, sent to selection entries.
-        selection: Option<crate::api::schema::PaneSelectionReadParams>,
     },
 }
 
 #[derive(Debug)]
 pub(super) struct ClientContextMenuOverlay {
     pub(super) target: ClientContextMenuTarget,
-    /// Plugin entries whose contexts match the target.
-    pub(super) plugin_entries: Vec<crate::protocol::ClientShellPluginEntry>,
     pub(super) x: u16,
     pub(super) y: u16,
     pub(super) highlighted: usize,
 }
 
-pub(super) struct ClientContextMenuItem<'a> {
-    pub(super) label: &'a str,
+pub(super) struct ClientContextMenuItem {
+    pub(super) label: &'static str,
     pub(super) action: ClientContextMenuAction,
 }
 
@@ -779,6 +761,13 @@ pub(super) enum PendingEndpointKind {
     },
     /// A frontend-socket request; the reply settles from this request's result.
     Frontend(crate::client::frontend_api::FrontendReply),
+    /// The focus request of a daemon's jump; a failure answers the jump.
+    ClientJump {
+        origin: super::client_jump::ClientJumpOrigin,
+        jump_id: String,
+    },
+    /// `agent.mark_unread` for the focused pane; success is confirmed to the user.
+    MarkUnread,
     PaneLinkActivate {
         pane_id: String,
         inner_rect: Rect,
@@ -1024,10 +1013,8 @@ pub(crate) struct ClientShellState {
     pub(super) endpoints: Vec<ClientShellEndpoint>,
     /// Bounded Back/Forward visit history across endpoints.
     pub(crate) history: super::history::History,
-    /// A completion whose badge is restored once the user leaves its pane.
-    pub(super) pending_unread: Option<ClientUnreadTarget>,
-    /// Client event order for real lifecycle changes and manual queue resets.
-    pub(super) agent_order_serial: u64,
+    /// Jumps daemons asked this client to perform.
+    pub(super) client_jumps: super::client_jump::ClientJumps,
     /// Bumped when an in-place snapshot mutation (agent acknowledgement) changes
     /// observed output without a snapshot revision change. Visible to the
     /// frontend observation fingerprint so stale subscriptions never hide the change.
@@ -1253,8 +1240,7 @@ impl ClientShellState {
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
             history: Default::default(),
-            pending_unread: None,
-            agent_order_serial: 0,
+            client_jumps: Default::default(),
             agent_projection_revision: 0,
             outer_focused: None,
             ascii_input_source_active: false,
@@ -1359,7 +1345,6 @@ impl ClientShellState {
                 snapshot,
                 self.sidebar_collapsed_groups()
                     .unwrap_or(&empty_collapsed_groups),
-                &self.config.spaces.pinned,
             )
             .iter()
             .position(|row| {
@@ -1449,11 +1434,6 @@ impl ClientShellState {
         self.copy_feedback_deadline = None;
         self.host_mouse_pixels = None;
         self.dismissed_product_announcement = None;
-    }
-
-    pub(super) fn next_agent_order_serial(&mut self) -> u64 {
-        self.agent_order_serial = self.agent_order_serial.saturating_add(1);
-        self.agent_order_serial
     }
 
     pub(super) fn apply_active_snapshot(
@@ -1752,7 +1732,6 @@ impl ClientShellState {
         }
         self.snapshot = Some(snapshot);
         self.reconcile_pending_workspace_highlight();
-        self.settle_pending_unread();
         let pending_surface = self.pending_pane_surface.take();
         if let Some(surface) = pending_surface {
             let matching = self.snapshot.as_ref().is_some_and(|snapshot| {

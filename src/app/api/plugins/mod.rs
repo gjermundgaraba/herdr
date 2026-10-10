@@ -3,7 +3,6 @@ mod entrypoint;
 mod env;
 mod keybind;
 mod manifest;
-mod menu_entries;
 mod panes;
 mod runtime;
 
@@ -18,7 +17,6 @@ use crate::app::App;
 pub(super) use manifest::normalize_plugin_id;
 use manifest::{
     effective_platforms, ensure_platform_supported, normalize_action_id, normalize_plugin_source,
-    platform_supported,
 };
 
 #[cfg(test)]

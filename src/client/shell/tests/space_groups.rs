@@ -404,12 +404,23 @@ fn pinned_snapshot(spaces: &[&[(&str, &str)]]) -> ClientShellSnapshot {
             .collect();
         projected.workspaces.push(workspace);
     }
+    resolve_pinned_sections(&mut projected);
     projected
 }
 
-fn pinned_state(spaces: &[&[(&str, &str)]]) -> ClientShellState {
+/// Fills in the sections an endpoint configured with [`PINNED_CONFIG`] sends
+/// for the snapshot's spaces.
+fn resolve_pinned_sections(projected: &mut ClientShellSnapshot) {
     let config: Config = toml::from_str(PINNED_CONFIG).expect("pinned config");
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    projected.pinned_sections = crate::server::client_shell::pinned_sections(
+        &config.ui.sidebar.spaces.pinned,
+        &projected.workspaces,
+    );
+}
+
+/// The client's own config has no pinned sections: the endpoint sends them.
+fn pinned_state(spaces: &[&[(&str, &str)]]) -> ClientShellState {
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.set_snapshot(Box::new(pinned_snapshot(spaces)));
     state.set_pane_surface(surface());
     state

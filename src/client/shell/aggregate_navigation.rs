@@ -1,4 +1,10 @@
-//! Endpoint-qualified rows shared by aggregate navigation surfaces.
+//! Endpoint-qualified rows shared by aggregate navigation surfaces: the
+//! Agents list, the agent picker, the workspace picker, and keyboard agent
+//! navigation.
+//!
+//! Row building and ordering here read retained snapshots only and draw
+//! nothing. They are mirrored client logic: Herdr GPUI lists and orders agents
+//! by the same rules (see "Sibling fork: Herdr GPUI" in `FORK.md`).
 
 use super::*;
 use crate::protocol::ClientShellAgent;
@@ -10,8 +16,6 @@ pub(super) struct CachedEndpointSnapshot<'a> {
     pub(super) label: &'a str,
     pub(super) status: ClientEndpointStatus,
     pub(super) snapshot: &'a ClientShellSnapshot,
-    pub(super) agent_recency: &'a HashMap<String, u64>,
-    pub(super) agent_presentation: &'a super::endpoint_agent_state::EndpointAgentPresentation,
 }
 
 impl CachedEndpointSnapshot<'_> {
@@ -36,8 +40,6 @@ pub(super) fn cached_endpoint_snapshots(
                     label: &endpoint.label,
                     status: endpoint.status,
                     snapshot,
-                    agent_recency: &endpoint.agent_recency,
-                    agent_presentation: &endpoint.agent_presentation,
                 })
         })
 }
@@ -54,21 +56,24 @@ pub(super) fn active_agent_view_label<'a>(
 pub(super) struct AggregateAgentRow<'a> {
     pub(super) endpoint: CachedEndpointSnapshot<'a>,
     pub(super) agent: &'a ClientShellAgent,
-    pub(super) recency: u64,
+    /// The agent's place among its endpoint's rows before any sort, which
+    /// breaks ties between equal priority keys.
+    pub(super) position: usize,
 }
 
-impl<'a> AggregateAgentRow<'a> {
-    fn new(endpoint: CachedEndpointSnapshot<'a>, agent: &'a ClientShellAgent) -> Self {
-        Self {
-            recency: endpoint
-                .agent_recency
-                .get(&agent.pane_id)
-                .copied()
-                .unwrap_or_default(),
+/// One endpoint's rows in their unsorted order.
+fn endpoint_rows<'a>(
+    endpoint: CachedEndpointSnapshot<'a>,
+    agents: impl IntoIterator<Item = &'a ClientShellAgent>,
+) -> impl Iterator<Item = AggregateAgentRow<'a>> {
+    agents
+        .into_iter()
+        .enumerate()
+        .map(move |(position, agent)| AggregateAgentRow {
             endpoint,
             agent,
-        }
-    }
+            position,
+        })
 }
 
 /// A legacy view supplies membership and an initial order. Without its
@@ -90,11 +95,38 @@ fn legacy_projected_agents(snapshot: &ClientShellSnapshot) -> Vec<&ClientShellAg
     }
 }
 
+/// The `priority` order across endpoints. Client-local rules come first: the
+/// rows of an endpoint that is not online follow every online row. Within
+/// each of those halves the daemons' `priority_key`s decide, compared as
+/// plain byte strings, smallest first; they already carry the priority lift
+/// and compare across daemons. An empty key, which a daemon that sends no
+/// keys decodes to, follows every non-empty key. Equal keys keep the endpoint
+/// display order, then the agents' order within their endpoint.
+pub(super) fn priority_order(
+    left: &AggregateAgentRow<'_>,
+    right: &AggregateAgentRow<'_>,
+) -> std::cmp::Ordering {
+    left.endpoint
+        .stale()
+        .cmp(&right.endpoint.stale())
+        .then_with(|| {
+            let (left, right) = (&left.agent.priority_key, &right.agent.priority_key);
+            left.is_empty()
+                .cmp(&right.is_empty())
+                .then_with(|| left.as_bytes().cmp(right.as_bytes()))
+        })
+        .then_with(|| {
+            left.endpoint
+                .endpoint_index
+                .cmp(&right.endpoint.endpoint_index)
+        })
+        .then_with(|| left.position.cmp(&right.position))
+}
+
 pub(super) fn aggregate_agent_rows<'a>(
     endpoints: &'a [ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     sort: crate::config::AgentPanelSortConfig,
-    priority_tokens: &[String],
 ) -> Vec<AggregateAgentRow<'a>> {
     let active_index = endpoints
         .iter()
@@ -120,13 +152,7 @@ pub(super) fn aggregate_agent_rows<'a>(
 
     if let Some(Ok(view)) = active_view {
         let mut rows = cached_endpoint_snapshots(endpoints)
-            .flat_map(|endpoint| {
-                endpoint
-                    .snapshot
-                    .agents
-                    .iter()
-                    .map(move |agent| AggregateAgentRow::new(endpoint, agent))
-            })
+            .flat_map(|endpoint| endpoint_rows(endpoint, &endpoint.snapshot.agents))
             .collect::<Vec<_>>();
         if let Some(view) = view {
             let context = active_index
@@ -156,49 +182,23 @@ pub(super) fn aggregate_agent_rows<'a>(
                 return rows;
             }
         }
-        sort_aggregate_rows(&mut rows, sort, priority_tokens);
+        sort_aggregate_rows(&mut rows, sort);
         return rows;
     }
 
     let mut rows = cached_endpoint_snapshots(endpoints)
-        .flat_map(|endpoint| {
-            legacy_projected_agents(endpoint.snapshot)
-                .into_iter()
-                .map(move |agent| AggregateAgentRow::new(endpoint, agent))
-        })
+        .flat_map(|endpoint| endpoint_rows(endpoint, legacy_projected_agents(endpoint.snapshot)))
         .collect::<Vec<_>>();
-    sort_aggregate_rows(&mut rows, sort, priority_tokens);
+    sort_aggregate_rows(&mut rows, sort);
     rows
 }
 
-fn sort_aggregate_rows<'a>(
-    rows: &mut [AggregateAgentRow<'a>],
+fn sort_aggregate_rows(
+    rows: &mut [AggregateAgentRow<'_>],
     sort: crate::config::AgentPanelSortConfig,
-    priority_tokens: &[String],
 ) {
     if sort == crate::config::AgentPanelSortConfig::Priority {
-        // Keyed by endpoint: workspace ids repeat across machines.
-        let mut lifted = HashMap::<usize, HashSet<&'a str>>::new();
-        for row in rows.iter() {
-            let snapshot = row.endpoint.snapshot;
-            lifted
-                .entry(row.endpoint.endpoint_index)
-                .or_insert_with(|| {
-                    crate::agent_priority::lifted_workspaces(priority_tokens, snapshot)
-                });
-        }
-        rows.sort_by_key(|row| {
-            (
-                row.endpoint.stale(),
-                crate::agent_priority::sort_key(
-                    lifted
-                        .get(&row.endpoint.endpoint_index)
-                        .is_some_and(|lifted| lifted.contains(row.agent.workspace_id.as_str())),
-                    row.agent.agent_status,
-                    row.recency,
-                ),
-            )
-        });
+        rows.sort_by(priority_order);
     }
 }
 
@@ -206,7 +206,6 @@ struct ClientAgentViewEntry<'a> {
     endpoint_index: usize,
     snapshot: &'a ClientShellSnapshot,
     agent: &'a ClientShellAgent,
-    seen: bool,
 }
 
 impl<'a> ClientAgentViewEntry<'a> {
@@ -215,7 +214,6 @@ impl<'a> ClientAgentViewEntry<'a> {
             endpoint_index: row.endpoint.endpoint_index,
             snapshot: row.endpoint.snapshot,
             agent: row.agent,
-            seen: row.endpoint.agent_presentation.seen(row.agent),
         }
     }
 }
@@ -245,8 +243,10 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
         self.agent.agent.as_deref()
     }
 
+    /// The daemon reports an unseen completion as `done`, and every other
+    /// status only for an agent it counts as seen.
     fn seen(&self) -> bool {
-        self.seen
+        self.agent.agent_status != crate::api::schema::AgentStatus::Done
     }
 
     fn state_change_seq(&self) -> Option<u64> {
@@ -295,9 +295,8 @@ pub(super) fn online_agent_rows<'a>(
     endpoints: &'a [ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     sort: crate::config::AgentPanelSortConfig,
-    priority_tokens: &[String],
 ) -> Vec<AggregateAgentRow<'a>> {
-    aggregate_agent_rows(endpoints, active_endpoint_id, sort, priority_tokens)
+    aggregate_agent_rows(endpoints, active_endpoint_id, sort)
         .into_iter()
         .filter(|row| !row.endpoint.stale())
         .collect()
@@ -307,10 +306,9 @@ pub(super) fn navigator_rows(
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     navigator: &ClientNavigatorOverlay,
-    priority_tokens: &[String],
 ) -> Vec<ClientNavigatorRow> {
     if navigator.layout == NavigatorLayout::Agents {
-        return agent_navigator_rows(endpoints, active_endpoint_id, navigator, priority_tokens);
+        return agent_navigator_rows(endpoints, active_endpoint_id, navigator);
     }
     let query = navigator.query.trim().to_lowercase();
     let filter = |status| filter_matches(navigator.filter, status);
@@ -514,7 +512,6 @@ fn agent_navigator_rows(
     endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     navigator: &ClientNavigatorOverlay,
-    priority_tokens: &[String],
 ) -> Vec<ClientNavigatorRow> {
     let query = navigator.query.trim().to_lowercase();
     let text = |value: &str| query.is_empty() || value.to_lowercase().contains(&query);
@@ -523,7 +520,6 @@ fn agent_navigator_rows(
         endpoints,
         active_endpoint_id,
         crate::config::AgentPanelSortConfig::Priority,
-        priority_tokens,
     )
     .into_iter()
     .filter_map(|row| {
@@ -540,9 +536,7 @@ fn agent_navigator_rows(
             .workspaces
             .iter()
             .find(|workspace| workspace.workspace_id == agent.workspace_id);
-        let mark = workspace
-            .and_then(|workspace| crate::agent_priority::workspace_mark(priority_tokens, workspace))
-            .map(str::to_owned);
+        let mark = agent.priority_mark.clone();
         let workspace = workspace.map_or(agent.workspace_id.as_str(), |workspace| {
             workspace.label.as_str()
         });

@@ -338,10 +338,8 @@ pub(super) fn begin_endpoint_activation(
         ),
         Err(endpoint::ActivationBeginError::Preflight(error)) => {
             if let Some(shell) = state.shell.as_mut() {
-                shell.receive_endpoint_unavailable(format!(
-                    "{}: {error}",
-                    shell.endpoint_label(&endpoint_id)
-                ));
+                let message = format!("{}: {error}", shell.endpoint_label(&endpoint_id));
+                shell.receive_endpoint_unavailable(message);
             }
         }
         Err(endpoint::ActivationBeginError::Partial { activation, error }) => {
@@ -427,27 +425,35 @@ pub(super) fn complete_endpoint_activation(
         return Ok(None);
     }
 
-    let _ = pending.take();
+    let Some(mut activation) = pending.take() else {
+        return Ok(None);
+    };
     endpoints.unfreeze_input();
-    let successor = match completion {
-        endpoint::ActivationCompletion::RestoredSource {
-            error,
-            successor: next,
-            ..
-        } => {
-            if next.is_none() {
+    // The latest selection made while this activation was pending. With one, the attempt is not
+    // over: the loop starts it next.
+    let successor = activation.take_successor();
+    let restored = match completion {
+        endpoint::ActivationCompletion::RestoredSource { error } => {
+            if successor.is_none() {
                 if let Some(shell) = state.shell.as_mut() {
                     shell.receive_endpoint_unavailable(error);
                 }
             }
-            next
+            true
         }
-        endpoint::ActivationCompletion::Activated => None,
+        endpoint::ActivationCompletion::Activated => {
+            if let Some(shell) = state.shell.as_mut() {
+                shell.receive_endpoint_activated(activation.target(), activation.focus());
+            }
+            false
+        }
         endpoint::ActivationCompletion::AwaitingPresentationSync { .. }
         | endpoint::ActivationCompletion::AwaitingPresentationEffects => unreachable!(),
     };
     state.unfreeze_presentation();
-    if successor.is_none() {
+    // A restored source is about to be left for the successor. A successor on the endpoint just
+    // activated needs no handoff, so that endpoint's lane resumes ahead of it.
+    if successor.is_none() || !restored {
         let active_endpoint = endpoints.active_id().clone();
         let cancelled = endpoint_commands.send_next(&active_endpoint, endpoints);
         if let Some(shell) = state.shell.as_mut() {
@@ -472,10 +478,29 @@ pub(super) fn complete_endpoint_activation(
         return Ok(Some(ClientLoopEvent::ActivateEndpoint {
             endpoint_id: intent.endpoint_id,
             target: intent.target,
-            force: true,
+            // The restored source takes a fresh activation epoch even when the successor
+            // returns to it. On the endpoint just activated, the successor is routed back to
+            // the shell as a focus request.
+            force: restored,
         }));
     }
     Ok(None)
+}
+
+/// Tells the shell, once per loop turn, whether the loop holds an endpoint activation: one
+/// under way, one scheduled to begin on this turn, or a Local selection put off until Local is
+/// ready. Nothing the shell presents says so: a handoff shows its target rounds before it
+/// completes, and a reversed one shows its source again ahead of the successor.
+pub(super) fn report_held_activations(
+    state: &mut ClientState,
+    pending: Option<&endpoint::PendingEndpointActivation>,
+    scheduled: Option<&ClientLoopEvent>,
+) {
+    let held =
+        pending.is_some() || scheduled.is_some() || state.deferred_local_activation.is_some();
+    if let Some(shell) = state.shell.as_mut() {
+        shell.receive_endpoint_activations_held(held);
+    }
 }
 
 pub(super) fn present_handoff_unavailable(state: &mut ClientState, message: String) {
@@ -653,11 +678,7 @@ pub(super) fn install_client_shell_snapshot(
         if project_snapshot {
             shell.set_endpoint_snapshot_for_generation(endpoint_id, generation, snapshot);
         } else {
-            shell.cache_endpoint_snapshot_inactive_for_generation(
-                endpoint_id,
-                generation,
-                snapshot,
-            );
+            shell.cache_endpoint_snapshot_for_generation(endpoint_id, generation, snapshot);
         }
         let graphics_cleanup = shell.take_pending_graphics_cleanup();
         let next_size = shell.surface_size(state.reported_size.0, state.reported_size.1);

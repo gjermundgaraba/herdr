@@ -317,9 +317,6 @@ impl ClientShellState {
                     self.outer_focused = Some(true);
                     outcome.query_host_appearance = true;
                     outcome.repaint |= self.config.redraw_on_focus_gained;
-                    if let Some(surface) = self.pane_surface.clone() {
-                        outcome.repaint |= self.acknowledge_active_surface_agents(&surface);
-                    }
                     outcome
                         .requests
                         .push(ClientMessage::ClientShellFocus { focused: true });
@@ -1014,7 +1011,6 @@ impl ClientShellState {
                     &self.endpoints,
                     &self.active_endpoint_id,
                     self.config.agent_panel_sort,
-                    &self.config.agent_priority_tokens,
                 )
                 .get(*index)
                 .is_some()

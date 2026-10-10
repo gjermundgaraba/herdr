@@ -557,7 +557,7 @@ Invoke an action or pane entrypoint against a target:
 {"id":"req_plugin_invoke","method":"plugin.invoke","params":{"plugin_id":"example.worktree-bootstrap","entry_id":"bootstrap","pane_id":"w1:p2"}}
 ```
 
-`plugin.invoke` is the path keys and context menus use. The most specific of
+`plugin.invoke` is the path keys use. The most specific of
 `pane_id`, `tab_id`, and `workspace_id` supplies the invocation context; less
 specific ids must name the same target or the call returns `target_mismatch`,
 and with no ids the focused pane supplies it. An optional `selection` in
@@ -847,7 +847,7 @@ updated `PaneLayoutSnapshot` for one tab. Clients maintaining a cache with
 `session.snapshot` should use this event to refresh the affected layout through
 an authoritative read; a delayed payload may predate their latest snapshot.
 
-Client event subscriptions include `client.changed`, which fires when a client attaches, sends a different report of its Agents list, or detaches. It carries the `client_id` and, unless the client detached, the `client` as `client.list` returns it. See [Client contract](/docs/client-contract/).
+Client event subscriptions include `client.changed`, which fires when a client attaches, sends a different report of its Agents list, or detaches. It carries only the `client_id`; call `client.list` to read what changed. See [Client contract](/docs/client-contract/).
 
 Worktree event subscriptions include `worktree.created`, `worktree.opened`, and `worktree.removed`. Worktree events describe Git checkout lifecycle. `worktree.created` includes the opened `workspace` and created `worktree`. `worktree.opened` includes the target `workspace`, opened `worktree`, and `already_open`. `worktree.removed` includes the `workspace_id`, removed `worktree`, and `forced`.
 

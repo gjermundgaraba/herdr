@@ -1,3 +1,6 @@
+//! Draws the `ui.pick` picker that `picks.rs` opens. Herdr GPUI draws its
+//! picker in `crates/herdr-gpui/src/picker/render.rs`.
+
 use super::*;
 
 pub(super) fn render_pick_overlay(

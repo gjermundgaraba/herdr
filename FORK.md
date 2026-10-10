@@ -28,7 +28,17 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
 - The `herdr-frontend` Rust client crate in `sdk/frontend`, including TUI
   discovery with one push subscription per TUI (`directory`)
 - Client-side `[keys]` actions: agent and workspace lists, Back/Forward
-  history, and the unread hold
+  history, and `mark_unread`, which asks the daemon for the unread hold
+- The client contract, documented in
+  `docs/next/website/src/content/docs/client-contract.md`: a client sends
+  `client.report` with its cross-host Agents list, its endpoints, and whether
+  its window is focused, and handles `endpoint.client-jump.v1`. Tools read
+  `client.list`, follow `client.changed`, and call `client.jump`
+  (`src/api/schema/clients.rs`, `src/server/headless/client_reports.rs`,
+  `src/server/headless/jumps.rs`, `src/client/client_contract.rs`)
+- The unread hold in the daemon: `agent.mark_unread` restores a seen
+  completion once the marking client stops presenting the pane, so every
+  client shows the same badge (`src/app/unread_hold.rs`)
 - The `agent.prompt` method in the client command lane
   (`CLIENT_SHELL_METHODS` in `src/server/client_commands.rs`)
 - Space groups: the `space_group` workspace metadata token puts runs of
@@ -42,21 +52,21 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   the spaces whose given workspace metadata token is non-empty, optionally
   matched with `equals`, `contains`, or `starts_with`. Copies focus and open
   menus like the real rows, but do not drag or take drops, and navigation
-  skips them (`src/config/sidebar/pinned.rs`,
-  `src/client/shell/space_groups.rs`)
+  skips them. The daemon resolves the sections and sends them in the snapshot
+  as `pinned_sections` (`src/config/sidebar/pinned.rs`,
+  `src/server/client_shell.rs`, `src/client/shell/space_groups.rs`)
 - Agent priority tokens: `ui.agent_priority_tokens` lists workspace metadata
   token keys, and a space carrying any of them with a non-empty value lifts
   its blocked and done agents to the top of the `priority` agent order; the
   agent picker shows the first listed token's value. That order also queues
-  blocked and done agents oldest state change first (`src/agent_priority.rs`)
-- Plugin menu items: actions and panes whose `contexts` name `workspace`,
-  `tab`, `pane`, or `selection` appear in the matching right-click menus and
-  run against the clicked target (`src/app/api/plugins/menu_entries.rs`)
-- One invoke path: `type = "plugin"` keybindings, menus, and `plugin.invoke`
+  blocked and done agents oldest state change first. The daemon sends it as a
+  `priority_key` per agent, which clients compare as plain strings, also
+  across hosts, and sends the mark as `priority_mark` (`src/agent_priority.rs`)
+- One invoke path: `type = "plugin"` keybindings and `plugin.invoke`
   (which replaces `plugin.action.invoke`) run any manifest entrypoint with a
   target pane, tab, or space and its selection as context. Actions and panes
   share one id namespace and one resolver (`src/app/api/plugins/entrypoint.rs`)
-- Plugin invocation context: menu, key, and API targets supply the context
+- Plugin invocation context: key and API targets supply the context
   instead of focus; actions, panes, and startup hooks also get the invoking
   TUI's `client_id` (`HERDR_CLIENT_ID`), the target pane's agent session, the
   space's tabs, and every space (`src/app/api/plugins/context.rs`)

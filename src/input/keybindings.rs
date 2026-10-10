@@ -100,7 +100,16 @@ pub(crate) fn resolve_non_indexed_action(
     key: &TerminalKey,
     dispatch: KeybindDispatch,
 ) -> Option<KeybindAction> {
+    // The client-side actions come first. One config never binds a key twice,
+    // so this order only matters under a host's key profile, where these
+    // actions are copied from the local config over the host's bindings
+    // (`Keybinds::copy_client_actions`) and win a key both bind.
     for (bindings, action) in [
+        (&keybinds.agent_picker, KeybindAction::AgentPicker),
+        (&keybinds.workspace_list, KeybindAction::WorkspaceList),
+        (&keybinds.history_back, KeybindAction::HistoryBack),
+        (&keybinds.history_forward, KeybindAction::HistoryForward),
+        (&keybinds.mark_unread, KeybindAction::MarkUnread),
         (&keybinds.help, KeybindAction::Help),
         (&keybinds.settings, KeybindAction::Settings),
         (&keybinds.workspace_picker, KeybindAction::WorkspacePicker),
@@ -159,11 +168,6 @@ pub(crate) fn resolve_non_indexed_action(
         ),
         (&keybinds.detach, KeybindAction::Detach),
         (&keybinds.goto, KeybindAction::OpenNavigator),
-        (&keybinds.agent_picker, KeybindAction::AgentPicker),
-        (&keybinds.workspace_list, KeybindAction::WorkspaceList),
-        (&keybinds.history_back, KeybindAction::HistoryBack),
-        (&keybinds.history_forward, KeybindAction::HistoryForward),
-        (&keybinds.mark_unread, KeybindAction::MarkUnread),
     ] {
         if action_matches(bindings, key, dispatch) {
             return Some(action);

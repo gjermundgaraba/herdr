@@ -614,7 +614,6 @@ fn mobile_items(
         endpoints,
         active_endpoint_id,
         config.agent_panel_sort,
-        &config.agent_priority_tokens,
     );
     let agent_view_label =
         super::aggregate_navigation::active_agent_view_label(endpoints, active_endpoint_id);

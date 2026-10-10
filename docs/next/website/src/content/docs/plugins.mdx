@@ -111,15 +111,6 @@ dots. Action and pane ids share one namespace, so no action may reuse a pane
 id; link handler ids must be unique among themselves. Herdr qualifies action
 and pane ids as `plugin.id.entrypoint` when it needs a globally unique name.
 
-Actions and panes can list `contexts` to appear in right-click menus under
-their `title`: `"workspace"` in a space's menu, `"tab"` in a tab's menu,
-`"pane"` in a pane's menu, and `"selection"` in a pane's menu while it has a
-selection. Choosing one invokes it with the clicked space, tab, or pane as its
-context, so `HERDR_WORKSPACE_ID` and `HERDR_PANE_ID` name that target even
-when another one is focused, and selection entries receive `selected_text`.
-`"global"` and an empty list add no menu item. Keys and `plugin.invoke` can
-run any entry regardless of its contexts.
-
 Use `platforms = ["linux", "macos", "windows"]` to declare where the plugin
 can run. Build commands, startup hooks, actions, event hooks, panes, and link
 handlers can also declare their own `platforms`; item-level platforms override
@@ -295,7 +286,7 @@ file format and lifecycle.
 
 `HERDR_PLUGIN_CONTEXT_JSON` can include workspace, tab, focused pane, worktree,
 agent, agent session, selected text, clicked URL, and link handler fields when
-they are available for that invocation. When a menu, key, or API call names a
+they are available for that invocation. When a key or API call names a
 pane, tab, or space, the context describes that target rather than whatever has
 focus. Shell plugins can read the individual env vars for common ids, or parse
 the context JSON for the full shape.

@@ -1023,7 +1023,6 @@ fn plugin_link_list_unlink_round_trip() {
             title: "Board".into(),
             description: None,
             platforms: None,
-            contexts: Vec::new(),
             placement: PluginPanePlacement::Overlay,
             width: None,
             height: None,

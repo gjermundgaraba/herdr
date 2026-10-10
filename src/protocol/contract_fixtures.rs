@@ -6,18 +6,21 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use super::endpoint::{client_jump_message, EndpointClientJump, CLIENT_JUMP_KIND};
+use super::endpoint::{
+    client_jump_message, pick_close_message, pick_open_message, EndpointClientJump,
+    EndpointPickClose, EndpointPickOpen, CLIENT_JUMP_KIND, PICK_CLOSE_KIND, PICK_OPEN_KIND,
+};
 use super::{
     ClientShellAgent, ClientShellCommand, ClientShellCommandAction, ClientShellPane,
-    ClientShellPinnedSection, ClientShellPluginEntry, ClientShellSnapshot, ClientShellTab,
-    ClientShellWorkspace, ServerMessage,
+    ClientShellPinnedSection, ClientShellSnapshot, ClientShellTab, ClientShellWorkspace,
+    ServerMessage,
 };
 use crate::agent_priority::priority_key;
 use crate::api::schema::{
     AgentStatus, ClientEndpointStatus, ClientInfo, ClientJumpOutcome, ClientJumpParams,
     ClientJumpResolveParams, ClientReport, ClientReportAgent, ClientReportEndpoint, EventData,
-    EventEnvelope, EventKind, Method, PaneTarget, PluginActionContext, Request, ResponseResult,
-    SuccessResponse,
+    EventEnvelope, EventKind, Method, PaneTarget, Request, ResponseResult, SuccessResponse,
+    UiPickCreate, UiPickItem, UiPickOutcome, UiPickResolveParams,
 };
 
 macro_rules! fixture {
@@ -172,13 +175,6 @@ fn snapshot() -> ClientShellSnapshot {
             binding_labels: vec!["prefix+d".into()],
             action: ClientShellCommandAction::Shell,
             description: None,
-        }],
-        plugin_entries: vec![ClientShellPluginEntry {
-            plugin_id: "example.plugin".into(),
-            entry_id: "toggle".into(),
-            title: "Toggle".into(),
-            contexts: vec![PluginActionContext::Workspace],
-            popup: false,
         }],
         pinned_sections: vec![
             ClientShellPinnedSection {
@@ -341,6 +337,99 @@ fn client_jump_resolve_fixture_lists_every_outcome() {
     assert_canonical(fixture!("endpoint-client-jump-resolve-v1.json"), &expected);
 }
 
+fn pick_open() -> EndpointPickOpen {
+    EndpointPickOpen {
+        pick_id: "pick-7".into(),
+        title: "Move pane to".into(),
+        items: vec![
+            UiPickItem {
+                id: "t1".into(),
+                label: "shell".into(),
+                detail: None,
+                badge: None,
+            },
+            UiPickItem {
+                id: "t2".into(),
+                label: "build".into(),
+                detail: Some("3 panes".into()),
+                badge: Some("2".into()),
+            },
+        ],
+        selected: Some("t2".into()),
+        create: Some(UiPickCreate {
+            label: "New tab".into(),
+        }),
+    }
+}
+
+#[test]
+fn pick_open_fixture_is_the_control_payload() {
+    let expected = pick_open();
+    assert_canonical(fixture!("endpoint-pick-open-v1.json"), &expected);
+
+    let ServerMessage::EndpointControl { kind, data } = pick_open_message(&expected).unwrap()
+    else {
+        panic!("opening a picker is an endpoint control");
+    };
+    assert_eq!(kind, PICK_OPEN_KIND);
+    assert_eq!(kind, "endpoint.pick.open.v1");
+    assert_eq!(
+        serde_json::from_str::<EndpointPickOpen>(&data).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn pick_close_fixture_is_the_control_payload() {
+    let expected = EndpointPickClose {
+        pick_id: "pick-7".into(),
+    };
+    assert_canonical(fixture!("endpoint-pick-close-v1.json"), &expected);
+
+    let ServerMessage::EndpointControl { kind, data } = pick_close_message("pick-7").unwrap()
+    else {
+        panic!("closing a picker is an endpoint control");
+    };
+    assert_eq!(kind, PICK_CLOSE_KIND);
+    assert_eq!(kind, "endpoint.pick.close.v1");
+    assert_eq!(
+        serde_json::from_str::<EndpointPickClose>(&data).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn pick_resolve_fixture_lists_every_outcome() {
+    let expected = [
+        UiPickOutcome::Picked { id: "t2".into() },
+        UiPickOutcome::Created {
+            text: "New tab name".into(),
+        },
+        UiPickOutcome::Cancelled,
+    ]
+    .map(|outcome| UiPickResolveParams {
+        pick_id: "pick-7".into(),
+        outcome,
+    });
+    assert_canonical(
+        fixture!("endpoint-pick-resolve-v1.json"),
+        &expected.to_vec(),
+    );
+
+    // The params are what the client sends on its command lane.
+    let request = serde_json::to_value(Request {
+        id: "client-shell:1".into(),
+        method: Method::UiPickResolve(expected[0].clone()),
+    })
+    .unwrap();
+    assert_eq!(request["method"], "ui.pick.resolve");
+    assert_eq!(
+        request["params"],
+        serde_json::from_str::<serde_json::Value>(fixture!("endpoint-pick-resolve-v1.json"))
+            .unwrap()[0]
+    );
+}
+
 #[test]
 fn agent_mark_unread_fixture_is_the_request() {
     let expected = Request {
@@ -381,21 +470,10 @@ fn client_list_fixture_is_the_api_response() {
 
 #[test]
 fn client_changed_fixture_is_the_pushed_event() {
-    let changed = |client_id, client| EventEnvelope {
+    let expected = vec![EventEnvelope {
         event: EventKind::ClientChanged,
-        data: EventData::ClientChanged { client_id, client },
-    };
-    let expected = vec![
-        changed(
-            8,
-            Some(ClientInfo {
-                client_id: 8,
-                report: None,
-            }),
-        ),
-        changed(7, Some(reporting_client())),
-        changed(7, None),
-    ];
+        data: EventData::ClientChanged { client_id: 7 },
+    }];
     assert_canonical(fixture!("api-client-changed-v1.json"), &expected);
 }
 

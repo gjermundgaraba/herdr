@@ -10,11 +10,17 @@
 //! dropping one inside another group splits that group into two runs.
 //! Runs of one group share a collapse key, so collapsing either collapses both.
 //!
-//! Configured pinned sections (`[[ui.sidebar.spaces.pinned]]`) come first:
-//! each shows a header and a flat mirror row for every space carrying its
-//! token, in server order. Mirrors are copies; every space keeps its place in
-//! the regular list, which follows behind a divider. Mirrors and pinned
-//! headers neither drag nor take drops, and navigation skips mirrors.
+//! Pinned sections come first. The endpoint resolves them from its
+//! `[[ui.sidebar.spaces.pinned]]` config and sends them as the snapshot's
+//! `pinned_sections`: each shows a header and a flat mirror row per member, in
+//! the order the endpoint lists them. Mirrors are copies; every space keeps
+//! its place in the regular list, which follows behind a divider. Mirrors and
+//! pinned headers neither drag nor take drops, and navigation skips mirrors.
+//!
+//! [`sidebar_rows`] and [`workspace_entries`] build rows from a snapshot and
+//! the collapse state alone; drawing starts at [`render_marker`]. The row
+//! building is mirrored client logic: Herdr GPUI builds the same rows (see
+//! "Sibling fork: Herdr GPUI" in `FORK.md`).
 
 use super::*;
 
@@ -139,28 +145,25 @@ fn runs(snapshot: &ClientShellSnapshot) -> Vec<Run<'_>> {
     runs
 }
 
-/// Pinned sections with at least one matching space, in config order: a
-/// header, then unless collapsed a flat mirror row per member.
+/// The snapshot's pinned sections in the order the endpoint sent them: a
+/// header, then unless collapsed a flat mirror row per member. Members the
+/// snapshot does not list are skipped, and a section left without any is not
+/// shown.
 fn pinned_rows(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
-    pinned: &[crate::config::PinnedSpaceSection],
 ) -> Vec<SidebarRow> {
     let mut rows = Vec::new();
-    for section in pinned {
-        let members = snapshot
-            .workspaces
+    for section in &snapshot.pinned_sections {
+        let members = section
+            .workspace_ids
             .iter()
-            .enumerate()
-            .filter(|(_, workspace)| {
-                section.matches(
-                    workspace
-                        .tokens
-                        .iter()
-                        .map(|(key, value)| (key.as_str(), value.as_str())),
-                )
+            .filter_map(|workspace_id| {
+                snapshot
+                    .workspaces
+                    .iter()
+                    .position(|workspace| &workspace.workspace_id == workspace_id)
             })
-            .map(|(index, _)| index)
             .collect::<Vec<_>>();
         if members.is_empty() {
             continue;
@@ -176,7 +179,11 @@ fn pinned_rows(
                 name: section.title.clone(),
                 collapsed,
                 pinned: true,
-                title_color: section.fg.map(|color| color.ratatui()),
+                title_color: section
+                    .fg
+                    .as_deref()
+                    .and_then(crate::config::SidebarTokenColor::parse)
+                    .map(crate::config::SidebarTokenColor::ratatui),
             }),
             members,
         }));
@@ -198,9 +205,8 @@ fn pinned_rows(
 pub(super) fn sidebar_rows(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
-    pinned: &[crate::config::PinnedSpaceSection],
 ) -> Vec<SidebarRow> {
-    let mut rows = pinned_rows(snapshot, collapsed_groups, pinned);
+    let mut rows = pinned_rows(snapshot, collapsed_groups);
     let after_pinned = !rows.is_empty();
     let runs = runs(snapshot);
     let mut run_of = vec![0; snapshot.workspaces.len()];
@@ -256,7 +262,7 @@ pub(super) fn workspace_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
 ) -> Vec<WorkspaceEntry> {
-    sidebar_rows(snapshot, collapsed_groups, &[])
+    sidebar_rows(snapshot, collapsed_groups)
         .into_iter()
         .filter_map(|row| match row {
             SidebarRow::Workspace(entry) => Some(entry),

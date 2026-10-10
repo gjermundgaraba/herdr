@@ -14,6 +14,7 @@
 
 mod attach;
 mod catalog_reload;
+mod client_contract;
 mod clipboard_forwarding;
 mod clipboard_images;
 mod config_reload;
@@ -540,6 +541,7 @@ async fn run_client_loop(
     let stdin_tx = event_tx.clone();
 
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
+    let mut client_contract = client_contract::ClientContract::default();
 
     // Frontend socket: same-user automation for tools running on the TUI host. A
     // missing socket only disables those tools; the session does not depend on it.
@@ -803,6 +805,11 @@ async fn run_client_loop(
         if let (Some(api), Some(shell)) = (frontend_api.as_mut(), state.shell.as_mut()) {
             api.publish(shell, state.presentation_frozen, &write_stream);
             api.settle_selects(shell, std::time::Instant::now());
+        }
+        // The same boundary coalesces the client contract: however many
+        // events changed the Agents list, one report follows them.
+        if let Some(shell) = state.shell.as_mut() {
+            client_contract.sync(shell, &mut write_stream, std::time::Instant::now());
         }
         let timer_delay = state
             .shell
@@ -1534,12 +1541,15 @@ async fn run_client_loop(
                         boot_id,
                         request_id,
                         ..
-                    } => endpoint_commands.accepts_response(
-                        &endpoint_id,
-                        generation,
-                        boot_id,
-                        request_id,
-                    ),
+                    } => {
+                        client_contract::ClientContract::owns_response(request_id)
+                            || endpoint_commands.accepts_response(
+                                &endpoint_id,
+                                generation,
+                                boot_id,
+                                request_id,
+                            )
+                    }
                     _ => false,
                 };
                 if !endpoint::accepts_endpoint_message(
@@ -1965,6 +1975,15 @@ async fn run_client_loop(
                         if request_id.starts_with("client-shell-surface:") {
                             continue;
                         }
+                        if client_contract::ClientContract::owns_response(&request_id) {
+                            if final_chunk {
+                                client_contract::ClientContract::receive_response(
+                                    &request_id,
+                                    &data,
+                                );
+                            }
+                            continue;
+                        }
                         let completed = endpoint_commands
                             .receive_chunk(
                                 &endpoint_id,
@@ -2199,6 +2218,38 @@ async fn run_client_loop(
                                             state.present_frame(frame);
                                         }
                                     }
+                                }
+                                continue;
+                            }
+                            Ok(endpoint::EndpointControlMessage::ClientJump(jump)) => {
+                                let Some(shell) = state.shell.as_mut() else {
+                                    continue;
+                                };
+                                let outcome = shell.receive_client_jump(
+                                    shell::ClientJumpOrigin {
+                                        endpoint_id: endpoint_id.clone(),
+                                        generation,
+                                    },
+                                    jump,
+                                    now,
+                                );
+                                let frame = outcome
+                                    .repaint
+                                    .then(|| {
+                                        shell.compose(state.reported_size.0, state.reported_size.1)
+                                    })
+                                    .flatten();
+                                if finish_client_shell_input(
+                                    &mut state,
+                                    outcome,
+                                    frame,
+                                    &mut write_stream,
+                                    &mut pending_activation,
+                                    &mut endpoint_commands,
+                                    &mut prefix_input_source,
+                                    &mut scheduled_activation,
+                                )? {
+                                    return Ok(());
                                 }
                                 continue;
                             }

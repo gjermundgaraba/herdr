@@ -948,9 +948,6 @@ pub struct ClientShellSnapshot {
     pub panes: Vec<ClientShellPane>,
     pub agents: Vec<ClientShellAgent>,
     pub commands: Vec<ClientShellCommand>,
-    /// Plugin actions and panes offered on space, tab, and pane context menus.
-    #[serde(default)]
-    pub plugin_entries: Vec<ClientShellPluginEntry>,
     /// The endpoint's `[[ui.sidebar.spaces.pinned]]` sections with their
     /// member spaces already resolved, in config order. A section no space
     /// matches is left out.
@@ -965,17 +962,6 @@ pub struct ClientShellPinnedSection {
     pub fg: Option<String>,
     /// Member spaces in the endpoint's space order; never empty.
     pub workspace_ids: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientShellPluginEntry {
-    pub plugin_id: String,
-    pub entry_id: String,
-    pub title: String,
-    /// The menus that offer the entry; never `global`.
-    pub contexts: Vec<crate::api::schema::PluginActionContext>,
-    /// Opens a popup, so the client holds input until it arrives.
-    pub popup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1115,12 +1101,14 @@ pub struct ClientShellAgent {
     pub focused: bool,
     /// The agent's place in the `priority` order, with the priority-token
     /// lift applied. Opaque: order agents by comparing these strings byte by
-    /// byte, smallest first. Keys from different endpoints compare the same
-    /// way; see [`crate::agent_priority::priority_key`].
+    /// byte, smallest first; an empty key follows every non-empty one. Keys
+    /// from different endpoints compare the same way; see
+    /// [`crate::agent_priority::priority_key`].
     #[serde(default)]
     pub priority_key: String,
     /// The mark of the agent's space: the value of the first
-    /// `ui.agent_priority_tokens` entry the space carries, if any.
+    /// `ui.agent_priority_tokens` entry the space carries with a non-empty
+    /// value, if any.
     #[serde(default)]
     pub priority_mark: Option<String>,
 }
@@ -2898,13 +2886,6 @@ mod tests {
                 binding_labels: vec!["prefix+z".into()],
                 action: ClientShellCommandAction::Shell,
                 description: Some("deploy".into()),
-            }],
-            plugin_entries: vec![ClientShellPluginEntry {
-                plugin_id: "example.plugin".into(),
-                entry_id: "toggle".into(),
-                title: "Toggle".into(),
-                contexts: vec![crate::api::schema::PluginActionContext::Workspace],
-                popup: false,
             }],
             pinned_sections: Vec::new(),
         }));

@@ -1,21 +1,20 @@
-//! The fork's `priority` agent order, shared by server and client sorts.
+//! The fork's `priority` agent order, which the server owns.
 //!
 //! Blocked and done agents are waiting on the user, so they queue oldest
 //! first; working and idle agents show the newest first. The server computes
 //! the order and sends each agent's place in it as `priority_key`, so clients
-//! sort and merge endpoints without knowing the rule. Built-in TUI lists still
-//! use their own observation and manual requeue order.
+//! sort and merge endpoints without knowing the rule
+//! (`client/shell/aggregate_navigation.rs`).
 //!
 //! `ui.agent_priority_tokens` lists workspace metadata token keys. A space that
 //! carries any of them with a non-empty value is lifted: its blocked and done
 //! agents come before every other agent. Its working, idle, and unknown agents
 //! keep their normal place, and the `spaces` order ignores the tokens. The
-//! value of the first listed token a space carries marks its agents in the
-//! agent picker.
+//! value of the first listed token a space carries with a non-empty value
+//! marks its agents in the agent picker.
 
 use crate::api::schema::AgentStatus;
 use std::cmp::Reverse;
-use std::collections::HashSet;
 
 /// Sort key for an agent in the `priority` order. `lifted` says whether its
 /// space carries a priority token, and `recency` grows with each ordering
@@ -104,22 +103,6 @@ pub(crate) fn workspace_mark<'a>(
             .find(|(token, _)| token == key)
             .map(|(_, value)| value.as_str())
     })
-}
-
-/// Ids of the lifted spaces in a client snapshot.
-pub(crate) fn lifted_workspaces<'a>(
-    priority_tokens: &[String],
-    snapshot: &'a crate::protocol::ClientShellSnapshot,
-) -> HashSet<&'a str> {
-    if priority_tokens.is_empty() {
-        return HashSet::new();
-    }
-    snapshot
-        .workspaces
-        .iter()
-        .filter(|workspace| workspace_mark(priority_tokens, workspace).is_some())
-        .map(|workspace| workspace.workspace_id.as_str())
-        .collect()
 }
 
 #[cfg(test)]

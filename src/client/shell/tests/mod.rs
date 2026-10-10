@@ -63,7 +63,6 @@ pub(super) fn snapshot() -> ClientShellSnapshot {
         }],
         agents: Vec::new(),
         commands: Vec::new(),
-        plugin_entries: Vec::new(),
         pinned_sections: Vec::new(),
     }
 }
@@ -250,12 +249,16 @@ fn surface_with_popup() -> PaneSurfaceFrame {
 mod agents_worktrees_notifications;
 mod chrome_context;
 mod close_pane;
+mod client_jump;
+mod client_report;
 mod close_tab;
 mod copy;
 mod endpoint_requests;
 mod endpoints;
+pub(in crate::client) mod fleet;
 mod graphics;
 mod input_conformance;
+pub(in crate::client) mod history;
 #[path = "input.rs"]
 mod input_domain;
 mod keybindings_settings;
@@ -263,7 +266,9 @@ mod link_hover;
 mod mobile;
 mod mouse_selection;
 mod picks;
+mod pinned_sections;
 mod popup_focus_projection;
+mod priority_order;
 mod space_groups;
 mod startup_overlays;
 mod unread_queue;

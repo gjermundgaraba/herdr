@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{oneshot, watch};
 
-use super::endpoint::{ClientEndpointId, ClientEndpointStatus, EndpointRegistry, ProfileId};
+use super::endpoint::{ClientEndpointId, ClientEndpointStatus, EndpointRegistry};
 use super::{
     shell::{
         ClientEndpointFocusTarget, ClientShellEndpointError, ClientShellInput, ClientShellState,
@@ -27,7 +27,7 @@ use super::{
 const PROTOCOL: u32 = 7;
 const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 /// Cross-endpoint selects settle via the observed selection; this bounds the wait.
-const SELECT_DEADLINE: Duration = Duration::from_secs(12);
+const SELECT_DEADLINE: Duration = super::shell::NAVIGATION_SETTLE_DEADLINE;
 
 /// Where a request is aimed: the endpoint and the server boot that produced
 /// the ids the consumer captured. Pane, tab, and workspace ids are per-server
@@ -194,7 +194,7 @@ impl FrontendApi {
 
     #[cfg(unix)]
     pub(super) fn start(tx: tokio::sync::mpsc::Sender<ClientLoopEvent>) -> io::Result<Self> {
-        let client_id = ProfileId::generate().as_str().to_owned();
+        let client_id = super::endpoint::ProfileId::generate().as_str().to_owned();
         let (socket, socket_path) = listener::bind(&client_id)?;
         let (snapshots, current) = watch::channel(Arc::new(Value::Null));
         let subscribers = Arc::new(AtomicUsize::new(0));
@@ -277,7 +277,7 @@ impl FrontendApi {
         route: &Route,
         shell: &ClientShellState,
     ) -> Result<ClientEndpointId, (&'static str, &'static str)> {
-        let id = parse_endpoint(&route.endpoint_id)
+        let id = ClientEndpointId::from_storage_key(&route.endpoint_id)
             .ok_or(("unknown_endpoint", "invalid endpoint identity"))?;
         let boot_id = shell.frontend_endpoint_boot_id(&id).ok_or((
             "unknown_endpoint",
@@ -488,9 +488,7 @@ impl FrontendApi {
     pub(super) fn settle_selects(&mut self, shell: &ClientShellState, now: Instant) {
         let mut keep = Vec::new();
         for pending in self.pending_selects.drain(..) {
-            let response = if shell.active_endpoint_id == pending.endpoint
-                && shell.frontend_target_active(&pending.target)
-            {
+            let response = if shell.presents_target(&pending.endpoint, &pending.target) {
                 Some(success(pending.id, json!({"ok": true})))
             } else if now.duration_since(pending.queued_at) >= SELECT_DEADLINE {
                 Some(error(
@@ -542,16 +540,6 @@ fn input_events(
             })
             .collect(),
         _ => Err("provide exactly one of text or keys".into()),
-    }
-}
-
-fn parse_endpoint(value: &str) -> Option<ClientEndpointId> {
-    if value == "local" {
-        Some(ClientEndpointId::Local)
-    } else {
-        ProfileId::parse(value.strip_prefix("ssh:")?)
-            .ok()
-            .map(ClientEndpointId::Ssh)
     }
 }
 
@@ -743,6 +731,7 @@ mod listener {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::endpoint::ProfileId;
     use crate::client::shell::{ClientShellConfig, ClientShellState};
     use crate::config::Config;
 
@@ -816,10 +805,20 @@ mod tests {
 
     #[test]
     fn endpoint_identity_parses_local_and_ssh() {
-        assert_eq!(parse_endpoint("local"), Some(ClientEndpointId::Local));
-        assert!(parse_endpoint("nostr").is_none());
+        assert_eq!(
+            ClientEndpointId::from_storage_key("local"),
+            Some(ClientEndpointId::Local)
+        );
+        assert!(ClientEndpointId::from_storage_key("nostr").is_none());
         let profile = "0123456789abcdef0123456789abcdef";
-        assert_eq!(parse_endpoint(&format!("ssh:{profile}")), Some(ssh_id()));
+        assert_eq!(
+            ClientEndpointId::from_storage_key(&format!("ssh:{profile}")),
+            Some(ssh_id())
+        );
+        assert_eq!(
+            ClientEndpointId::from_storage_key(&ssh_id().storage_key()),
+            Some(ssh_id())
+        );
     }
 
     #[test]

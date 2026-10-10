@@ -3,7 +3,6 @@ use ratatui::layout::Rect;
 use crate::app;
 use crate::protocol::{self, FrameData};
 
-#[cfg(test)]
 pub(super) fn snapshot(
     app: &app::App,
     boot_id: &str,
@@ -11,29 +10,7 @@ pub(super) fn snapshot(
     config_diagnostic: Option<&str>,
     location: Option<&crate::server::clients::ClientShellLocation>,
 ) -> protocol::ClientShellSnapshot {
-    snapshot_with_completions(app, boot_id, revision, config_diagnostic, location).0
-}
-
-pub(super) fn snapshot_with_completions(
-    app: &app::App,
-    boot_id: &str,
-    revision: u64,
-    config_diagnostic: Option<&str>,
-    location: Option<&crate::server::clients::ClientShellLocation>,
-) -> (
-    protocol::ClientShellSnapshot,
-    protocol::endpoint::EndpointAgentCompletions,
-) {
     let snapshot = app.session_metadata_snapshot();
-    let completions = protocol::endpoint::EndpointAgentCompletions {
-        boot_id: boot_id.to_owned(),
-        revision,
-        completions: snapshot
-            .agents
-            .iter()
-            .filter_map(|agent| agent.completion_seq.map(|seq| (agent.pane_id.clone(), seq)))
-            .collect(),
-    };
     let focused_workspace_id = location
         .and_then(|location| location.focused_workspace_id.clone())
         .or_else(|| snapshot.focused_workspace_id.clone());
@@ -164,6 +141,12 @@ pub(super) fn snapshot_with_completions(
         .map(|agent| {
             let pane_id = agent.pane_id;
             let focused = focused_pane_id.as_deref() == Some(pane_id.as_str());
+            let order_stamp = app
+                .state
+                .terminals
+                .get(agent.terminal_id.as_str())
+                .and_then(|terminal| terminal.agent_order_stamp)
+                .unwrap_or(0);
             let mut state_labels = agent.state_labels.into_iter().collect::<Vec<_>>();
             state_labels.sort_by(|left, right| left.0.cmp(&right.0));
             let mut tokens = agent.tokens.into_iter().collect::<Vec<_>>();
@@ -175,7 +158,7 @@ pub(super) fn snapshot_with_completions(
             let priority_key = crate::agent_priority::priority_key(
                 priority_mark.is_some(),
                 agent.agent_status,
-                agent_order_stamp(app, &pane_id),
+                order_stamp,
             );
             protocol::ClientShellAgent {
                 pane_id,
@@ -260,7 +243,7 @@ pub(super) fn snapshot_with_completions(
                 preview: notes.preview,
             });
 
-    let shell = protocol::ClientShellSnapshot {
+    protocol::ClientShellSnapshot {
         boot_id: boot_id.to_owned(),
         revision,
         config_diagnostic: config_diagnostic.map(str::to_owned),
@@ -284,15 +267,13 @@ pub(super) fn snapshot_with_completions(
         panes,
         agents,
         commands: app.client_shell_command_manifest(),
-        plugin_entries: app.client_shell_plugin_entries(),
         pinned_sections,
-    };
-    (shell, completions)
+    }
 }
 
 /// The configured pinned sections that at least one space matches, each with
 /// its members in `workspaces` order.
-fn pinned_sections(
+pub(crate) fn pinned_sections(
     configured: &[crate::config::PinnedSpaceSection],
     workspaces: &[protocol::ClientShellWorkspace],
 ) -> Vec<protocol::ClientShellPinnedSection> {
@@ -318,24 +299,6 @@ fn pinned_sections(
             })
         })
         .collect()
-}
-
-/// When the agent in `pane_id` last had an ordering event, or 0 for none
-/// since the server started.
-fn agent_order_stamp(app: &app::App, pane_id: &str) -> u64 {
-    app.parse_pane_id(pane_id)
-        .and_then(|(workspace_index, pane_id)| {
-            let pane = app
-                .state
-                .workspaces
-                .get(workspace_index)?
-                .pane_state(pane_id)?;
-            app.state
-                .terminals
-                .get(&pane.attached_terminal_id)?
-                .agent_order_stamp
-        })
-        .unwrap_or(0)
 }
 
 pub(super) struct RenderedPaneSurface {
@@ -947,9 +910,9 @@ mod tests {
             "##,
         );
 
-        let snapshot = snapshot(&app, "boot", 1, None, None);
+        let first = snapshot(&app, "boot", 1, None, None);
 
-        let id = |index: usize| snapshot.workspaces[index].workspace_id.clone();
+        let id = |index: usize| first.workspaces[index].workspace_id.clone();
         let section =
             |title: &str, fg: Option<&str>, members: &[usize]| protocol::ClientShellPinnedSection {
                 title: title.into(),
@@ -957,7 +920,7 @@ mod tests {
                 workspace_ids: members.iter().map(|&index| id(index)).collect(),
             };
         assert_eq!(
-            snapshot.pinned_sections,
+            first.pinned_sections,
             [
                 // An empty value pins nothing; members keep the space order.
                 section("Any priority", Some("#ff8800"), &[0, 2, 3]),
@@ -971,7 +934,7 @@ mod tests {
 
         // Members follow the endpoint's space order when it changes.
         app.state.workspaces.swap(0, 3);
-        let reordered = snapshot_with_completions(&app, "boot", 2, None, None).0;
+        let reordered = snapshot(&app, "boot", 2, None, None);
         assert_eq!(
             reordered.pinned_sections[0].workspace_ids,
             [id(3), id(2), id(0)]
@@ -986,8 +949,7 @@ mod tests {
         );
 
         pin(&mut app, "");
-        assert!(snapshot_with_completions(&app, "boot", 3, None, None)
-            .0
+        assert!(snapshot(&app, "boot", 3, None, None)
             .pinned_sections
             .is_empty());
     }

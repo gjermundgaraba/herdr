@@ -26,7 +26,7 @@ mark_unread = "prefix+u"
 `agent_picker` opens the session navigator as a flat list of every agent across
 connected machines, ordered by status priority and then recency, with the top
 row selected: `j`/`k` or `↑`/`↓` move, `/` focuses the search, `Enter` opens
-the selection. Agents whose space carries a token listed in
+the selection. Agents whose space carries a token listed in their machine's
 `ui.agent_priority_tokens` show the first listed token's value before their
 label. `workspace_list` opens the navigator listing only workspaces, with the
 search focused: type to search, and matching panes appear under their
@@ -40,30 +40,39 @@ focused pane changed, so rapid intermediate focus changes coalesce. History is
 in memory, holds at most 100 visits, prunes machines that go away or restart,
 skips offline machines, and starts empty with each TUI.
 
-`mark_unread` restores the focused agent's completion badge once you leave the
-pane by any means; presenting the pane again clears it as usual. Only an
-acknowledged completion, shown as idle, can be restored. Working, blocked, and
-still-badged agents are left alone.
+`mark_unread` sends `agent.mark_unread` for the focused pane to the machine
+that owns it. That daemon keeps the hold, so every client attached to it shows
+the same thing: the completion badge returns once you leave the pane by any
+means, and arriving at the pane again clears it. Only an acknowledged
+completion, shown as idle, can be held; the daemon rejects working, blocked,
+and still-badged agents, and the TUI shows its answer. The TUI keeps no unread
+record of its own. See [Client contract](/docs/client-contract/) for the rule.
 
-This action keeps its record inside the TUI. The daemon offers the same hold to
-every client as `agent.mark_unread`; see [Client contract](/docs/client-contract/).
+A badge the daemon still reports clears in this TUI when you focus its pane.
+Having the pane in view beside the focused one is not enough, so a held
+completion keeps its badge when you only move to a neighbouring split.
 
-Leaving moves the restored completion behind existing completions in its
-Priority group. New completions queue after it. The sidebar, agent picker,
-navigation, and mobile list share this order across machines. Revisiting clears
-the badge and keeps the newer position among idle agents. Priority-token
-lifts, status groups, and grouped-space order keep their usual rules. Custom sorts
+The Priority order comes from each machine's daemon. Every agent carries a
+`priority_key`; the TUI sorts by it and merges machines by comparing keys, with
+ties going to the machine listed first and then to the agent's place in its
+machine's list. Agents of a machine that is reconnecting follow every agent of
+the machines that are online. A restored completion queues behind the
+completions that were already waiting in its Priority group, and new
+completions queue after it. The sidebar, agent picker, navigation, and mobile
+list share this order. Priority-token lifts and status groups are part of the
+key, so they follow each machine's own `ui.agent_priority_tokens`. Custom sorts
 apply when the endpoint supplies their definitions. Older endpoints supply
-view membership and an initial order; built-in Priority still merges those
-agents across machines. Spaces retains their supplied order. Queue order is
-kept in memory for each TUI.
+view membership and an initial order, and send no keys, so their agents keep
+that order. Spaces retains the supplied order.
+
+Pinned sections of the Space panel are also the machine's: each daemon resolves
+its own `[[ui.sidebar.spaces.pinned]]` and the TUI draws the sections it sends.
 
 During reconnect, agent lists follow the latest endpoint metadata while the
 pane retains its previous frame. Reconnecting entries are dimmed and skipped
 by indexed and next/previous agent navigation. Explicit selections on an
 unavailable remote are rejected. Local selections still reach the runtime so
-they can cancel a pending remote switch. Marking unread still applies to the
-completion shown in the pane.
+they can cancel a pending remote switch.
 
 ## Frontend socket
 

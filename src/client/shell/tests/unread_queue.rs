@@ -1,64 +1,196 @@
-use super::endpoints::CompletedSnapshots;
+//! The unread hold from this client's side. The daemon owns the hold
+//! (`app/unread_hold.rs`, `server/headless/unread_holds.rs`); the client sends
+//! `agent.mark_unread` and shows what the following snapshots say. `Daemon`
+//! below replays what a daemon sends at each step of a hold.
+
 use super::*;
+use crate::agent_priority::priority_key;
 use crate::client::endpoint::{ClientEndpointStatus, ProfileId, SavedSshEndpoint};
 use crate::config::AgentPanelSortConfig;
+use crate::input::{KeybindAction, KeybindMatch};
 
-fn agent(index: usize, status: AgentStatus, sequence: u64) -> ClientShellAgent {
-    ClientShellAgent {
-        pane_id: format!("pane_{index}"),
-        workspace_id: "ws_1".into(),
-        tab_id: "tab_1".into(),
-        name: Some(format!("agent {index}")),
-        display_agent: None,
-        agent: Some("pi".into()),
-        title: None,
-        terminal_title: None,
-        terminal_title_stripped: None,
-        agent_status: status,
-        state_change_seq: sequence,
-        state_labels: Vec::new(),
-        tokens: Vec::new(),
-        focused: index == 1,
-        priority_key: String::new(),
-        priority_mark: None,
+/// One endpoint as its daemon reports it. `tab_1` holds `pane_1`, an idle
+/// agent with the focus, beside a plain `sibling` split. `tab_2` holds the
+/// other agents, whose completions nobody has looked at yet.
+struct Daemon {
+    endpoint_id: ClientEndpointId,
+    snapshot: ClientShellSnapshot,
+    /// The latest ordering event: its lifecycle sequence and its stamp.
+    clock: u64,
+    /// Each agent's stamp, which acknowledging its completion keeps.
+    stamps: HashMap<String, u64>,
+    /// Panes whose held completion is back and waits for a client to arrive.
+    restored: HashSet<String>,
+}
+
+impl Daemon {
+    fn new(endpoint_id: ClientEndpointId, boot_id: &str, count: usize) -> Self {
+        let mut snapshot = snapshot();
+        snapshot.boot_id = boot_id.into();
+        snapshot.revision = 0;
+        let mut background = snapshot.tabs[0].clone();
+        background.tab_id = "tab_2".into();
+        background.number = 2;
+        background.focused = false;
+        snapshot.tabs.push(background);
+        let tab_of = |index: usize| if index == 1 { "tab_1" } else { "tab_2" };
+        let template = snapshot.panes[0].clone();
+        let pane = |pane_id: String, tab_id: &str| ClientShellPane {
+            focused: pane_id == "pane_1",
+            pane_id,
+            tab_id: tab_id.into(),
+            ..template.clone()
+        };
+        snapshot.panes = (1..=count)
+            .map(|index| pane(format!("pane_{index}"), tab_of(index)))
+            .chain([pane("sibling".into(), "tab_1")])
+            .collect();
+        snapshot.agents = (1..=count)
+            .map(|index| ClientShellAgent {
+                pane_id: format!("pane_{index}"),
+                workspace_id: "ws_1".into(),
+                tab_id: tab_of(index).into(),
+                name: Some(format!("agent {index}")),
+                display_agent: None,
+                agent: Some("pi".into()),
+                title: None,
+                terminal_title: None,
+                terminal_title_stripped: None,
+                agent_status: AgentStatus::Idle,
+                state_change_seq: 0,
+                state_labels: Vec::new(),
+                tokens: Vec::new(),
+                focused: index == 1,
+                priority_key: priority_key(false, AgentStatus::Idle, 0),
+                priority_mark: None,
+            })
+            .collect();
+        let mut daemon = Self {
+            endpoint_id,
+            snapshot,
+            clock: 0,
+            stamps: HashMap::new(),
+            restored: HashSet::new(),
+        };
+        daemon.event("pane_1", AgentStatus::Idle);
+        for index in 2..=count {
+            daemon.event(&format!("pane_{index}"), AgentStatus::Done);
+        }
+        daemon
+    }
+
+    fn agent(&mut self, pane_id: &str) -> &mut ClientShellAgent {
+        self.snapshot
+            .agents
+            .iter_mut()
+            .find(|agent| agent.pane_id == pane_id)
+            .expect("agent")
+    }
+
+    /// A status change: a new sequence and stamp.
+    fn event(&mut self, pane_id: &str, status: AgentStatus) {
+        self.clock += 1;
+        let clock = self.clock;
+        self.stamps.insert(pane_id.into(), clock);
+        self.restored.remove(pane_id);
+        let agent = self.agent(pane_id);
+        agent.agent_status = status;
+        agent.state_change_seq = clock;
+        agent.priority_key = priority_key(false, status, clock);
+    }
+
+    /// The marking client stopped presenting the pane: the completion is back
+    /// as a new ordering event.
+    fn restore_hold(&mut self, pane_id: &str) {
+        self.event(pane_id, AgentStatus::Done);
+        self.restored.insert(pane_id.into());
+    }
+
+    /// A completion a client looked at: idle again, under the same sequence
+    /// and stamp.
+    fn acknowledge(&mut self, pane_id: &str) {
+        let stamp = self.stamps[pane_id];
+        let agent = self.agent(pane_id);
+        agent.agent_status = AgentStatus::Idle;
+        agent.priority_key = priority_key(false, AgentStatus::Idle, stamp);
+    }
+
+    /// The client focuses a pane. Its tab's completions are acknowledged,
+    /// except a restored hold, which only arriving at its own pane ends.
+    fn focus(&mut self, pane_id: &str) {
+        let tab_id = self
+            .snapshot
+            .panes
+            .iter()
+            .find(|pane| pane.pane_id == pane_id)
+            .expect("pane")
+            .tab_id
+            .clone();
+        self.snapshot.focused_tab_id = Some(tab_id.clone());
+        self.snapshot.focused_pane_id = Some(pane_id.into());
+        for tab in &mut self.snapshot.tabs {
+            tab.focused = tab.tab_id == tab_id;
+        }
+        for pane in &mut self.snapshot.panes {
+            pane.focused = pane.pane_id == pane_id;
+        }
+        for agent in &mut self.snapshot.agents {
+            agent.focused = agent.pane_id == pane_id;
+        }
+        self.restored.remove(pane_id);
+        let seen = self
+            .snapshot
+            .agents
+            .iter()
+            .filter(|agent| agent.tab_id == tab_id && agent.agent_status == AgentStatus::Done)
+            .map(|agent| agent.pane_id.clone())
+            .filter(|pane_id| !self.restored.contains(pane_id))
+            .collect::<Vec<_>>();
+        for pane_id in seen {
+            self.acknowledge(&pane_id);
+        }
+    }
+
+    /// Delivers the next snapshot.
+    fn send(&mut self, state: &mut ClientShellState) {
+        self.snapshot.revision += 1;
+        state.set_endpoint_snapshot(&self.endpoint_id, Box::new(self.snapshot.clone()));
+    }
+
+    /// Presents the focused tab's panes on the client's surface.
+    fn present(&self, state: &mut ClientShellState) {
+        let mut presented = surface();
+        presented.boot_id = self.snapshot.boot_id.clone();
+        presented.projection_revision = self.snapshot.revision;
+        let template = presented.panes[0].clone();
+        presented.panes = self
+            .snapshot
+            .panes
+            .iter()
+            .filter(|pane| Some(&pane.tab_id) == self.snapshot.focused_tab_id.as_ref())
+            .map(|pane| PaneSurfacePane {
+                pane_id: pane.pane_id.clone(),
+                focused: pane.focused,
+                ..template.clone()
+            })
+            .collect();
+        state.set_pane_surface(presented);
     }
 }
 
-fn projection(count: usize) -> ClientShellSnapshot {
-    let mut next = snapshot();
-    next.agents = (1..=count)
-        .map(|i| agent(i, AgentStatus::Idle, i as u64))
-        .collect();
-    let template = next.panes[0].clone();
-    next.panes = next
-        .agents
-        .iter()
-        .map(|a| ClientShellPane {
-            pane_id: a.pane_id.clone(),
-            focused: a.focused,
-            ..template.clone()
-        })
-        .collect();
-    next
-}
-
-fn queue_state(count: usize) -> ClientShellState {
+/// A client on the `priority` sort whose Local daemon reports `count` agents,
+/// all presented, with `pane_1` focused.
+fn queue_state(count: usize) -> (ClientShellState, Daemon) {
     let mut config = ClientShellConfig::from_config(&Config::default());
     config.agent_panel_sort = AgentPanelSortConfig::Priority;
     let mut state = ClientShellState::new(config);
-    state.set_snapshot_with_completions(Box::new(projection(count)));
-    state.set_pane_surface(surface());
-    let mut next = projection(count);
-    next.revision += 1;
-    for a in next.agents.iter_mut().skip(1) {
-        a.agent_status = AgentStatus::Done;
-        a.state_change_seq += count as u64;
-    }
-    state.set_snapshot_with_completions(Box::new(next));
-    state
+    let mut daemon = Daemon::new(ClientEndpointId::Local, "boot-1", count);
+    daemon.send(&mut state);
+    daemon.present(&mut state);
+    (state, daemon)
 }
 
-fn add_remote(state: &mut ClientShellState) -> ClientEndpointId {
+fn add_remote(state: &mut ClientShellState) -> (ClientEndpointId, Daemon) {
     let profile = SavedSshEndpoint {
         id: ProfileId::parse("0123456789abcdef0123456789abcdef").unwrap(),
         label: "Build".into(),
@@ -69,249 +201,181 @@ fn add_remote(state: &mut ClientShellState) -> ClientEndpointId {
     let remote = ClientEndpointId::Ssh(profile.id.clone());
     state.set_endpoint_catalog(&[profile]);
     state.set_endpoint_status(&remote, ClientEndpointStatus::Online);
-    let mut next = projection(1);
-    next.boot_id = "remote-boot".into();
-    state.set_endpoint_snapshot_with_completions(&remote, Box::new(next));
-    remote
+    let mut daemon = Daemon::new(remote.clone(), "remote-boot", 1);
+    daemon.send(state);
+    (remote, daemon)
 }
 
-fn endpoint<'a>(state: &'a ClientShellState, id: &ClientEndpointId) -> &'a ClientShellEndpoint {
+fn status(state: &ClientShellState, endpoint_id: &ClientEndpointId, pane_id: &str) -> AgentStatus {
     state
         .endpoints
         .iter()
-        .find(|e| &e.endpoint_id == id)
-        .unwrap()
+        .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
+        .and_then(|endpoint| endpoint.snapshot.as_deref())
+        .and_then(|snapshot| {
+            snapshot
+                .agents
+                .iter()
+                .find(|agent| agent.pane_id == pane_id)
+        })
+        .expect("agent")
+        .agent_status
 }
 
-fn leave(state: &mut ClientShellState) {
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.focused_pane_id = None;
-    for a in &mut next.agents {
-        a.focused = false;
-    }
-    for p in &mut next.panes {
-        p.focused = false;
-    }
-    state.set_snapshot_with_completions(Box::new(next));
-}
-
-fn mark_and_leave(state: &mut ClientShellState) {
-    state.mark_focused_agent_unread(&mut ClientShellInput::default());
-    assert!(state.pending_unread.is_some());
-    leave(state);
+fn order(state: &ClientShellState, sort: AgentPanelSortConfig) -> Vec<(ClientEndpointId, String)> {
+    aggregate_navigation::aggregate_agent_rows(&state.endpoints, &state.active_endpoint_id, sort)
+        .into_iter()
+        .map(|row| (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone()))
+        .collect()
 }
 
 fn local_order(state: &ClientShellState, sort: AgentPanelSortConfig) -> Vec<String> {
-    aggregate_navigation::aggregate_agent_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        sort,
-        &state.config.agent_priority_tokens,
-    )
-    .into_iter()
-    .filter(|row| row.endpoint.endpoint_id.is_local())
-    .map(|row| row.agent.pane_id.clone())
-    .collect()
+    order(state, sort)
+        .into_iter()
+        .filter(|(endpoint_id, _)| endpoint_id.is_local())
+        .map(|(_, pane_id)| pane_id)
+        .collect()
 }
 
-fn aggregate_order(state: &ClientShellState) -> Vec<(ClientEndpointId, String)> {
-    aggregate_navigation::aggregate_agent_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        AgentPanelSortConfig::Priority,
-        &state.config.agent_priority_tokens,
-    )
-    .into_iter()
-    .map(|row| (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone()))
-    .collect()
+fn mark_unread(state: &mut ClientShellState) -> ClientShellInput {
+    let mut outcome = ClientShellInput::default();
+    state.record_binding(
+        KeybindMatch::Action(KeybindAction::MarkUnread),
+        &mut outcome,
+    );
+    outcome
 }
 
-fn present(state: &mut ClientShellState, panes: &[&str]) {
-    let snapshot = state.snapshot.as_deref().unwrap();
-    let mut presented = surface();
-    presented.boot_id = snapshot.boot_id.clone();
-    presented.projection_revision = snapshot.revision;
-    let template = presented.panes[0].clone();
-    presented.panes = panes
-        .iter()
-        .map(|id| PaneSurfacePane {
-            pane_id: (*id).into(),
-            ..template.clone()
-        })
-        .collect();
-    state.set_pane_surface(presented);
-}
-
-fn revisit(state: &mut ClientShellState) {
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.focused_pane_id = Some("pane_1".into());
-    state.set_snapshot_with_completions(Box::new(next));
-    present(state, &["pane_1"]);
-}
-
-#[test]
-fn simultaneous_zero_sequence_agents_keep_snapshot_order() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut next = projection(3);
-    for agent in &mut next.agents {
-        agent.state_change_seq = 0;
+/// The one request an input produced, with the endpoint lane it is for.
+fn request(outcome: &ClientShellInput) -> (&ClientEndpointId, &crate::api::schema::Request) {
+    match outcome.actions.as_slice() {
+        [ClientShellAction::Endpoint {
+            endpoint_id,
+            request,
+            ..
+        }] => (endpoint_id, request),
+        actions => panic!("expected one endpoint request: {actions:?}"),
     }
-    next.agents.swap(0, 2);
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_2", "pane_1"]
+}
+
+fn assert_marks(outcome: &ClientShellInput, endpoint: &ClientEndpointId, pane: &str) {
+    let (endpoint_id, request) = request(outcome);
+    assert_eq!(endpoint_id, endpoint);
+    assert!(
+        matches!(&request.method,
+            crate::api::schema::Method::AgentMarkUnread(target) if target.pane_id == pane),
+        "{request:?}"
     );
 }
 
 #[test]
-fn later_zero_sequence_agent_is_fresher_than_startup_ties() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut next = projection(2);
-    for agent in &mut next.agents {
-        agent.state_change_seq = 0;
-        agent.agent_status = AgentStatus::Working;
-    }
-    state.set_snapshot_with_completions(Box::new(next.clone()));
-    next.revision += 1;
-    next.agents.push(agent(3, AgentStatus::Working, 0));
-    next.panes.push(projection(3).panes.pop().unwrap());
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_1", "pane_2"]
-    );
-}
+fn mark_unread_asks_the_daemon_and_records_nothing_itself() {
+    let (mut state, _daemon) = queue_state(3);
+    state.set_endpoint_methods(Some(vec!["agent.mark_unread".into()]));
+    let before = order(&state, AgentPanelSortConfig::Priority);
 
-#[test]
-fn equal_changed_sequences_share_recency_without_collapsing_manual_requeue() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut next = projection(3);
-    for agent in &mut next.agents {
-        agent.state_change_seq = 0;
-    }
-    state.set_snapshot_with_completions(Box::new(next.clone()));
-    state.set_pane_surface(surface());
-    mark_and_leave(&mut state);
-    next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    for agent in next.agents.iter_mut().skip(1) {
-        agent.agent_status = AgentStatus::Done;
-        agent.state_change_seq = 4;
-    }
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_1", "pane_2", "pane_3"]
-    );
-    let mut unchanged = state.snapshot.as_deref().unwrap().clone();
-    unchanged.revision += 1;
-    state.set_snapshot_with_completions(Box::new(unchanged));
-    present(&mut state, &["pane_1", "pane_2", "pane_3"]);
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_2", "pane_3", "pane_1"]
-    );
-}
+    let outcome = mark_unread(&mut state);
 
-#[test]
-fn unchanged_zero_sequence_agents_keep_manual_recency_when_a_peer_arrives() {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    let mut next = projection(2);
-    for agent in &mut next.agents {
-        agent.state_change_seq = 0;
-    }
-    state.set_snapshot_with_completions(Box::new(next));
-    state.set_pane_surface(surface());
-    mark_and_leave(&mut state);
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.agents.push(agent(3, AgentStatus::Done, 0));
-    next.panes.push(projection(3).panes.pop().unwrap());
-    state.set_snapshot_with_completions(Box::new(next));
+    assert_marks(&outcome, &ClientEndpointId::Local, "pane_1");
+    // Nothing changes until the daemon says so.
     assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_1", "pane_3", "pane_2"]
-    );
-    present(&mut state, &["pane_1", "pane_2", "pane_3"]);
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_1", "pane_2"]
-    );
-}
-
-#[test]
-fn mark_unread_uses_presented_focus_and_exact_sequence_when_cache_is_ahead() {
-    for lifecycle_changed in [false, true] {
-        let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-        state.set_snapshot_with_completions(Box::new(projection(2)));
-        state.set_pane_surface(surface());
-        let mut cached = state.snapshot.as_deref().unwrap().clone();
-        cached.revision += 1;
-        cached.focused_pane_id = Some("pane_2".into());
-        cached.agents[0].focused = false;
-        cached.agents[1].focused = true;
-        cached.panes[0].focused = false;
-        cached.panes[1].focused = true;
-        if lifecycle_changed {
-            cached.agents[0].state_change_seq += 10;
-            cached.agents[0].agent_status = AgentStatus::Working;
-        }
-        state.cache_endpoint_snapshot_inactive_for_generation(
-            &ClientEndpointId::Local,
-            1,
-            Box::new(cached),
-        );
-        assert_eq!(
-            state.snapshot.as_ref().unwrap().focused_pane_id.as_deref(),
-            Some("pane_1")
-        );
-        state.mark_focused_agent_unread(&mut ClientShellInput::default());
-        let held = state.pending_unread.as_ref().unwrap();
-        assert_eq!(held.pane_id, "pane_1");
-        assert_eq!(held.sequence, 1);
-        assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-        assert!(state.pending_unread.is_none());
-        let agents = &endpoint(&state, &ClientEndpointId::Local)
-            .snapshot
-            .as_ref()
-            .unwrap()
-            .agents;
-        assert_eq!(
-            agents[0].agent_status,
-            if lifecycle_changed {
-                AgentStatus::Working
-            } else {
-                AgentStatus::Done
-            }
-        );
-        // The cache's focused pane was never the target of the mark.
-        assert_eq!(agents[1].agent_status, AgentStatus::Idle);
-        assert_eq!(
-            agents[0].state_change_seq,
-            if lifecycle_changed { 11 } else { 1 }
-        );
-    }
-}
-
-#[test]
-fn unread_requeues_on_departure_without_changing_lifecycle_sequence() {
-    let mut state = queue_state(3);
-    state.mark_focused_agent_unread(&mut ClientShellInput::default());
-    assert_eq!(
-        state.snapshot.as_ref().unwrap().agents[0].agent_status,
+        status(&state, &ClientEndpointId::Local, "pane_1"),
         AgentStatus::Idle
     );
+    assert_eq!(order(&state, AgentPanelSortConfig::Priority), before);
+}
+
+#[test]
+fn mark_unread_goes_to_the_endpoint_that_owns_the_focused_pane() {
+    let (mut state, _daemon) = queue_state(3);
+    let (remote, mut remote_daemon) = add_remote(&mut state);
+    assert!(state.activate_endpoint_projection(&remote));
+    remote_daemon.present(&mut state);
+
+    let outcome = mark_unread(&mut state);
+
+    // Both endpoints have a `pane_1`; the mark is for the presented one.
+    assert_marks(&outcome, &remote, "pane_1");
+    let ClientShellAction::Endpoint { boot_id, .. } = &outcome.actions[0] else {
+        unreachable!("checked above");
+    };
+    assert_eq!(boot_id, "remote-boot");
+    remote_daemon.send(&mut state);
+}
+
+#[test]
+fn mark_unread_without_a_focused_pane_sends_nothing() {
+    let (mut state, mut daemon) = queue_state(3);
+    daemon.snapshot.focused_pane_id = None;
+    daemon.send(&mut state);
+
+    let outcome = mark_unread(&mut state);
+
+    assert!(outcome.actions.is_empty());
     assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_2", "pane_3", "pane_1"]
+        state.visible_endpoint_notice.as_ref().unwrap().title,
+        "Nothing to mark"
     );
-    leave(&mut state);
-    let agent = &state.snapshot.as_ref().unwrap().agents[0];
-    assert_eq!(agent.state_change_seq, 1);
-    assert_eq!(agent.agent_status, AgentStatus::Done);
+}
+
+#[test]
+fn a_server_without_the_method_disables_only_the_mark() {
+    let (mut state, _daemon) = queue_state(3);
+    state.set_endpoint_methods(Some(vec!["pane.focus".into()]));
+
+    let outcome = mark_unread(&mut state);
+
+    assert!(outcome.actions.is_empty());
+    assert_eq!(
+        state.visible_endpoint_notice.as_ref().unwrap().title,
+        "Action unavailable"
+    );
+}
+
+#[test]
+fn the_daemons_answer_to_a_mark_is_shown() {
+    let (mut state, _daemon) = queue_state(3);
+    let outcome = mark_unread(&mut state);
+    let request_id = request(&outcome).1.id.clone();
+    let agent = crate::api::schema::ResponseResult::Ok {};
+    state.handle_endpoint_result("boot-1", &request_id, Ok(agent));
+    assert_eq!(
+        state.visible_endpoint_notice.take().unwrap().title,
+        "Marked unread"
+    );
+
+    let outcome = mark_unread(&mut state);
+    let request_id = request(&outcome).1.id.clone();
+    state.handle_endpoint_result(
+        "boot-1",
+        &request_id,
+        Err(ClientShellEndpointError {
+            code: Some("agent_not_idle".into()),
+            message: "only an acknowledged completion, shown as idle, can be marked unread".into(),
+        }),
+    );
+    let notice = state.visible_endpoint_notice.take().unwrap();
+    assert_eq!(notice.title, "Action rejected");
+    assert!(notice.body.contains("acknowledged completion"));
+}
+
+#[test]
+fn a_restored_hold_shows_its_badge_while_its_pane_is_only_in_view() {
+    let (mut state, mut daemon) = queue_state(3);
+    mark_unread(&mut state);
+
+    // The user focuses the sibling split, so the daemon restores the hold.
+    // The held pane never leaves the client's surface.
+    daemon.focus("sibling");
+    daemon.restore_hold("pane_1");
+    daemon.send(&mut state);
+    daemon.present(&mut state);
+
+    assert_eq!(
+        status(&state, &ClientEndpointId::Local, "pane_1"),
+        AgentStatus::Done
+    );
+    // It queues where the daemon put it: behind the completions that waited.
     assert_eq!(
         local_order(&state, AgentPanelSortConfig::Priority),
         ["pane_2", "pane_3", "pane_1"]
@@ -319,15 +383,27 @@ fn unread_requeues_on_departure_without_changing_lifecycle_sequence() {
 }
 
 #[test]
-fn revisit_clears_badge_and_keeps_the_newer_idle_recency() {
-    let mut state = queue_state(3);
-    mark_and_leave(&mut state);
-    revisit(&mut state);
+fn a_restored_hold_shows_its_badge_after_the_client_left_its_tab() {
+    let (mut state, mut daemon) = queue_state(3);
+    mark_unread(&mut state);
+
+    // Moving to the other tab looks at its completions and leaves the pane.
+    daemon.focus("pane_2");
+    daemon.restore_hold("pane_1");
+    daemon.send(&mut state);
+    daemon.present(&mut state);
+
     assert_eq!(
-        state.snapshot.as_ref().unwrap().agents[0].agent_status,
-        AgentStatus::Idle
+        status(&state, &ClientEndpointId::Local, "pane_1"),
+        AgentStatus::Done
     );
-    present(&mut state, &["pane_1", "pane_2", "pane_3"]);
+    for acknowledged in ["pane_2", "pane_3"] {
+        assert_eq!(
+            status(&state, &ClientEndpointId::Local, acknowledged),
+            AgentStatus::Idle
+        );
+    }
+    // The only waiting completion leads; idle agents follow, newest first.
     assert_eq!(
         local_order(&state, AgentPanelSortConfig::Priority),
         ["pane_1", "pane_3", "pane_2"]
@@ -335,38 +411,42 @@ fn revisit_clears_badge_and_keeps_the_newer_idle_recency() {
 }
 
 #[test]
-fn repeated_unread_reset_moves_behind_a_newer_completion() {
-    let mut state = queue_state(3);
-    mark_and_leave(&mut state);
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.agents[1].state_change_seq = 7;
-    state.set_snapshot_with_completions(Box::new(next));
+fn arriving_at_the_held_pane_clears_the_badge_as_the_daemon_does() {
+    let (mut state, mut daemon) = queue_state(3);
+    mark_unread(&mut state);
+    daemon.focus("sibling");
+    daemon.restore_hold("pane_1");
+    daemon.send(&mut state);
+    daemon.present(&mut state);
+
+    daemon.focus("pane_1");
+    daemon.send(&mut state);
+    daemon.present(&mut state);
+
     assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_1", "pane_2"]
+        status(&state, &ClientEndpointId::Local, "pane_1"),
+        AgentStatus::Idle
     );
-    revisit(&mut state);
-    mark_and_leave(&mut state);
+    // The completions in the other tab still wait ahead of it.
     assert_eq!(
         local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_2", "pane_1"]
+        ["pane_2", "pane_3", "pane_1"]
     );
 }
 
 #[test]
-fn real_lifecycle_change_cancels_pending_unread() {
-    let mut state = queue_state(3);
-    state.mark_focused_agent_unread(&mut ClientShellInput::default());
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.agents[0].state_change_seq += 1;
-    next.agents[0].agent_status = AgentStatus::Working;
-    state.set_snapshot_with_completions(Box::new(next));
-    leave(&mut state);
-    assert!(state.pending_unread.is_none());
+fn a_real_status_change_replaces_the_hold() {
+    let (mut state, mut daemon) = queue_state(3);
+    mark_unread(&mut state);
+
+    // The agent starts working before the user leaves: nothing is restored.
+    daemon.event("pane_1", AgentStatus::Working);
+    daemon.focus("sibling");
+    daemon.send(&mut state);
+    daemon.present(&mut state);
+
     assert_eq!(
-        state.snapshot.as_ref().unwrap().agents[0].agent_status,
+        status(&state, &ClientEndpointId::Local, "pane_1"),
         AgentStatus::Working
     );
     assert_eq!(
@@ -376,170 +456,49 @@ fn real_lifecycle_change_cancels_pending_unread() {
 }
 
 #[test]
-fn removing_the_pending_agent_does_not_restore_its_badge() {
-    let mut state = queue_state(3);
-    state.mark_focused_agent_unread(&mut ClientShellInput::default());
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.focused_pane_id = None;
-    next.agents.remove(0);
-    next.panes.remove(0);
-    state.set_snapshot_with_completions(Box::new(next));
-    assert!(state.pending_unread.is_none());
+fn a_restored_hold_on_another_machine_joins_the_shared_queue() {
+    let (mut state, mut daemon) = queue_state(3);
+    let (remote, mut remote_daemon) = add_remote(&mut state);
+    // The remote daemon's clock runs ahead of Local's: its agent's hold is
+    // restored after every Local completion.
+    remote_daemon.clock = 10;
+    remote_daemon.restore_hold("pane_1");
+    remote_daemon.send(&mut state);
+    daemon.send(&mut state);
+
+    assert_eq!(status(&state, &remote, "pane_1"), AgentStatus::Done);
     assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_2", "pane_3"]
+        order(&state, AgentPanelSortConfig::Priority),
+        [
+            (ClientEndpointId::Local, "pane_2".to_owned()),
+            (ClientEndpointId::Local, "pane_3".to_owned()),
+            (remote, "pane_1".to_owned()),
+            (ClientEndpointId::Local, "pane_1".to_owned()),
+        ]
     );
 }
 
 #[test]
-fn new_boot_reseeds_order_and_removed_agents_leave_the_queue() {
-    let mut state = queue_state(3);
-    mark_and_leave(&mut state);
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.boot_id = "boot-2".into();
-    next.revision += 1;
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_2", "pane_1"]
-    );
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.agents.remove(0);
-    next.panes.remove(0);
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_2"]
-    );
-}
+fn a_hold_leaves_the_spaces_order_alone() {
+    let (mut state, mut daemon) = queue_state(3);
+    mark_unread(&mut state);
+    daemon.focus("sibling");
+    daemon.restore_hold("pane_1");
+    daemon.send(&mut state);
 
-#[test]
-fn remote_unread_order_survives_same_boot_reconnect_and_endpoint_removal() {
-    let mut state = queue_state(3);
-    let remote = add_remote(&mut state);
-    assert!(state.activate_endpoint_projection(&remote));
-    present(&mut state, &["pane_1"]);
-    state.mark_focused_agent_unread(&mut ClientShellInput::default());
-    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-    let expected = vec![
-        (ClientEndpointId::Local, "pane_2".into()),
-        (ClientEndpointId::Local, "pane_3".into()),
-        (remote.clone(), "pane_1".into()),
-        (ClientEndpointId::Local, "pane_1".into()),
-    ];
-    assert_eq!(aggregate_order(&state), expected);
-    let next = endpoint(&state, &remote).snapshot.clone().unwrap();
-    state.mark_endpoint_disconnected(&remote);
-    state.set_endpoint_status(&remote, ClientEndpointStatus::Online);
-    state.set_endpoint_snapshot_for_generation(&remote, 99, next);
-    assert_eq!(aggregate_order(&state), expected);
-    state.set_endpoint_catalog(&[]);
-    assert_eq!(
-        aggregate_order(&state)
-            .into_iter()
-            .map(|(_, pane)| pane)
-            .collect::<Vec<_>>(),
-        ["pane_2", "pane_3", "pane_1"]
-    );
-}
-
-#[test]
-fn pane_identity_change_reages_builtin_local_and_aggregate_order() {
-    let mut state = queue_state(3);
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.agents[1].pane_id = "replacement".into();
-    next.panes[1].pane_id = "replacement".into();
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "replacement", "pane_1"]
-    );
-    assert_eq!(
-        aggregate_order(&state)
-            .into_iter()
-            .map(|(_, pane)| pane)
-            .collect::<Vec<_>>(),
-        ["pane_3", "replacement", "pane_1"]
-    );
-}
-
-#[test]
-fn reset_preserves_spaces_order() {
-    let mut state = queue_state(3);
-    mark_and_leave(&mut state);
     assert_eq!(
         local_order(&state, AgentPanelSortConfig::Spaces),
         ["pane_1", "pane_2", "pane_3"]
     );
 }
 
-#[test]
-fn legacy_custom_order_preserves_membership_and_yields_to_builtin_priority() {
-    let mut state = queue_state(3);
-    mark_and_leave(&mut state);
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.agent_view_label = Some("custom".into());
-    next.agent_order = vec!["pane_1".into(), "pane_3".into(), "pane_2".into()];
-    next.agents.reverse();
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Spaces),
-        ["pane_1", "pane_3", "pane_2"]
-    );
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_2", "pane_3", "pane_1"]
-    );
-
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    next.revision += 1;
-    next.agent_order.pop();
-    state.set_snapshot_with_completions(Box::new(next));
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Spaces),
-        ["pane_1", "pane_3"]
-    );
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_3", "pane_1"]
-    );
-}
-
-#[test]
-fn reset_stays_within_its_lifted_space_and_status_group() {
-    let mut state = queue_state(3);
-    state.config.agent_priority_tokens = vec!["lift".into()];
-    let mut next = state.snapshot.as_deref().unwrap().clone();
-    let mut marked = next.workspaces[0].clone();
-    marked.workspace_id = "priority".into();
-    marked.tokens = vec![("lift".into(), "★".into())];
-    next.workspaces.push(marked);
-    next.agents[0].workspace_id = "priority".into();
-    next.agents[1].agent_status = AgentStatus::Blocked;
-    next.agents[1].workspace_id = "priority".into();
-    next.revision += 1;
-    state.set_snapshot_with_completions(Box::new(next));
-    mark_and_leave(&mut state);
-    assert_eq!(
-        local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_2", "pane_1", "pane_3"]
-    );
-    assert_eq!(
-        aggregate_order(&state)
-            .into_iter()
-            .map(|(_, pane)| pane)
-            .collect::<Vec<_>>(),
-        ["pane_2", "pane_1", "pane_3"]
-    );
-}
-
-fn reset_surface_state(federated: bool) -> (ClientShellState, Vec<(ClientEndpointId, String)>) {
-    let mut state = queue_state(3);
-    let remote = federated.then(|| add_remote(&mut state));
-    mark_and_leave(&mut state);
+fn restored_state(federated: bool) -> (ClientShellState, Vec<(ClientEndpointId, String)>) {
+    let (mut state, mut daemon) = queue_state(3);
+    let remote = federated.then(|| add_remote(&mut state).0);
+    mark_unread(&mut state);
+    daemon.focus("sibling");
+    daemon.restore_hold("pane_1");
+    daemon.send(&mut state);
     let mut expected = vec![
         (ClientEndpointId::Local, "pane_2".into()),
         (ClientEndpointId::Local, "pane_3".into()),
@@ -571,10 +530,10 @@ fn assert_pane_request(
 }
 
 #[test]
-fn reset_order_is_shared_by_picker_and_keyboard_navigation() {
+fn the_restored_queue_is_shared_by_picker_and_keyboard_navigation() {
     for federated in [false, true] {
-        let (mut state, expected) = reset_surface_state(federated);
-        assert_eq!(aggregate_order(&state), expected);
+        let (mut state, expected) = restored_state(federated);
+        assert_eq!(order(&state, AgentPanelSortConfig::Priority), expected);
         let navigator = ClientNavigatorOverlay {
             layout: NavigatorLayout::Agents,
             query: TextEditor::new("", false),
@@ -587,7 +546,6 @@ fn reset_order_is_shared_by_picker_and_keyboard_navigation() {
             &state.endpoints,
             &state.active_endpoint_id,
             &navigator,
-            &state.config.agent_priority_tokens,
         )
         .into_iter()
         .filter_map(|row| match row.target {
@@ -603,19 +561,15 @@ fn reset_order_is_shared_by_picker_and_keyboard_navigation() {
             &state.endpoints,
             &state.active_endpoint_id,
             AgentPanelSortConfig::Priority,
-            &state.config.agent_priority_tokens,
         )
         .into_iter()
         .map(|row| (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone()))
         .collect::<Vec<_>>();
         assert_eq!(targets, expected);
         for (action, target) in [
-            (crate::input::KeybindAction::FocusAgent(2), &expected[2]),
-            (crate::input::KeybindAction::NextAgent, &expected[0]),
-            (
-                crate::input::KeybindAction::PreviousAgent,
-                expected.last().unwrap(),
-            ),
+            (KeybindAction::FocusAgent(2), &expected[2]),
+            (KeybindAction::NextAgent, &expected[0]),
+            (KeybindAction::PreviousAgent, expected.last().unwrap()),
         ] {
             let mut outcome = ClientShellInput::default();
             assert!(state.handle_endpoint_navigation(action, &mut outcome));
@@ -625,9 +579,9 @@ fn reset_order_is_shared_by_picker_and_keyboard_navigation() {
 }
 
 #[test]
-fn reset_order_is_shared_by_desktop_and_mobile_surfaces() {
+fn the_restored_queue_is_shared_by_desktop_and_mobile_surfaces() {
     for federated in [false, true] {
-        let (mut state, expected) = reset_surface_state(federated);
+        let (mut state, expected) = restored_state(federated);
         state.outer_focused = Some(false);
         let mut presented = surface();
         presented.projection_revision = state.snapshot.as_ref().unwrap().revision;
@@ -667,17 +621,17 @@ fn unread_queue_render_scale_profile() {
     for count in [1, 15] {
         for collapsed in [false, true] {
             for federated in [false, true] {
-                for reset in [false, true] {
-                    let mut state = queue_state(count);
+                for restored in [false, true] {
+                    let (mut state, mut daemon) = queue_state(count);
                     state.sidebar_collapsed = collapsed;
                     if federated {
                         add_remote(&mut state);
                     }
-                    if reset {
-                        mark_and_leave(&mut state);
+                    if restored {
+                        daemon.focus("sibling");
+                        daemon.restore_hold("pane_1");
+                        daemon.send(&mut state);
                     }
-                    // Compare queue ordering after the confirmation toast expires;
-                    // its occlusion work otherwise dominates this measurement.
                     state.visible_endpoint_notice = None;
                     state.outer_focused = Some(false);
                     let mut next = surface();
@@ -713,7 +667,7 @@ fn unread_queue_render_scale_profile() {
                     state.set_pane_surface(next);
                     assert_eq!(
                         state.snapshot.as_ref().unwrap().agents[0].agent_status,
-                        if reset {
+                        if restored {
                             AgentStatus::Done
                         } else {
                             AgentStatus::Idle
@@ -728,7 +682,7 @@ fn unread_queue_render_scale_profile() {
                     }
                     samples.sort_unstable();
                     eprintln!(
-                        "unread-queue panes={count} collapsed={collapsed} federated={federated} reset={reset} median_us={} p95_us={}",
+                        "unread-queue panes={count} collapsed={collapsed} federated={federated} restored={restored} median_us={} p95_us={}",
                         samples[100], samples[190]
                     );
                 }
