@@ -194,7 +194,11 @@ lands.
   It drops the recency and presentation fields and the `seen` flag, and
   `seen()` reads the daemon's status, because the TUI's completion ledger is
   removed. The helpers that build its rows live in
-  `aggregate_navigation/agent_order.rs`.
+  `aggregate_navigation/agent_order.rs`. `src/client/shell/overlay_input.rs`
+  also stays rewritten: upstream's `open_navigator_overlay` becomes a
+  layout-taking `open_navigator(layout)`, which the fork's agent and
+  workspace pickers share, because a fork hook would copy upstream's overlay
+  literal.
 
 ## Upstream guardrails
 
