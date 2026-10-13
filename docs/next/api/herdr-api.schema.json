@@ -1852,22 +1852,6 @@
                 "type"
               ],
               "type": "object"
-            },
-            {
-              "properties": {
-                "message": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "failed",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "message"
-              ],
-              "type": "object"
             }
           ]
         },

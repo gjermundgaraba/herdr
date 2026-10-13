@@ -589,12 +589,6 @@ async fn a_client_reported_failure_becomes_a_typed_error() {
         (ClientJumpOutcome::NotFound, "jump_target_not_found"),
         (ClientJumpOutcome::Unavailable, "jump_endpoint_unavailable"),
         (ClientJumpOutcome::Timeout, "jump_timeout"),
-        (
-            ClientJumpOutcome::Failed {
-                message: "activation was cancelled".into(),
-            },
-            "jump_failed",
-        ),
     ] {
         let waiting = jump(&mut server, 61);
         let jump_id = forwarded_jump(&control).jump_id;
@@ -609,9 +603,6 @@ async fn a_client_reported_failure_becomes_a_typed_error() {
             serde_json::from_str(&waiting.try_recv().unwrap()).unwrap();
         assert_eq!(response.id, "api");
         assert_eq!(response.error.code, code, "{outcome:?}");
-        if matches!(outcome, ClientJumpOutcome::Failed { .. }) {
-            assert_eq!(response.error.message, "activation was cancelled");
-        }
     }
     shutdown_test_runtimes(&mut server);
 }

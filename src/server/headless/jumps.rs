@@ -13,7 +13,7 @@ use super::HeadlessServer;
 use crate::api;
 use crate::api::schema::{
     ClientJumpOutcome, ClientJumpParams, ClientJumpResolveParams, Method, ResponseResult,
-    MAX_CLIENT_REPORT_ID_BYTES, MAX_CLIENT_REPORT_TEXT_BYTES,
+    MAX_CLIENT_REPORT_ID_BYTES,
 };
 use crate::app::{encode_error, encode_success};
 use crate::protocol::endpoint::{client_jump_message, EndpointClientJump};
@@ -218,25 +218,8 @@ impl HeadlessServer {
                 "jump_timeout",
                 "the client did not see the pane focused in time",
             ),
-            Ok(ClientJumpOutcome::Failed { message }) => {
-                let message = bounded_message(&message);
-                failure(
-                    "jump_failed",
-                    if message.is_empty() {
-                        "the client could not perform the jump"
-                    } else {
-                        message
-                    },
-                )
-            }
             Err((code, message)) => failure(code, message),
         };
         let _ = jump.respond_to.send(response);
     }
-}
-
-/// A client's failure text, cut to the report text limit.
-fn bounded_message(message: &str) -> &str {
-    let message = message.trim();
-    &message[..message.floor_char_boundary(MAX_CLIENT_REPORT_TEXT_BYTES)]
 }
