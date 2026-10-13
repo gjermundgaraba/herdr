@@ -100,7 +100,10 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   has the lines. Without it Herdr falls back to reading Pi's screen and never
   sees it blocked. A Pi started directly as a layout, popup, plugin pane or
   custom command, rather than from a pane's shell, does not read the shell
-  config, so it does not report through 7501
+  config, so it does not report through 7501. The bundled extension no
+  longer reports working or idle itself, so whenever Pi does not report
+  through 7501 (`PI_PROGRAM_STATUS` unset, or Pi launched directly), every
+  state falls back to screen detection
   (`src/pane/program_status.rs`, `src/terminal/state/in_band.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
@@ -176,8 +179,10 @@ lands.
   touching it: a small edit in place beats a duplicate. An upstream test whose
   behavior the fork changes is edited in place. The TUI's single-host agent
   paths (`src/client/shell/sidebar.rs`, `agent_sidebar.rs`, `actions.rs`,
-  `endpoint_navigation.rs`) stay rewritten for the documented reconnect
-  behavior, which shows cached agents dimmed, so do not restore upstream's.
+  `endpoint_navigation.rs`) stay rewritten because the fork's agents list
+  keeps a reconnecting host's cached agents, dimmed and skipped by
+  navigation, which upstream's paths drop. That is a fork feature (fork
+  commit 2c42afce), so do not restore upstream's.
 
 ## Upstream guardrails
 

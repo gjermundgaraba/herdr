@@ -97,7 +97,7 @@ In bash (`~/.bashrc`, or `~/.bash_profile` for login shells such as macOS's defa
 if [ "$HERDR_ENV" = 1 ]; then export PI_PROGRAM_STATUS=1; fi
 ```
 
-Without it, Pi asks, gets no answer, and sends no reports. An older Pi, or one run with `PI_PROGRAM_STATUS=0`, sends none either. Herdr then reads Pi's state from the screen and cannot tell when it is blocked. A Pi started directly as a layout, popup, plugin pane, or custom command, rather than from a pane's shell, does not read your shell config, so it does not report through OSC 7501. Pi extensions that emit `herdr:blocked` no longer affect Herdr's state for Pi.
+Without it, Pi asks, gets no answer, and sends no reports. An older Pi, or one run with `PI_PROGRAM_STATUS=0`, sends none either. Herdr then reads Pi's state from the screen and cannot tell when it is blocked. A Pi started directly as a layout, popup, plugin pane, or custom command, rather than from a pane's shell, does not read your shell config, so it does not report through OSC 7501. The bundled extension no longer reports working or idle itself, so whenever Pi does not report through OSC 7501, every state, not only blocked, comes from the screen. Pi extensions that emit `herdr:blocked` no longer affect Herdr's state for Pi.
 
 ## OMP
 
