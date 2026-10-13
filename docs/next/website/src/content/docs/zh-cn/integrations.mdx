@@ -99,7 +99,7 @@ if test "$HERDR_ENV" = 1; set -gx PI_PROGRAM_STATUS 1; end
 if [ "$HERDR_ENV" = 1 ]; then export PI_PROGRAM_STATUS=1; fi
 ```
 
-如果没有设置,Pi 发出查询,得不到回应,也就不发送上报。较旧的 Pi,或以 `PI_PROGRAM_STATUS=0` 运行的 Pi,同样不会上报。此时 Herdr 从屏幕读取 Pi 的状态,无法判断它何时处于 blocked。不是从窗格的 shell 中启动,而是作为布局、弹窗、插件窗格或自定义命令直接启动的 Pi 不会读取 shell 配置,因此不会通过 OSC 7501 上报。发出 `herdr:blocked` 的 Pi 扩展不再影响 Herdr 中 Pi 的状态。
+如果没有设置,Pi 发出查询,得不到回应,也就不发送上报。较旧的 Pi,或以 `PI_PROGRAM_STATUS=0` 运行的 Pi,同样不会上报。此时 Herdr 从屏幕读取 Pi 的状态,无法判断它何时处于 blocked。不是从窗格的 shell 中启动,而是作为布局、弹窗、插件窗格或自定义命令直接启动的 Pi 不会读取 shell 配置,因此不会通过 OSC 7501 上报。内置扩展不再自行上报工作中或空闲,所以只要 Pi 不通过 OSC 7501 上报,不只是 blocked,所有状态都从屏幕读取。发出 `herdr:blocked` 的 Pi 扩展不再影响 Herdr 中 Pi 的状态。
 
 ## OMP
 
