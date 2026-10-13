@@ -11,6 +11,8 @@ use crate::client::shell::tests::fleet::{agent, fleet, machine, retained};
 use crate::client::shell::{ControlOrigin, NAVIGATION_SETTLE_DEADLINE};
 use crate::protocol::endpoint::EndpointClientJump;
 
+mod report_trim;
+
 type Sent = Arc<Mutex<Vec<ClientMessage>>>;
 
 struct Recorder(Sent);
@@ -465,6 +467,15 @@ fn a_report_too_large_for_one_command_loses_its_last_rows() {
     // The rows kept are the head of the list, in order.
     assert_eq!(report.agents[..], full.agents[..report.agents.len()]);
     assert_eq!(report.endpoints, full.endpoints);
+    // It is the longest head that fits: one more row does not.
+    let longer = Request {
+        id: request.id,
+        method: Method::ClientReport(ClientReport {
+            agents: full.agents[..report.agents.len() + 1].to_vec(),
+            ..report
+        }),
+    };
+    assert!(serde_json::to_string(&longer).unwrap().len() > MAX_ENDPOINT_COMMAND_BYTES);
 }
 
 fn jump(endpoint_id: &str, boot_id: &str, pane_id: &str) -> EndpointClientJump {
