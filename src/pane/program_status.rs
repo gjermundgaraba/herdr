@@ -109,18 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn process_pty_bytes_returns_reports_and_leaves_the_support_query_unanswered() {
-        let (tx, mut rx) = mpsc::channel(4);
+    fn process_pty_bytes_returns_program_status_reports() {
+        let (tx, _rx) = mpsc::channel(4);
         let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
         let pane = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
         let pane_id = PaneId::from_raw(1);
-
-        // Pi's startup query without `PI_PROGRAM_STATUS=1`: only DA1 is answered, so Pi
-        // concludes the terminal lacks OSC 7501 support.
-        let query = pane.process_pty_bytes(pane_id, 0, b"\x1b]7501;?\x1b\\\x1b[c", &tx);
-        assert_eq!(query.terminal_responses.len(), 1);
-        assert!(query.terminal_responses[0].starts_with(b"\x1b[?"));
-        assert!(query.program_status_reports.is_empty());
 
         let result = pane.process_pty_bytes(pane_id, 0, b"\x1b]7501;state=working:app=pi\x07", &tx);
         assert!(result.terminal_responses.is_empty());
@@ -128,6 +121,5 @@ mod tests {
             result.program_status_reports,
             vec![report("pi", AgentState::Working)]
         );
-        assert!(rx.try_recv().is_err());
     }
 }

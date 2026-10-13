@@ -61,7 +61,7 @@ Herdr 对 Linux/macOS 上的集成配置和所有平台的新文件使用原子�
 
 每个集成都会告诉 Herdr 智能体当前所在的会话,这样 Herdr 就能在服务器重启后恢复它。用 `[session] resume_agents_on_restore = false` 可以关闭。
 
-Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI 和 MastraCode 的集成还会上报智能体的状态。在它们上报期间,Herdr 使用这些上报,而不是读取屏幕。其他集成则把状态交给屏幕检测。
+OMP、Kimi Code CLI、OpenCode、Kilo Code CLI 和 MastraCode 的集成还会上报智能体的状态。Pi 在自己的输出中通过 Program Status Protocol (OSC 7501) 上报自身状态。在智能体上报状态期间,Herdr 使用这些上报,而不是读取屏幕。其他集成则把状态交给屏幕检测。
 
 原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `5`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Qwen Code 版本 `1`、Letta Code 版本 `1`、Cursor Agent CLI 版本 `1`、Grok CLI 版本 `2`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `5`、MastraCode 版本 `1`、Antigravity CLI 版本 `1`。用 `herdr integration status` 查看已安装版本。
 
@@ -84,6 +84,22 @@ Herdr 把内置扩展写入:
 ```
 
 如果设置了 `PI_CODING_AGENT_DIR`,Herdr 会改为写入 `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts`。如果 Pi agent 目录已经存在,Herdr 会创建 extensions 目录。卸载只删除那个扩展文件。
+
+该扩展只上报 Pi 的会话。Pi 1.1.0 及更高版本通过 Program Status Protocol (OSC 7501) 上报自己是在工作、在等待对话框或登录,还是空闲。只有当上报的 `app` 指向的智能体,其状态上报集成上报过该窗格的会话时,Herdr 才会应用这条上报,所以 Pi 的上报需要这个扩展。
+
+Herdr 不回应该协议的支持查询,所以 Pi 只有在以 `PI_PROGRAM_STATUS=1` 运行时才会上报,这个变量会跳过查询。请在 shell 配置中为 Herdr 窗格内的 shell 设置它,这些 shell 中 `HERDR_ENV` 为 `1`。在 fish 中(`~/.config/fish/config.fish`):
+
+```fish
+if test "$HERDR_ENV" = 1; set -gx PI_PROGRAM_STATUS 1; end
+```
+
+在 bash(`~/.bashrc`;对于登录 shell,例如 macOS 上默认的窗格 shell,则是 `~/.bash_profile`)或 zsh(`~/.zshrc`)中:
+
+```bash
+if [ "$HERDR_ENV" = 1 ]; then export PI_PROGRAM_STATUS=1; fi
+```
+
+如果没有设置,Pi 发出查询,得不到回应,也就不发送上报。较旧的 Pi,或以 `PI_PROGRAM_STATUS=0` 运行的 Pi,同样不会上报。此时 Herdr 从屏幕读取 Pi 的状态,无法判断它何时处于 blocked。不是从窗格的 shell 中启动,而是作为布局、弹窗、插件窗格或自定义命令直接启动的 Pi 不会读取 shell 配置,因此不会通过 OSC 7501 上报。发出 `herdr:blocked` 的 Pi 扩展不再影响 Herdr 中 Pi 的状态。
 
 ## OMP
 
