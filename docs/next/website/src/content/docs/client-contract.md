@@ -320,12 +320,13 @@ at once.
 
 The clients differ while a switch of machine that the user started is under
 way. The TUI counts the machine it is leaving as presented until the switch is
-over, so a jump to the pane that machine shows skips the navigation and is
-answered once the switch is over: `focused` only if the TUI still presents the
-pane, so after a switch to another machine the jump waits and answers
-`timeout`. Herdr GPUI selects the new machine at the click, so it no longer
-presents the machine it left: a jump to that machine navigates back to it, as
-to any pane it does not present, and can answer `focused`.
+over, so a first jump, one that replaces no pending jump, to the pane that
+machine shows skips the navigation and is answered once the switch is over:
+`focused` only if the TUI still presents the pane, so after a switch to another
+machine the jump waits and answers `timeout`. Herdr GPUI selects the new
+machine at the click, so it no longer presents the machine it left: a jump to
+that machine navigates back to it, as to any pane it does not present, and can
+answer `focused`.
 
 ### Choosing the outcome
 
