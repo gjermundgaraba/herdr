@@ -1,5 +1,3 @@
-//! The fork's `pane.cwd_changed` event.
-
 use super::*;
 
 #[test]
