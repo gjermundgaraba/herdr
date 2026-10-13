@@ -527,7 +527,6 @@ impl ClientShellState {
             }
             (
                 PendingEndpointKind::Generic
-                | PendingEndpointKind::HistoryStep { .. }
                 | PendingEndpointKind::ProductAnnouncementDismiss { .. }
                 | PendingEndpointKind::ReleaseNotesDismiss
                 | PendingEndpointKind::PopupCommand
@@ -540,14 +539,10 @@ impl ClientShellState {
                 | PendingEndpointKind::PaneLinkActivate { .. }
                 | PendingEndpointKind::PaneLinkResolve { .. }
                 | PendingEndpointKind::CopyMotion { .. }
-                | PendingEndpointKind::CopySearch { .. },
+                | PendingEndpointKind::CopySearch { .. }
+                | PendingEndpointKind::MarkUnread,
                 Err(_),
             ) => true,
-            // Jumps and unread marks settle in `handle_endpoint_result` before
-            // any worktree handling.
-            (PendingEndpointKind::ClientJump { .. } | PendingEndpointKind::MarkUnread, Err(_)) => {
-                true
-            }
         }
     }
 }

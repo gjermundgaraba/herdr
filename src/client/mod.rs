@@ -784,13 +784,9 @@ async fn run_client_loop(
                 &supervisor_tx,
             );
         }
-        report_held_activations(
-            &mut state,
-            pending_activation.as_ref(),
-            scheduled_activation.as_ref(),
-        );
-        // The same boundary coalesces the client contract: however many
-        // events changed the Agents list, one report follows them.
+        // Once per turn, the client contract settles jumps against what is
+        // presented, and however many events changed the Agents list, one
+        // report follows them.
         if let Some(shell) = state.shell.as_mut() {
             client_contract.sync(shell, &mut write_stream, std::time::Instant::now());
         }

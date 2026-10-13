@@ -107,19 +107,10 @@ impl ClientShellState {
             next.iter()
                 .any(|endpoint| &endpoint.endpoint_id == endpoint_id)
         });
-        for endpoint in &self.endpoints {
-            if !next.iter().any(|candidate| {
-                candidate.endpoint_id == endpoint.endpoint_id
-                    && candidate.status != ClientEndpointStatus::Disabled
-            }) {
-                self.history.retire(&endpoint.endpoint_id);
-            }
-        }
         self.endpoints = next;
     }
 
     pub(crate) fn select_unavailable_local(&mut self) {
-        self.history.clear();
         self.reset_endpoint_projection();
         self.active_endpoint_id = ClientEndpointId::Local;
         self.mode = ClientShellMode::Terminal;
@@ -133,7 +124,6 @@ impl ClientShellState {
         if endpoint_id == &self.active_endpoint_id {
             self.pending_workspace_highlight = None;
         }
-        self.history.retire(endpoint_id);
         self.retire_endpoint_notifications(endpoint_id);
         if let Some(endpoint) = self
             .endpoints
@@ -561,18 +551,7 @@ impl ClientShellState {
         {
             return;
         }
-        // A server reboot invalidates history visits recorded under its old boot,
-        // and closed panes invalidate theirs, even while the endpoint is inactive.
-        self.history.observe_boot(endpoint_id, &snapshot.boot_id);
-        self.history.observe_panes(
-            endpoint_id,
-            &snapshot.boot_id,
-            snapshot
-                .panes
-                .iter()
-                .map(|pane| pane.pane_id.as_str())
-                .chain(snapshot.focused_pane_id.as_deref()),
-        );
+        self.observe_history(endpoint_id, &snapshot);
         let boot_changed = self.endpoints[index]
             .snapshot
             .as_deref()

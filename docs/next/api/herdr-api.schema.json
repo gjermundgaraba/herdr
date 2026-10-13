@@ -1828,7 +1828,7 @@
               "type": "object"
             },
             {
-              "description": "The endpoint is not online, or the client's navigation did not reach\nit or was withdrawn. After a request the client withdrew in flight\nthe jump may still have happened.",
+              "description": "The endpoint is not online, or has sent the client no snapshot yet.",
               "properties": {
                 "type": {
                   "const": "unavailable",

@@ -52,20 +52,21 @@ panes appear under their workspaces while a search is active. `↑`/`↓` or
 navigator's search, status filters, and keys. The Goto picker (`prefix+g`) is
 unchanged.
 
-`history_back` and `history_forward` step through pane visits recorded per TUI
-across all machines. A visit is recorded once per accepted snapshot whose
-focused pane changed, so rapid intermediate focus changes coalesce. History is
-in memory, holds at most 100 visits, prunes machines that go away or restart,
-skips offline machines, and starts empty with each TUI.
+`history_back` and `history_forward` step Back and Forward through the panes
+the presented machine has focused, the way a browser walks its pages. Each
+machine keeps its own trail, and a step never leaves the presented machine.
+The trail is read from the machine's snapshots, so focus changed from anywhere,
+by a key, the sidebar, a script, or another client, is a visit, and rapid
+intermediate focus changes that never reached a snapshot are not. Going
+somewhere new drops the visits ahead, as in a browser. A trail is in memory,
+holds at most 100 panes, starts over when its machine restarts, and starts
+empty with each TUI. A step skips panes that have closed and the pane already
+focused, and a key with nowhere to go does nothing.
 
-A step waits for its own navigation: the answer to its focus request, or, for
-a step to another machine, the end of the switch to it. Until then, nothing
-shown is recorded or taken for the step's arrival, so a pane something else
-focused, such as a script or a closing pane, does not cut the visits ahead.
-Neither does a second step pressed before the first one shows or while the
-TUI is still switching machines for it: the second step takes the first one's
-place. A step that is refused, fails, or is replaced by another selection
-returns to the visit it began on.
+A step asks the machine to focus the pane. While that request is in flight,
+a second step continues from the first one's target, and the focus the first
+one brings moves along the trail instead of dropping the visits ahead. Once the
+machine has answered, whatever focus arrived is where the next step starts.
 
 `mark_unread` sends `agent.mark_unread` for the focused pane to the machine
 that owns it. That daemon keeps the hold, so every client attached to it shows

@@ -258,7 +258,6 @@ mod endpoints;
 pub(in crate::client) mod fleet;
 mod graphics;
 mod input_conformance;
-pub(in crate::client) mod history;
 #[path = "input.rs"]
 mod input_domain;
 mod keybindings_settings;

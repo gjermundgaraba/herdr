@@ -394,7 +394,7 @@ pub struct KeysConfig {
     pub agent_picker: BindingConfig,
     /// Open the session navigator listing only workspaces. Unset by default.
     pub workspace_list: BindingConfig,
-    /// Return to the previously focused pane, across machines. Unset by default.
+    /// Return to the pane the presented machine focused before. Unset by default.
     pub history_back: BindingConfig,
     /// Go forward again in pane history. Unset by default.
     pub history_forward: BindingConfig,
