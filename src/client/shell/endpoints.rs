@@ -522,6 +522,17 @@ impl ClientShellState {
         self.store_endpoint_snapshot(endpoint_id, Some(generation), snapshot);
     }
 
+    /// Metadata delivered while an endpoint surface is inactive must never advance this
+    /// aggregate client's viewed watermark, even if the frozen source frame still exists.
+    pub(crate) fn cache_endpoint_snapshot_inactive_for_generation(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        generation: u64,
+        snapshot: Box<ClientShellSnapshot>,
+    ) {
+        self.store_endpoint_snapshot(endpoint_id, Some(generation), snapshot);
+    }
+
     /// Retains an endpoint's snapshot as its daemon sent it. Agent statuses,
     /// and so completion badges, are the daemon's: this client keeps no
     /// record of what it has shown.

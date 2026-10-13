@@ -1,6 +1,6 @@
-//! Plugin entrypoints: actions and panes share one id namespace, and a
-//! plugin pane ignores sizes outside popups and takes its context from an
-//! explicit target.
+//! Plugin entrypoints: actions and panes share one id namespace, a key's
+//! size applies only to a popup pane, and a plugin pane takes its context
+//! from an explicit target.
 
 use super::*;
 
@@ -33,10 +33,72 @@ command = ["echo", "b"]
     let _ = std::fs::remove_dir_all(root);
 }
 
+fn pane_open_params() -> PluginPaneOpenParams {
+    PluginPaneOpenParams {
+        plugin_id: "example.worktree-bootstrap".into(),
+        entrypoint: "board".into(),
+        placement: None,
+        width: None,
+        height: None,
+        workspace_id: None,
+        target_pane_id: None,
+        direction: None,
+        cwd: None,
+        focus: false,
+        env: Default::default(),
+    }
+}
+
+#[test]
+fn plugin_invoke_validation_matrix() {
+    type Setup = fn(&mut InstalledPluginInfo, &mut crate::api::schema::PluginInvokeParams);
+    let root = unique_temp_path("plugin-invoke-validation");
+    write_manifest(&root);
+    let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
+    let cases: [(&str, Setup); 7] = [
+        ("invalid_plugin_id", |_, params| {
+            params.plugin_id = "bad plugin".into()
+        }),
+        ("plugin_not_found", |_, params| {
+            params.plugin_id = "example.missing".into()
+        }),
+        ("invalid_plugin_entrypoint", |_, params| {
+            params.entry_id = "bad entrypoint".into()
+        }),
+        ("plugin_entrypoint_not_found", |_, params| {
+            params.entry_id = "missing".into()
+        }),
+        ("plugin_disabled", |plugin, _| plugin.enabled = false),
+        ("plugin_manifest_unavailable", |plugin, _| {
+            plugin.warnings.push("manifest unavailable: test".into())
+        }),
+        ("platform_unsupported", |plugin, _| {
+            plugin.panes[0].platforms = Some(Vec::new())
+        }),
+    ];
+    for (expected, setup) in cases {
+        let mut app = test_app();
+        let mut plugin = installed.clone();
+        let mut params = invoke_params("example.worktree-bootstrap", "board");
+        setup(&mut plugin, &mut params);
+        app.state
+            .installed_plugins
+            .insert(plugin.plugin_id.clone(), plugin);
+        let response = app.handle_plugin_invoke("invoke-validation".into(), params);
+        let error: crate::api::schema::ErrorResponse =
+            serde_json::from_str(&response).expect(&response);
+        assert_eq!(error.error.code, expected);
+        assert!(app.state.popup_pane.is_none());
+        assert!(app.state.plugin_panes.is_empty());
+        assert!(app.state.plugin_command_logs.is_empty());
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[cfg(unix)]
 #[tokio::test]
-async fn pane_sizes_are_ignored_outside_popups_from_manifest_api_and_keybinding() {
-    let root = unique_temp_path("plugin-pane-non-popup-size");
+async fn key_sizes_apply_only_to_popup_panes() {
+    let root = unique_temp_path("plugin-pane-key-size");
     write_manifest_content(
         &root,
         r#"
@@ -50,40 +112,26 @@ platforms = ["linux", "macos", "windows"]
 id = "board"
 title = "Board"
 placement = "split"
-width = "80%"
-height = 12
 command = ["sh", "-c", "exit 0"]
 "#,
     );
     let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
-    for from_keybinding in [false, true] {
-        let mut app = test_app();
-        app.state.workspaces = vec![crate::workspace::Workspace::test_new("target")];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
-        app.state
-            .installed_plugins
-            .insert(installed.plugin_id.clone(), installed.clone());
-        let width = Some(crate::popup_size::PopupSize::Percent(80));
-        if from_keybinding {
-            let mut binding = plugin_keybinding("example.worktree-bootstrap.board");
-            binding.width = width;
-            app.invoke_plugin_from_keybind(&binding, None).unwrap();
-        } else {
-            let mut params = pane_open_params();
-            params.width = width;
-            let response = app.handle_plugin_pane_open("pane-open-size".into(), params);
-            assert!(matches!(
-                response_result(&response),
-                ResponseResult::PluginPaneOpened { .. }
-            ));
-        }
-        assert!(app.state.popup_pane.is_none());
-        assert_eq!(app.state.plugin_panes.len(), 1);
-        for (_, runtime) in app.terminal_runtimes.drain() {
-            runtime.shutdown();
-        }
+    let mut app = test_app();
+    app.state.workspaces = vec![crate::workspace::Workspace::test_new("target")];
+    app.state.ensure_test_terminals();
+    app.state.active = Some(0);
+    app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
+    app.state
+        .installed_plugins
+        .insert(installed.plugin_id.clone(), installed);
+    let mut binding = plugin_keybinding("example.worktree-bootstrap.board");
+    binding.width = Some(crate::popup_size::PopupSize::Percent(80));
+    binding.height = Some(crate::popup_size::PopupSize::Cells(12));
+    app.invoke_plugin_from_keybind(&binding, None).unwrap();
+    assert!(app.state.popup_pane.is_none());
+    assert_eq!(app.state.plugin_panes.len(), 1);
+    for (_, runtime) in app.terminal_runtimes.drain() {
+        runtime.shutdown();
     }
     let _ = std::fs::remove_dir_all(root);
 }

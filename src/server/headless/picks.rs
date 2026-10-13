@@ -32,6 +32,7 @@ impl HeadlessServer {
                     return None;
                 };
                 if self
+                    .fork
                     .pending_picks
                     .values()
                     .any(|pick| pick.client_id == client_id)
@@ -60,7 +61,7 @@ impl HeadlessServer {
                     ));
                     return None;
                 }
-                self.pending_picks.insert(
+                self.fork.pending_picks.insert(
                     id,
                     PendingPick {
                         client_id,
@@ -99,6 +100,7 @@ impl HeadlessServer {
         params: UiPickResolveParams,
     ) -> Result<ResponseResult, (&'static str, String)> {
         let owned = self
+            .fork
             .pending_picks
             .get(&params.pick_id)
             .is_some_and(|pick| pick.client_id == client_id);
@@ -114,7 +116,7 @@ impl HeadlessServer {
 
     /// Answers the waiting caller and returns the picker's client.
     fn finish_pick(&mut self, pick_id: &str, outcome: UiPickOutcome) -> Option<u64> {
-        let pick = self.pending_picks.remove(pick_id)?;
+        let pick = self.fork.pending_picks.remove(pick_id)?;
         let _ = pick.respond_to.send(encode_success(
             pick_id.to_owned(),
             ResponseResult::UiPicked { outcome },
@@ -125,6 +127,7 @@ impl HeadlessServer {
     /// Cancels the pickers a departing client was showing.
     pub(super) fn cancel_client_picks(&mut self, client_id: u64) {
         let pick_ids = self
+            .fork
             .pending_picks
             .iter()
             .filter(|(_, pick)| pick.client_id == client_id)

@@ -1,74 +1,7 @@
-use super::entrypoint::plugin_error;
-use crate::api::schema::{ErrorBody, EventData, PluginInvocationContext};
+use crate::api::schema::{EventData, PluginInvocationContext};
 use crate::app::App;
 
 impl App {
-    /// Context for the target of a `plugin.invoke` request. The most
-    /// specific id supplies it, so the invocation describes what it targets,
-    /// not what has focus; less specific ids must agree. Without ids, focus
-    /// supplies it, as it does for a keybinding, which names no target.
-    pub(super) fn plugin_context_for_target(
-        &self,
-        workspace_id: Option<&str>,
-        tab_id: Option<&str>,
-        pane_id: Option<&str>,
-        correlation_id: &str,
-    ) -> Result<PluginInvocationContext, ErrorBody> {
-        let context = if let Some(pane_id) = pane_id {
-            self.plugin_context_for_public_pane_id(pane_id, correlation_id)
-                .ok_or_else(|| {
-                    plugin_error("pane_not_found", format!("pane not found: {pane_id}"))
-                })?
-        } else if let Some(tab_id) = tab_id {
-            self.plugin_context_for_tab_id(tab_id, correlation_id)
-                .ok_or_else(|| plugin_error("tab_not_found", format!("tab not found: {tab_id}")))?
-        } else if let Some(workspace_id) = workspace_id {
-            self.plugin_context_for_workspace_id(workspace_id, correlation_id)
-                .ok_or_else(|| {
-                    plugin_error(
-                        "workspace_not_found",
-                        format!("workspace not found: {workspace_id}"),
-                    )
-                })?
-        } else {
-            self.current_plugin_context(correlation_id)
-        };
-        let disagrees = |provided: Option<&str>, actual: &Option<String>| {
-            provided.is_some_and(|provided| actual.as_deref() != Some(provided))
-        };
-        if disagrees(workspace_id, &context.workspace_id) || disagrees(tab_id, &context.tab_id) {
-            return Err(plugin_error(
-                "target_mismatch",
-                "target ids do not name the same space, tab, and pane",
-            ));
-        }
-        Ok(context)
-    }
-
-    /// Adds what an invoked plugin would otherwise query next: the invoking
-    /// client, the context workspace's tabs, and every workspace. Event hooks
-    /// skip this; they fire per event and their event JSON names the entities.
-    pub(super) fn with_invocation_details(
-        &self,
-        mut context: PluginInvocationContext,
-    ) -> PluginInvocationContext {
-        context.client_id = self.invoking_client_id.or(context.client_id);
-        if let Some((ws_idx, ws)) = context
-            .workspace_id
-            .as_deref()
-            .and_then(|workspace_id| self.parse_workspace_id(workspace_id))
-            .and_then(|ws_idx| Some((ws_idx, self.state.workspaces.get(ws_idx)?)))
-        {
-            context.tabs = (0..ws.tabs.len())
-                .filter_map(|tab_idx| self.tab_info(ws_idx, tab_idx))
-                .collect();
-        }
-        context.workspaces = (0..self.state.workspaces.len())
-            .map(|ws_idx| self.workspace_info(ws_idx))
-            .collect();
-        context
-    }
-
     pub(super) fn current_plugin_context(&self, correlation_id: &str) -> PluginInvocationContext {
         let Some(ws_idx) = self.state.active else {
             return empty_plugin_context(correlation_id);
@@ -238,7 +171,7 @@ impl App {
         }
     }
 
-    fn plugin_context_for_workspace_id(
+    pub(super) fn plugin_context_for_workspace_id(
         &self,
         workspace_id: &str,
         correlation_id: &str,
@@ -280,7 +213,7 @@ impl App {
         context
     }
 
-    fn plugin_context_for_tab_id(
+    pub(super) fn plugin_context_for_tab_id(
         &self,
         tab_id: &str,
         correlation_id: &str,
@@ -317,7 +250,7 @@ impl App {
             })
     }
 
-    fn plugin_context_for_public_pane_id(
+    pub(super) fn plugin_context_for_public_pane_id(
         &self,
         pane_id: &str,
         correlation_id: &str,

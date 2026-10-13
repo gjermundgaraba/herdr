@@ -1,11 +1,12 @@
 mod pinned;
 mod rules;
+mod separator;
 
 pub use pinned::PinnedSpaceSection;
 pub use rules::SidebarTokenRule;
+use separator::Separator;
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -119,6 +120,12 @@ pub enum AgentSidebarToken {
     TerminalTitle,
     TerminalTitleStripped,
     Custom(String),
+    Styled {
+        token: Box<AgentSidebarToken>,
+        style: SidebarTokenStyle,
+        rules: Vec<SidebarTokenRule>,
+        separator_before: Separator,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,38 +136,42 @@ pub enum SpaceSidebarToken {
     Branch,
     GitStatus,
     Custom(String),
+    Styled {
+        token: Box<SpaceSidebarToken>,
+        style: SidebarTokenStyle,
+        rules: Vec<SidebarTokenRule>,
+        separator_before: Separator,
+    },
 }
 
-/// A token kind that can appear in a sidebar row, named as it is in config.
-pub trait SidebarTokenKind: Sized {
-    fn name(&self) -> String;
-    fn parse(value: String) -> Result<Self, String>;
-}
-
-/// One occurrence of a token in a sidebar row, with its per-occurrence options.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SidebarTokenSpec<T> {
-    pub token: T,
-    pub style: SidebarTokenStyle,
-    pub rules: Vec<SidebarTokenRule>,
-    /// Replaces the row's separator before this occurrence. Herdr GPUI reads
-    /// the same option in `crates/herdr-gpui/src/config/sidebar.rs`.
-    pub separator_before: Option<Arc<str>>,
-}
-
-impl<T> SidebarTokenSpec<T> {
+impl AgentSidebarToken {
     pub(crate) fn style_for_value(&self, value: &str) -> Option<SidebarTokenStyle> {
-        rules::matching_style(&self.rules, self.style, value)
+        match self {
+            Self::Styled { style, rules, .. } => rules::matching_style(rules, *style, value),
+            _ => Some(SidebarTokenStyle::default()),
+        }
+    }
+
+    pub(crate) fn parts(&self) -> (&Self, SidebarTokenStyle) {
+        match self {
+            Self::Styled { token, style, .. } => (token, *style),
+            token => (token, SidebarTokenStyle::default()),
+        }
     }
 }
 
-impl<T> From<T> for SidebarTokenSpec<T> {
-    fn from(token: T) -> Self {
-        Self {
-            token,
-            style: SidebarTokenStyle::default(),
-            rules: Vec::new(),
-            separator_before: None,
+impl SpaceSidebarToken {
+    pub(crate) fn style_for_value(&self, value: &str) -> Option<SidebarTokenStyle> {
+        match self {
+            Self::Styled { style, rules, .. } => rules::matching_style(rules, *style, value),
+            _ => Some(SidebarTokenStyle::default()),
+        }
+    }
+
+    pub(crate) fn parts(&self) -> (&Self, SidebarTokenStyle) {
+        match self {
+            Self::Styled { token, style, .. } => (token, *style),
+            token => (token, SidebarTokenStyle::default()),
         }
     }
 }
@@ -188,79 +199,41 @@ enum RawSidebarToken {
     Styled(RawStyledSidebarToken),
 }
 
-impl<'de, T: SidebarTokenKind> Deserialize<'de> for SidebarTokenSpec<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let raw = match RawSidebarToken::deserialize(deserializer)? {
-            RawSidebarToken::Plain(token) => {
-                return T::parse(token)
-                    .map(Self::from)
-                    .map_err(serde::de::Error::custom)
+impl RawSidebarToken {
+    fn parts(
+        self,
+    ) -> Result<
+        (
+            String,
+            Option<SidebarTokenStyle>,
+            Vec<SidebarTokenRule>,
+            Separator,
+        ),
+        String,
+    > {
+        match self {
+            Self::Plain(token) => Ok((token, None, Vec::new(), None)),
+            Self::Styled(token) => {
+                if token.rules.len() > 16 {
+                    return Err("sidebar tokens may contain at most 16 rules".into());
+                }
+                if !token.rules.is_empty()
+                    && matches!(token.token.as_str(), "state_icon" | "git_status")
+                {
+                    return Err("sidebar rules require a text-valued token".into());
+                }
+                Ok((
+                    token.token,
+                    Some(SidebarTokenStyle {
+                        fg: token.fg,
+                        bold: token.bold,
+                        dim: token.dim,
+                    }),
+                    token.rules,
+                    separator::sanitize(token.separator_before),
+                ))
             }
-            RawSidebarToken::Styled(raw) => raw,
-        };
-        if raw.rules.len() > 16 {
-            return Err(serde::de::Error::custom(
-                "sidebar tokens may contain at most 16 rules",
-            ));
         }
-        if !raw.rules.is_empty() && matches!(raw.token.as_str(), "state_icon" | "git_status") {
-            return Err(serde::de::Error::custom(
-                "sidebar rules require a text-valued token",
-            ));
-        }
-        Ok(Self {
-            token: T::parse(raw.token).map_err(serde::de::Error::custom)?,
-            style: SidebarTokenStyle {
-                fg: raw.fg,
-                bold: raw.bold,
-                dim: raw.dim,
-            },
-            rules: raw.rules,
-            separator_before: raw.separator_before.map(|separator| {
-                separator
-                    .chars()
-                    .filter(|ch| !ch.is_control())
-                    .collect::<String>()
-                    .into()
-            }),
-        })
-    }
-}
-
-impl<T: SidebarTokenKind> Serialize for SidebarTokenSpec<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeMap;
-        let name = self.token.name();
-        if self.style == SidebarTokenStyle::default()
-            && self.rules.is_empty()
-            && self.separator_before.is_none()
-        {
-            return serializer.serialize_str(&name);
-        }
-        let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("token", &name)?;
-        if let Some(separator) = &self.separator_before {
-            map.serialize_entry("separator_before", &separator[..])?;
-        }
-        if let Some(fg) = self.style.fg {
-            map.serialize_entry("fg", &fg)?;
-        }
-        if let Some(bold) = self.style.bold {
-            map.serialize_entry("bold", &bold)?;
-        }
-        if let Some(dim) = self.style.dim {
-            map.serialize_entry("dim", &dim)?;
-        }
-        if !self.rules.is_empty() {
-            map.serialize_entry("rules", &self.rules)?;
-        }
-        map.end()
     }
 }
 
@@ -287,24 +260,103 @@ where
     Ok(T::from(name.to_string()))
 }
 
-impl SidebarTokenKind for AgentSidebarToken {
-    fn name(&self) -> String {
+fn serialize_styled_token<S>(
+    name: String,
+    style: SidebarTokenStyle,
+    rules: &[SidebarTokenRule],
+    separator_before: &Separator,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    use serde::ser::SerializeMap;
+    let mut map = serializer.serialize_map(None)?;
+    map.serialize_entry("token", &name)?;
+    if let Some(separator) = separator_before {
+        map.serialize_entry("separator_before", &separator[..])?;
+    }
+    if let Some(fg) = style.fg {
+        map.serialize_entry("fg", &fg)?;
+    }
+    if let Some(bold) = style.bold {
+        map.serialize_entry("bold", &bold)?;
+    }
+    if let Some(dim) = style.dim {
+        map.serialize_entry("dim", &dim)?;
+    }
+    if !rules.is_empty() {
+        map.serialize_entry("rules", rules)?;
+    }
+    map.end()
+}
+
+fn agent_token_name(token: &AgentSidebarToken) -> String {
+    match token {
+        AgentSidebarToken::StateIcon => "state_icon".into(),
+        AgentSidebarToken::StateText => "state_text".into(),
+        AgentSidebarToken::Machine => "machine".into(),
+        AgentSidebarToken::Workspace => "workspace".into(),
+        AgentSidebarToken::Tab => "tab".into(),
+        AgentSidebarToken::Pane => "pane".into(),
+        AgentSidebarToken::Agent => "agent".into(),
+        AgentSidebarToken::TerminalTitle => "terminal_title".into(),
+        AgentSidebarToken::TerminalTitleStripped => "terminal_title_stripped".into(),
+        AgentSidebarToken::Custom(name) => format!("${name}"),
+        AgentSidebarToken::Styled { token, .. } => agent_token_name(token),
+    }
+}
+
+fn space_token_name(token: &SpaceSidebarToken) -> String {
+    match token {
+        SpaceSidebarToken::StateIcon => "state_icon".into(),
+        SpaceSidebarToken::StateText => "state_text".into(),
+        SpaceSidebarToken::Workspace => "workspace".into(),
+        SpaceSidebarToken::Branch => "branch".into(),
+        SpaceSidebarToken::GitStatus => "git_status".into(),
+        SpaceSidebarToken::Custom(name) => format!("${name}"),
+        SpaceSidebarToken::Styled { token, .. } => space_token_name(token),
+    }
+}
+
+impl Serialize for AgentSidebarToken {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         match self {
-            Self::StateIcon => "state_icon".into(),
-            Self::StateText => "state_text".into(),
-            Self::Machine => "machine".into(),
-            Self::Workspace => "workspace".into(),
-            Self::Tab => "tab".into(),
-            Self::Pane => "pane".into(),
-            Self::Agent => "agent".into(),
-            Self::TerminalTitle => "terminal_title".into(),
-            Self::TerminalTitleStripped => "terminal_title_stripped".into(),
-            Self::Custom(name) => format!("${name}"),
+            Self::Styled {
+                token,
+                style,
+                rules,
+                separator_before,
+            } => serialize_styled_token(
+                agent_token_name(token),
+                *style,
+                rules,
+                separator_before,
+                serializer,
+            ),
+            token => serializer.serialize_str(&agent_token_name(token)),
         }
     }
+}
 
-    fn parse(value: String) -> Result<Self, String> {
-        parse_sidebar_token(
+impl From<String> for AgentSidebarToken {
+    fn from(value: String) -> Self {
+        Self::Custom(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentSidebarToken {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let (value, style, rules, separator_before) = RawSidebarToken::deserialize(deserializer)?
+            .parts()
+            .map_err(serde::de::Error::custom)?;
+        let token = parse_sidebar_token(
             value,
             &[
                 ("state_icon", Self::StateIcon),
@@ -318,38 +370,36 @@ impl SidebarTokenKind for AgentSidebarToken {
                 ("terminal_title_stripped", Self::TerminalTitleStripped),
             ],
         )
+        .map_err(serde::de::Error::custom)?;
+        Ok(style.map_or(token.clone(), |style| Self::Styled {
+            token: Box::new(token),
+            style,
+            rules,
+            separator_before,
+        }))
     }
 }
 
-impl From<String> for AgentSidebarToken {
-    fn from(value: String) -> Self {
-        Self::Custom(value)
-    }
-}
-
-impl SidebarTokenKind for SpaceSidebarToken {
-    fn name(&self) -> String {
+impl Serialize for SpaceSidebarToken {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         match self {
-            Self::StateIcon => "state_icon".into(),
-            Self::StateText => "state_text".into(),
-            Self::Workspace => "workspace".into(),
-            Self::Branch => "branch".into(),
-            Self::GitStatus => "git_status".into(),
-            Self::Custom(name) => format!("${name}"),
+            Self::Styled {
+                token,
+                style,
+                rules,
+                separator_before,
+            } => serialize_styled_token(
+                space_token_name(token),
+                *style,
+                rules,
+                separator_before,
+                serializer,
+            ),
+            token => serializer.serialize_str(&space_token_name(token)),
         }
-    }
-
-    fn parse(value: String) -> Result<Self, String> {
-        parse_sidebar_token(
-            value,
-            &[
-                ("state_icon", Self::StateIcon),
-                ("state_text", Self::StateText),
-                ("workspace", Self::Workspace),
-                ("branch", Self::Branch),
-                ("git_status", Self::GitStatus),
-            ],
-        )
     }
 }
 
@@ -359,8 +409,36 @@ impl From<String> for SpaceSidebarToken {
     }
 }
 
-type AgentSidebarRows = Vec<Vec<SidebarTokenSpec<AgentSidebarToken>>>;
-type SpaceSidebarRows = Vec<Vec<SidebarTokenSpec<SpaceSidebarToken>>>;
+impl<'de> Deserialize<'de> for SpaceSidebarToken {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let (value, style, rules, separator_before) = RawSidebarToken::deserialize(deserializer)?
+            .parts()
+            .map_err(serde::de::Error::custom)?;
+        let token = parse_sidebar_token(
+            value,
+            &[
+                ("state_icon", Self::StateIcon),
+                ("state_text", Self::StateText),
+                ("workspace", Self::Workspace),
+                ("branch", Self::Branch),
+                ("git_status", Self::GitStatus),
+            ],
+        )
+        .map_err(serde::de::Error::custom)?;
+        Ok(style.map_or(token.clone(), |style| Self::Styled {
+            token: Box::new(token),
+            style,
+            rules,
+            separator_before,
+        }))
+    }
+}
+
+type AgentSidebarRows = Vec<Vec<AgentSidebarToken>>;
+type SpaceSidebarRows = Vec<Vec<SpaceSidebarToken>>;
 
 fn deserialize_rows_by_agent<'de, D>(
     deserializer: D,
@@ -403,12 +481,12 @@ impl Default for AgentsSidebarConfig {
         Self {
             rows: vec![
                 vec![
-                    AgentSidebarToken::StateIcon.into(),
-                    AgentSidebarToken::Machine.into(),
-                    AgentSidebarToken::Workspace.into(),
-                    AgentSidebarToken::Tab.into(),
+                    AgentSidebarToken::StateIcon,
+                    AgentSidebarToken::Machine,
+                    AgentSidebarToken::Workspace,
+                    AgentSidebarToken::Tab,
                 ],
-                vec![AgentSidebarToken::Agent.into()],
+                vec![AgentSidebarToken::Agent],
             ],
             rows_by_agent: BTreeMap::new(),
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
@@ -434,14 +512,8 @@ impl Default for SpacesSidebarConfig {
     fn default() -> Self {
         Self {
             rows: vec![
-                vec![
-                    SpaceSidebarToken::StateIcon.into(),
-                    SpaceSidebarToken::Workspace.into(),
-                ],
-                vec![
-                    SpaceSidebarToken::Branch.into(),
-                    SpaceSidebarToken::GitStatus.into(),
-                ],
+                vec![SpaceSidebarToken::StateIcon, SpaceSidebarToken::Workspace],
+                vec![SpaceSidebarToken::Branch, SpaceSidebarToken::GitStatus],
             ],
             row_gap: DEFAULT_SIDEBAR_ROW_GAP,
             pinned: Vec::new(),
@@ -469,12 +541,12 @@ mod tests {
             config.agents.rows,
             vec![
                 vec![
-                    AgentSidebarToken::StateIcon.into(),
-                    AgentSidebarToken::Machine.into(),
-                    AgentSidebarToken::Workspace.into(),
-                    AgentSidebarToken::Tab.into(),
+                    AgentSidebarToken::StateIcon,
+                    AgentSidebarToken::Machine,
+                    AgentSidebarToken::Workspace,
+                    AgentSidebarToken::Tab,
                 ],
-                vec![AgentSidebarToken::Agent.into()],
+                vec![AgentSidebarToken::Agent],
             ]
         );
         assert!(config.agents.rows_by_agent.is_empty());
@@ -482,14 +554,8 @@ mod tests {
         assert_eq!(
             config.spaces.rows,
             vec![
-                vec![
-                    SpaceSidebarToken::StateIcon.into(),
-                    SpaceSidebarToken::Workspace.into()
-                ],
-                vec![
-                    SpaceSidebarToken::Branch.into(),
-                    SpaceSidebarToken::GitStatus.into()
-                ],
+                vec![SpaceSidebarToken::StateIcon, SpaceSidebarToken::Workspace],
+                vec![SpaceSidebarToken::Branch, SpaceSidebarToken::GitStatus],
             ]
         );
         assert_eq!(config.spaces.row_gap, 0);
@@ -516,33 +582,33 @@ row_gap = 3
         assert_eq!(
             config.ui.sidebar.agents.rows[1],
             vec![
-                AgentSidebarToken::StateText.into(),
-                AgentSidebarToken::Agent.into(),
-                AgentSidebarToken::Custom("summary".into()).into(),
+                AgentSidebarToken::StateText,
+                AgentSidebarToken::Agent,
+                AgentSidebarToken::Custom("summary".into()),
             ]
         );
         assert_eq!(
             config.ui.sidebar.agents.rows[2],
             vec![
-                AgentSidebarToken::TerminalTitle.into(),
-                AgentSidebarToken::TerminalTitleStripped.into(),
-                AgentSidebarToken::Custom("terminal_title".into()).into(),
+                AgentSidebarToken::TerminalTitle,
+                AgentSidebarToken::TerminalTitleStripped,
+                AgentSidebarToken::Custom("terminal_title".into()),
             ]
         );
         assert_eq!(
             config.ui.sidebar.agents.rows_by_agent["claude"],
             vec![
-                vec![AgentSidebarToken::TerminalTitleStripped.into()],
+                vec![AgentSidebarToken::TerminalTitleStripped],
                 vec![
-                    AgentSidebarToken::Agent.into(),
-                    AgentSidebarToken::Custom("model".into()).into(),
+                    AgentSidebarToken::Agent,
+                    AgentSidebarToken::Custom("model".into()),
                 ],
             ]
         );
         assert_eq!(config.ui.sidebar.agents.row_gap, 1);
         assert_eq!(
             config.ui.sidebar.spaces.rows[1],
-            vec![SpaceSidebarToken::Custom("jj_status".into()).into()]
+            vec![SpaceSidebarToken::Custom("jj_status".into())]
         );
         assert_eq!(config.ui.sidebar.spaces.row_gap, 3);
     }
@@ -563,32 +629,32 @@ rows = [[{ token = "git_status", fg = "#ff00aa" }], [{ token = "$jj", bold = tru
         )
         .unwrap();
 
-        let workspace = &config.ui.sidebar.agents.rows[0][0];
-        assert_eq!(workspace.token, AgentSidebarToken::Workspace);
-        assert_eq!(workspace.style.bold, Some(false));
+        let (token, style) = config.ui.sidebar.agents.rows[0][0].parts();
+        assert_eq!(token, &AgentSidebarToken::Workspace);
+        assert_eq!(style.bold, Some(false));
         assert_eq!(
-            workspace.style.fg.unwrap().ratatui(),
+            style.fg.unwrap().ratatui(),
             ratatui::style::Color::Rgb(0xaa, 0xbb, 0xcc)
         );
         assert_eq!(
             config.ui.sidebar.agents.rows[0][1],
-            AgentSidebarToken::Workspace.into()
+            AgentSidebarToken::Workspace
         );
 
-        let agent = &config.ui.sidebar.agents.rows_by_agent["claude"][0][0];
-        assert_eq!(agent.token, AgentSidebarToken::Agent);
-        assert_eq!(agent.style.bold, Some(true));
-        assert_eq!(agent.style.dim, Some(false));
+        let (token, style) = config.ui.sidebar.agents.rows_by_agent["claude"][0][0].parts();
+        assert_eq!(token, &AgentSidebarToken::Agent);
+        assert_eq!(style.bold, Some(true));
+        assert_eq!(style.dim, Some(false));
 
-        let git_status = &config.ui.sidebar.spaces.rows[0][0];
-        assert_eq!(git_status.token, SpaceSidebarToken::GitStatus);
+        let (token, style) = config.ui.sidebar.spaces.rows[0][0].parts();
+        assert_eq!(token, &SpaceSidebarToken::GitStatus);
         assert_eq!(
-            git_status.style.fg.unwrap().ratatui(),
+            style.fg.unwrap().ratatui(),
             ratatui::style::Color::Rgb(0xff, 0x00, 0xaa)
         );
-        let custom = &config.ui.sidebar.spaces.rows[1][0];
-        assert_eq!(custom.token, SpaceSidebarToken::Custom("jj".into()));
-        assert_eq!(custom.style.bold, Some(true));
+        let (token, style) = config.ui.sidebar.spaces.rows[1][0].parts();
+        assert_eq!(token, &SpaceSidebarToken::Custom("jj".into()));
+        assert_eq!(style.bold, Some(true));
     }
 
     #[test]

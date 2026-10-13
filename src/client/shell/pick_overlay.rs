@@ -141,8 +141,8 @@ pub(super) fn render_pick_overlay(
         area: popup,
         primary: *primary,
         cancel: *cancel,
-        list_search: search,
-        list_rows: row_hits,
+        worktree_search: search,
+        worktree_rows: row_hits,
         cursor,
         ..OverlayRender::default()
     })

@@ -125,8 +125,8 @@ pub(super) struct ShellHitMap {
     pub(super) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(super) navigator_scrollbar: Rect,
     pub(super) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    pub(super) list_search: Rect,
-    pub(super) list_rows: Vec<(Rect, usize)>,
+    pub(super) worktree_search: Rect,
+    pub(super) worktree_rows: Vec<(Rect, usize)>,
     pub(super) help_popup: Rect,
     pub(super) help_scrollbar: Rect,
     pub(super) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -179,17 +179,6 @@ pub(super) struct ClientWorkspacePress {
     pub(super) workspace_id: String,
     /// Pressed on a pinned section's mirror, which never drags.
     pub(super) mirror: bool,
-    pub(super) start_column: u16,
-    pub(super) start_row: u16,
-}
-
-/// A press on a space group header: a click toggles it, a drag moves the run.
-pub(super) struct ClientGroupPress {
-    pub(super) endpoint_id: ClientEndpointId,
-    pub(super) key: String,
-    pub(super) member_ids: Vec<String>,
-    /// Pressed on a pinned section's header, which only toggles.
-    pub(super) pinned: bool,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
 }
@@ -532,68 +521,6 @@ impl ClientWorktreeOpenOverlay {
             .contains(&self.selected)
             .then_some(self.selected)
             .or_else(|| filtered.first().copied())
-    }
-}
-
-/// A `ui.pick` picker the server asked this client to show.
-#[derive(Debug)]
-pub(super) struct ClientPickOverlay {
-    pub(super) pick_id: String,
-    pub(super) title: String,
-    pub(super) items: Vec<crate::api::schema::UiPickItem>,
-    pub(super) create: Option<crate::api::schema::UiPickCreate>,
-    pub(super) query: TextEditor,
-    /// Index into [`ClientPickOverlay::rows`].
-    pub(super) selected: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ClientPickRow {
-    Item(usize),
-    Create,
-}
-
-impl ClientPickOverlay {
-    /// Items matching the query, then a create row when the query names no item.
-    pub(super) fn rows(&self) -> Vec<ClientPickRow> {
-        let query = self.query.trim().to_lowercase();
-        let mut rows = self
-            .items
-            .iter()
-            .enumerate()
-            .filter(|(_, item)| {
-                query.is_empty()
-                    || format!(
-                        "{} {}",
-                        item.label,
-                        item.detail.as_deref().unwrap_or_default()
-                    )
-                    .to_lowercase()
-                    .contains(&query)
-            })
-            .map(|(index, _)| ClientPickRow::Item(index))
-            .collect::<Vec<_>>();
-        if self.create.is_some()
-            && !query.is_empty()
-            && !self
-                .items
-                .iter()
-                .any(|item| item.label.trim().to_lowercase() == query)
-        {
-            rows.push(ClientPickRow::Create);
-        }
-        rows
-    }
-
-    pub(super) fn outcome(&self) -> Option<crate::api::schema::UiPickOutcome> {
-        Some(match *self.rows().get(self.selected)? {
-            ClientPickRow::Item(index) => crate::api::schema::UiPickOutcome::Picked {
-                id: self.items[index].id.clone(),
-            },
-            ClientPickRow::Create => crate::api::schema::UiPickOutcome::Created {
-                text: self.query.trim().to_owned(),
-            },
-        })
     }
 }
 
@@ -981,7 +908,7 @@ pub(crate) struct ClientShellState {
     pub(super) last_sidebar_divider_click: Option<std::time::Instant>,
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
-    pub(super) group_press: Option<ClientGroupPress>,
+    pub(super) group_press: Option<super::space_groups::ClientGroupPress>,
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
@@ -1000,11 +927,7 @@ pub(crate) struct ClientShellState {
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
     pub(super) endpoints: Vec<ClientShellEndpoint>,
-    /// Each endpoint's Back/Forward trail of focused panes.
-    pub(super) history: super::history::Trails,
-    /// Jumps daemons asked this client to perform.
-    pub(super) client_jumps: super::client_jump::ClientJumps,
-    pub(super) picks: super::picks::ClientPicks,
+    pub(super) fork: super::fork_state::ForkState,
     pub(super) active_endpoint_id: ClientEndpointId,
     pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
     pub(super) mode: ClientShellMode,
@@ -1225,9 +1148,7 @@ impl ClientShellState {
             queued_notifications: VecDeque::new(),
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
-            history: Default::default(),
-            client_jumps: Default::default(),
-            picks: Default::default(),
+            fork: Default::default(),
             outer_focused: None,
             ascii_input_source_active: false,
             pending_input_source_changes: Vec::new(),
@@ -1300,11 +1221,15 @@ impl ClientShellState {
         snapshot: &ClientShellSnapshot,
     ) -> Vec<WorkspaceEntry> {
         let empty_collapsed_groups = HashSet::new();
-        space_groups::workspace_entries(
-            snapshot,
-            self.sidebar_collapsed_groups()
-                .unwrap_or(&empty_collapsed_groups),
-        )
+        if self.mobile_layout_active() {
+            render::workspace_entries(snapshot, &empty_collapsed_groups)
+        } else {
+            render::workspace_entries(
+                snapshot,
+                self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
+                    .unwrap_or(&empty_collapsed_groups),
+            )
+        }
     }
 
     /// Collapse state the sidebar applies; the mobile list shows everything.

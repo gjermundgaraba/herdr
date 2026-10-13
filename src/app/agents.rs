@@ -185,7 +185,7 @@ impl App {
             .get(&terminal_id)
             .ok_or_else(|| AgentStartError::TargetNotFound(params.pane_id.clone()))?;
         if terminal.is_agent_terminal() || terminal.managed_agent_kind().is_some() {
-            return Err(AgentStartError::AgentPresent(params.pane_id));
+            return Err(AgentStartError::TargetBusy(params.pane_id));
         }
         let runtime = self
             .terminal_runtimes
@@ -260,13 +260,9 @@ impl App {
                 code: "agent_pane_not_found".into(),
                 message: format!("agent target pane {target} not found"),
             },
-            AgentStartError::AgentPresent(target) => crate::api::schema::ErrorBody {
-                code: "agent_present".into(),
-                message: format!("agent target pane {target} already hosts an agent"),
-            },
-            AgentStartError::CommandRunning(target) => crate::api::schema::ErrorBody {
-                code: "pane_command_running".into(),
-                message: format!("agent target pane {target} is running a command"),
+            AgentStartError::TargetBusy(target) => crate::api::schema::ErrorBody {
+                code: "agent_pane_busy".into(),
+                message: format!("agent target pane {target} is not an available shell"),
             },
             AgentStartError::ShellNotReady(target) => crate::api::schema::ErrorBody {
                 code: "shell_not_ready".into(),
@@ -436,8 +432,8 @@ fn available_shell_name(runtime: &crate::terminal::TerminalRuntime) -> Option<St
     crate::platform::available_pane_shell(runtime.child_pid()?)
 }
 
-/// Why a pane's shell cannot take an agent: still starting, or running a
-/// command. Platforms without foreground jobs report a running command.
+/// Why a pane's shell cannot take an agent: still starting, or busy.
+/// Platforms without foreground jobs report it busy.
 fn shell_unavailable_error(
     runtime: &crate::terminal::TerminalRuntime,
     pane_id: String,
@@ -449,7 +445,7 @@ fn shell_unavailable_error(
     if starting {
         AgentStartError::ShellNotReady(pane_id)
     } else {
-        AgentStartError::CommandRunning(pane_id)
+        AgentStartError::TargetBusy(pane_id)
     }
 }
 
@@ -496,9 +492,7 @@ pub(super) enum AgentStartError {
     InvalidArgument,
     InvalidTimeout,
     TargetNotFound(String),
-    AgentPresent(String),
-    /// A foreground job other than the shell holds the terminal.
-    CommandRunning(String),
+    TargetBusy(String),
     /// The shell holds the terminal but is still running its startup files.
     ShellNotReady(String),
     TargetUnavailable(String),

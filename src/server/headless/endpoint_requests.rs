@@ -134,41 +134,4 @@ impl HeadlessServer {
                 },
             )
     }
-
-    /// Answers the client-lane methods a client sends whatever it presents:
-    /// its report and its answers to jumps and pickers. They neither need an
-    /// active surface nor take the command lease. Returns any other request.
-    fn handle_client_lane_request(
-        &mut self,
-        client_id: u64,
-        boot_id: &str,
-        mut request: Box<api::schema::Request>,
-    ) -> Option<Box<api::schema::Request>> {
-        let result = match request.method {
-            api::schema::Method::ClientReport(report) => {
-                self.accept_client_report(client_id, report)
-            }
-            api::schema::Method::ClientJumpResolve(params) => {
-                self.resolve_client_jump(client_id, params)
-            }
-            api::schema::Method::UiPickResolve(params) => {
-                self.resolve_client_pick(client_id, params)
-            }
-            method => {
-                request.method = method;
-                return Some(request);
-            }
-        };
-        let boot_id = boot_id.to_owned();
-        let message = match result {
-            Ok(result) => crate::server::client_commands::success_message_with_result(
-                boot_id, request.id, result,
-            ),
-            Err((code, message)) => {
-                crate::server::client_commands::error_message(boot_id, request.id, code, message)
-            }
-        };
-        self.send_to_client(client_id, message);
-        None
-    }
 }

@@ -215,12 +215,12 @@ async fn a_report_is_listed_announced_and_dropped_with_its_client() {
         "test-boot",
         Method::ClientReport(newer.clone()),
     );
-    assert_eq!(server.client_reports.get(61), Some(&newer));
+    assert_eq!(server.fork.client_reports.get(61), Some(&newer));
     assert_eq!(changes(&hub, before).len(), 1);
 
     let before = hub.current_sequence();
     server.remove_client(61);
-    assert_eq!(server.client_reports.get(61), None);
+    assert_eq!(server.fork.client_reports.get(61), None);
     assert_eq!(listed(&mut server), [bare(62)]);
     assert_eq!(changes(&hub, before), [61]);
     shutdown_test_runtimes(&mut server);
@@ -249,7 +249,7 @@ async fn a_client_reports_whatever_it_presents_and_however_busy_it_is() {
         Method::ClientReport(sent.clone()),
     );
     assert!(response.contains(r#""type":"ok""#), "{response}");
-    assert_eq!(server.client_reports.get(61), Some(&sent));
+    assert_eq!(server.fork.client_reports.get(61), Some(&sent));
     assert!(server.clients[&61].shell_endpoint_command_in_flight);
     // Reporting is not user activity: it does not take over the foreground.
     assert_eq!(server.foreground_client_id, Some(62));
@@ -264,7 +264,7 @@ async fn a_client_reports_whatever_it_presents_and_however_busy_it_is() {
         Method::ClientReport(malformed),
     );
     assert_eq!(error_code(&response), "invalid_params");
-    assert_eq!(server.client_reports.get(61), Some(&sent));
+    assert_eq!(server.fork.client_reports.get(61), Some(&sent));
 
     let response = lane(
         &mut server,
@@ -283,7 +283,7 @@ async fn a_client_reports_whatever_it_presents_and_however_busy_it_is() {
         let response = api(&mut server, method).try_recv().unwrap();
         assert_eq!(error_code(&response), "connection_local_only");
     }
-    assert_eq!(server.client_reports.get(61), Some(&sent));
+    assert_eq!(server.fork.client_reports.get(61), Some(&sent));
     shutdown_test_runtimes(&mut server);
 }
 
@@ -408,7 +408,7 @@ async fn a_jump_reaches_one_client_and_returns_its_outcome() {
             pane_id: "w2:p3".into(),
         }
     );
-    assert!(server.client_jumps.is_empty());
+    assert!(server.fork.client_jumps.is_empty());
 
     let repeated = lane(
         &mut server,
@@ -476,7 +476,7 @@ async fn a_newer_jump_replaces_the_one_its_client_is_performing() {
     );
     // The other client's jump is still open.
     assert!(elsewhere.try_recv().is_err());
-    assert!(!server.client_jumps.is_empty());
+    assert!(!server.fork.client_jumps.is_empty());
     shutdown_test_runtimes(&mut server);
 }
 
@@ -528,7 +528,7 @@ async fn a_jump_that_cannot_be_forwarded_replaces_nothing() {
     // The failed write removed the client, so the jump it was performing
     // ends as its own caller's `client_departed`, not as `jump_superseded`.
     assert_eq!(error_code(&first.try_recv().unwrap()), "client_departed");
-    assert!(server.client_jumps.is_empty());
+    assert!(server.fork.client_jumps.is_empty());
     shutdown_test_runtimes(&mut server);
 }
 
@@ -545,7 +545,7 @@ async fn a_jump_fails_when_its_client_is_unknown_or_departs() {
         error_code(&silent.try_recv().unwrap()),
         "client_not_reporting"
     );
-    assert!(server.client_jumps.is_empty());
+    assert!(server.fork.client_jumps.is_empty());
     lane(
         &mut server,
         &control,
@@ -557,7 +557,7 @@ async fn a_jump_fails_when_its_client_is_unknown_or_departs() {
     assert!(waiting.try_recv().is_err());
     server.remove_client(61);
     assert_eq!(error_code(&waiting.try_recv().unwrap()), "client_departed");
-    assert!(server.client_jumps.is_empty());
+    assert!(server.fork.client_jumps.is_empty());
 
     let departed = jump(&mut server, 61);
     assert_eq!(
@@ -576,7 +576,7 @@ async fn a_jump_fails_when_its_client_is_unknown_or_departs() {
         }),
     );
     assert_eq!(error_code(&malformed.try_recv().unwrap()), "invalid_params");
-    assert!(server.client_jumps.is_empty());
+    assert!(server.fork.client_jumps.is_empty());
     shutdown_test_runtimes(&mut server);
 }
 

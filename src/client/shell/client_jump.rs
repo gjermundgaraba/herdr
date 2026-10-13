@@ -121,7 +121,7 @@ impl ClientShellState {
         now: Instant,
     ) -> ClientShellInput {
         let mut outcome = ClientShellInput::default();
-        let replaced = self.client_jumps.pending.take();
+        let replaced = self.fork.client_jumps.pending.take();
         let endpoint_id = match jump_target(&self.endpoints, &jump) {
             Ok(endpoint_id) => endpoint_id,
             Err(result) => {
@@ -140,7 +140,7 @@ impl ClientShellState {
             ClientEndpointFocusTarget::Pane(jump.pane_id.clone()),
             &mut outcome,
         );
-        self.client_jumps.pending = Some(PendingClientJump {
+        self.fork.client_jumps.pending = Some(PendingClientJump {
             origin,
             jump,
             deadline: now + NAVIGATION_SETTLE_DEADLINE,
@@ -159,7 +159,7 @@ impl ClientShellState {
         now: Instant,
         switching: bool,
     ) -> Vec<ResolvedClientJump> {
-        if let Some(mut pending) = self.client_jumps.pending.take() {
+        if let Some(mut pending) = self.fork.client_jumps.pending.take() {
             let dispatched_this_turn = std::mem::take(&mut pending.navigation_dispatched);
             let settled = !dispatched_this_turn && !switching;
             let outcome = match jump_target(&self.endpoints, &pending.jump) {
@@ -176,10 +176,10 @@ impl ClientShellState {
                 Some(outcome) => {
                     self.resolve_client_jump(pending.origin, pending.jump.jump_id, outcome)
                 }
-                None => self.client_jumps.pending = Some(pending),
+                None => self.fork.client_jumps.pending = Some(pending),
             }
         }
-        std::mem::take(&mut self.client_jumps.resolved)
+        std::mem::take(&mut self.fork.client_jumps.resolved)
     }
 
     fn resolve_client_jump(
@@ -188,7 +188,7 @@ impl ClientShellState {
         jump_id: String,
         outcome: ClientJumpOutcome,
     ) {
-        self.client_jumps.resolved.push(ResolvedClientJump {
+        self.fork.client_jumps.resolved.push(ResolvedClientJump {
             origin,
             jump_id,
             outcome,

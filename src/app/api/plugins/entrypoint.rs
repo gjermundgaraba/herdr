@@ -106,7 +106,7 @@ impl App {
         if let Err(err) = self.refresh_installed_plugins() {
             return encode_error(id, "plugin_registry_load_failed", err.to_string());
         }
-        let result = self
+        let resolved = self
             .resolve_plugin_entrypoint(&params.plugin_id, &params.entry_id)
             .and_then(|(plugin, entrypoint)| {
                 let mut context = self.plugin_context_for_target(
@@ -117,12 +117,54 @@ impl App {
                 )?;
                 context.selected_text = self
                     .plugin_selection_text(params.pane_id.as_deref(), params.selection.as_ref())?;
-                self.invoke_plugin_entrypoint(plugin, entrypoint, context, None, None)
+                Ok((plugin, entrypoint, context))
             });
-        match result {
-            Ok(result) => encode_success(id, result),
+        match resolved {
+            Ok((plugin, entrypoint, context)) => {
+                self.invoke_plugin_entrypoint(id, plugin, entrypoint, context, None, None)
+            }
             Err((code, message)) => encode_error(id, code, message),
         }
+    }
+
+    /// Context for the target of a `plugin.invoke` request. The most
+    /// specific id supplies it, so the invocation describes what it targets,
+    /// not what has focus; less specific ids must agree. Without ids, focus
+    /// supplies it, as it does for a keybinding, which names no target.
+    pub(super) fn plugin_context_for_target(
+        &self,
+        workspace_id: Option<&str>,
+        tab_id: Option<&str>,
+        pane_id: Option<&str>,
+        correlation_id: &str,
+    ) -> Result<PluginInvocationContext, (&'static str, String)> {
+        let context = if let Some(pane_id) = pane_id {
+            self.plugin_context_for_public_pane_id(pane_id, correlation_id)
+                .ok_or_else(|| ("pane_not_found", format!("pane not found: {pane_id}")))?
+        } else if let Some(tab_id) = tab_id {
+            self.plugin_context_for_tab_id(tab_id, correlation_id)
+                .ok_or_else(|| ("tab_not_found", format!("tab not found: {tab_id}")))?
+        } else if let Some(workspace_id) = workspace_id {
+            self.plugin_context_for_workspace_id(workspace_id, correlation_id)
+                .ok_or_else(|| {
+                    (
+                        "workspace_not_found",
+                        format!("workspace not found: {workspace_id}"),
+                    )
+                })?
+        } else {
+            self.current_plugin_context(correlation_id)
+        };
+        let disagrees = |provided: Option<&str>, actual: &Option<String>| {
+            provided.is_some_and(|provided| actual.as_deref() != Some(provided))
+        };
+        if disagrees(workspace_id, &context.workspace_id) || disagrees(tab_id, &context.tab_id) {
+            return Err((
+                "target_mismatch",
+                "target ids do not name the same space, tab, and pane".to_owned(),
+            ));
+        }
+        Ok(context)
     }
 
     /// Reads a client selection, which must lie in the target pane.
@@ -143,59 +185,106 @@ impl App {
         self.pane_selection_text(selection).map(Some)
     }
 
-    /// Runs an action, or opens a pane at its manifest placement. The context
-    /// names the target: split and zoomed panes split its pane, and tab panes
-    /// open in its space. Sizes override a popup's manifest size.
+    /// Runs an action, or opens a pane at its manifest placement through
+    /// `plugin.pane.open`. The context names the target: split and zoomed
+    /// panes split its pane, tab panes open in its space, and the pane
+    /// launches with it. Sizes override a popup's manifest size; other
+    /// placements take none.
     pub(super) fn invoke_plugin_entrypoint(
         &mut self,
+        id: String,
         plugin: InstalledPluginInfo,
         entrypoint: PluginEntrypoint,
         context: PluginInvocationContext,
         width: Option<PopupSize>,
         height: Option<PopupSize>,
-    ) -> Result<ResponseResult, ErrorBody> {
-        match entrypoint {
+    ) -> String {
+        let pane = match entrypoint {
             PluginEntrypoint::Action(action) => {
-                let log = self
-                    .start_plugin_command(
-                        &plugin,
-                        Some(action.action_id.clone()),
-                        None,
-                        action.command.clone(),
-                        &context,
-                        None,
-                    )
-                    .map_err(|(code, message)| plugin_error(code, message))?;
-                Ok(ResponseResult::PluginActionInvoked {
-                    action,
-                    context,
-                    log,
-                })
-            }
-            PluginEntrypoint::Pane(pane) => {
-                let (workspace_id, target_pane_id) = match pane.placement {
-                    PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
-                        (None, context.focused_pane_id.clone())
-                    }
-                    PluginPanePlacement::Tab => (context.workspace_id.clone(), None),
-                    PluginPanePlacement::Popup | PluginPanePlacement::Overlay => (None, None),
+                return match self.start_plugin_command(
+                    &plugin,
+                    Some(action.action_id.clone()),
+                    None,
+                    action.command.clone(),
+                    &context,
+                    None,
+                ) {
+                    Ok(log) => encode_success(
+                        id,
+                        ResponseResult::PluginActionInvoked {
+                            action,
+                            context,
+                            log,
+                        },
+                    ),
+                    Err((code, message)) => encode_error(id, code, message),
                 };
-                let params = PluginPaneOpenParams {
-                    plugin_id: String::new(),
-                    entrypoint: String::new(),
-                    placement: None,
-                    width,
-                    height,
-                    workspace_id,
-                    target_pane_id,
-                    direction: None,
-                    cwd: None,
-                    focus: true,
-                    env: Default::default(),
-                };
-                self.open_plugin_pane(plugin, pane, params, Some(context))
             }
+            PluginEntrypoint::Pane(pane) => pane,
+        };
+        let (workspace_id, target_pane_id) = match pane.placement {
+            PluginPanePlacement::Split | PluginPanePlacement::Zoomed => {
+                (None, context.focused_pane_id.clone())
+            }
+            PluginPanePlacement::Tab => (context.workspace_id.clone(), None),
+            PluginPanePlacement::Popup | PluginPanePlacement::Overlay => (None, None),
+        };
+        let popup = pane.placement == PluginPanePlacement::Popup;
+        let params = PluginPaneOpenParams {
+            plugin_id: plugin.plugin_id,
+            entrypoint: pane.id,
+            placement: None,
+            width: width.filter(|_| popup),
+            height: height.filter(|_| popup),
+            workspace_id,
+            target_pane_id,
+            direction: None,
+            cwd: None,
+            focus: true,
+            env: Default::default(),
+        };
+        self.invoked_plugin_context = Some(context);
+        let response = self.handle_plugin_pane_open(id, params);
+        self.invoked_plugin_context = None;
+        response
+    }
+
+    /// The context a plugin pane launches with: that of the invoked target
+    /// while `plugin.invoke` opens it, otherwise the one `plugin.pane.open`
+    /// resolved.
+    pub(super) fn invoked_pane_context(
+        &self,
+        context: &PluginInvocationContext,
+    ) -> PluginInvocationContext {
+        self.with_invocation_details(
+            self.invoked_plugin_context
+                .clone()
+                .unwrap_or_else(|| context.clone()),
+        )
+    }
+
+    /// Adds what an invoked plugin would otherwise query next: the invoking
+    /// client, the context workspace's tabs, and every workspace. Event hooks
+    /// skip this; they fire per event and their event JSON names the entities.
+    pub(super) fn with_invocation_details(
+        &self,
+        mut context: PluginInvocationContext,
+    ) -> PluginInvocationContext {
+        context.client_id = self.invoking_client_id.or(context.client_id);
+        if let Some((ws_idx, ws)) = context
+            .workspace_id
+            .as_deref()
+            .and_then(|workspace_id| self.parse_workspace_id(workspace_id))
+            .and_then(|ws_idx| Some((ws_idx, self.state.workspaces.get(ws_idx)?)))
+        {
+            context.tabs = (0..ws.tabs.len())
+                .filter_map(|tab_idx| self.tab_info(ws_idx, tab_idx))
+                .collect();
         }
+        context.workspaces = (0..self.state.workspaces.len())
+            .map(|ws_idx| self.workspace_info(ws_idx))
+            .collect();
+        context
     }
 
     /// Whether a qualified target names a popup pane in the loaded registry.

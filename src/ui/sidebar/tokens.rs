@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::config::{
     AgentSidebarToken, AgentsSidebarConfig, SidebarTokenStyle, SpaceSidebarToken,
     SpacesSidebarConfig,
@@ -11,7 +9,7 @@ pub(crate) struct ResolvedToken {
     pub style: SidebarTokenStyle,
     /// The configured `separator_before`. Herdr GPUI resolves it in
     /// `crates/herdr-gpui/src/sidebar/tokens.rs`.
-    pub separator_before: Option<Arc<str>>,
+    pub separator_before: Option<std::sync::Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,21 +45,17 @@ impl ResolvedTokenKind {
 }
 
 impl ResolvedToken {
-    fn new(
-        kind: ResolvedTokenKind,
-        style: SidebarTokenStyle,
-        separator_before: Option<Arc<str>>,
-    ) -> Self {
+    fn new(kind: ResolvedTokenKind, style: SidebarTokenStyle) -> Self {
         Self {
             kind,
             style,
-            separator_before,
+            separator_before: None,
         }
     }
 
     #[cfg(test)]
     pub(super) fn unstyled(kind: ResolvedTokenKind) -> Self {
-        Self::new(kind, SidebarTokenStyle::default(), None)
+        Self::new(kind, SidebarTokenStyle::default())
     }
 }
 
@@ -89,7 +83,8 @@ pub(crate) fn agent_rows(
             let resolved = row
                 .iter()
                 .filter_map(|configured| {
-                    let kind = match &configured.token {
+                    let (token, style) = configured.parts();
+                    let kind = match token {
                         AgentSidebarToken::StateIcon => Some(ResolvedTokenKind::StateIcon),
                         AgentSidebarToken::StateText => {
                             Some(ResolvedTokenKind::StateText(state_text.to_string()))
@@ -120,15 +115,15 @@ pub(crate) fn agent_rows(
                             .get(name)
                             .cloned()
                             .map(ResolvedTokenKind::Custom),
+                        AgentSidebarToken::Styled { .. } => None,
                     }?;
-                    let style = kind.text_value().map_or(Some(configured.style), |value| {
-                        configured.style_for_value(value)
-                    })?;
-                    Some(ResolvedToken::new(
-                        kind,
-                        style,
-                        configured.separator_before.clone(),
-                    ))
+                    let style = kind
+                        .text_value()
+                        .map_or(Some(style), |value| configured.style_for_value(value))?;
+                    Some(ResolvedToken {
+                        separator_before: configured.separator_before(),
+                        ..ResolvedToken::new(kind, style)
+                    })
                 })
                 .collect::<Vec<_>>();
             (!resolved.is_empty()).then_some(resolved)
@@ -156,7 +151,8 @@ pub(crate) fn space_rows(
             let resolved = row
                 .iter()
                 .filter_map(|configured| {
-                    let kind = match &configured.token {
+                    let (token, style) = configured.parts();
+                    let kind = match token {
                         SpaceSidebarToken::StateIcon => Some(ResolvedTokenKind::StateIcon),
                         SpaceSidebarToken::StateText => {
                             Some(ResolvedTokenKind::StateText(context.state_text.to_string()))
@@ -178,15 +174,15 @@ pub(crate) fn space_rows(
                             .get(name)
                             .cloned()
                             .map(ResolvedTokenKind::Custom),
+                        SpaceSidebarToken::Styled { .. } => None,
                     }?;
-                    let style = kind.text_value().map_or(Some(configured.style), |value| {
-                        configured.style_for_value(value)
-                    })?;
-                    Some(ResolvedToken::new(
-                        kind,
-                        style,
-                        configured.separator_before.clone(),
-                    ))
+                    let style = kind
+                        .text_value()
+                        .map_or(Some(style), |value| configured.style_for_value(value))?;
+                    Some(ResolvedToken {
+                        separator_before: configured.separator_before(),
+                        ..ResolvedToken::new(kind, style)
+                    })
                 })
                 .collect::<Vec<_>>();
             (!resolved.is_empty()).then_some(resolved)
@@ -426,11 +422,11 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
         let config = AgentsSidebarConfig {
             rows: vec![
                 vec![
-                    AgentSidebarToken::StateIcon.into(),
-                    AgentSidebarToken::Custom("missing".into()).into(),
+                    AgentSidebarToken::StateIcon,
+                    AgentSidebarToken::Custom("missing".into()),
                 ],
-                vec![AgentSidebarToken::Custom("missing".into()).into()],
-                vec![AgentSidebarToken::Agent.into()],
+                vec![AgentSidebarToken::Custom("missing".into())],
+                vec![AgentSidebarToken::Agent],
             ],
             ..Default::default()
         };
@@ -455,8 +451,8 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
         let entry = entry();
         let config = AgentsSidebarConfig {
             rows: vec![vec![
-                AgentSidebarToken::Machine.into(),
-                AgentSidebarToken::Workspace.into(),
+                AgentSidebarToken::Machine,
+                AgentSidebarToken::Workspace,
             ]],
             ..Default::default()
         };
@@ -487,8 +483,8 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
             .insert("summary".into(), "reviewing auth".into());
         let config = AgentsSidebarConfig {
             rows: vec![vec![
-                AgentSidebarToken::StateText.into(),
-                AgentSidebarToken::Custom("summary".into()).into(),
+                AgentSidebarToken::StateText,
+                AgentSidebarToken::Custom("summary".into()),
             ]],
             ..Default::default()
         };
@@ -512,9 +508,9 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
             .insert("terminal_title".into(), "custom title".into());
         let config = AgentsSidebarConfig {
             rows: vec![vec![
-                AgentSidebarToken::TerminalTitle.into(),
-                AgentSidebarToken::TerminalTitleStripped.into(),
-                AgentSidebarToken::Custom("terminal_title".into()).into(),
+                AgentSidebarToken::TerminalTitle,
+                AgentSidebarToken::TerminalTitleStripped,
+                AgentSidebarToken::Custom("terminal_title".into()),
             ]],
             ..Default::default()
         };
@@ -532,12 +528,12 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
     #[test]
     fn known_agent_override_replaces_default_rows() {
         let mut config = AgentsSidebarConfig {
-            rows: vec![vec![AgentSidebarToken::Workspace.into()]],
+            rows: vec![vec![AgentSidebarToken::Workspace]],
             ..Default::default()
         };
         config
             .rows_by_agent
-            .insert("pi".into(), vec![vec![AgentSidebarToken::Agent.into()]]);
+            .insert("pi".into(), vec![vec![AgentSidebarToken::Agent]]);
         let mut pi = entry();
         pi.agent_label = Some("renamed pi".into());
 
@@ -584,7 +580,7 @@ rows = [[{ token = "$load", rules = [{ lt = 50, hide = true }] }], ["workspace"]
     fn workspace_custom_token_can_replace_git_specific_details() {
         let tokens = std::collections::HashMap::from([("jj_status".into(), "2 changes".into())]);
         let config = SpacesSidebarConfig {
-            rows: vec![vec![SpaceSidebarToken::Custom("jj_status".into()).into()]],
+            rows: vec![vec![SpaceSidebarToken::Custom("jj_status".into())]],
             ..Default::default()
         };
 

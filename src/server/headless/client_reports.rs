@@ -28,6 +28,43 @@ impl ClientReports {
 }
 
 impl HeadlessServer {
+    /// Answers the client-lane methods a client sends whatever it presents:
+    /// its report and its answers to jumps and pickers. They neither need an
+    /// active surface nor take the command lease. Returns any other request.
+    pub(super) fn handle_client_lane_request(
+        &mut self,
+        client_id: u64,
+        boot_id: &str,
+        mut request: Box<api::schema::Request>,
+    ) -> Option<Box<api::schema::Request>> {
+        let result = match request.method {
+            api::schema::Method::ClientReport(report) => {
+                self.accept_client_report(client_id, report)
+            }
+            api::schema::Method::ClientJumpResolve(params) => {
+                self.resolve_client_jump(client_id, params)
+            }
+            api::schema::Method::UiPickResolve(params) => {
+                self.resolve_client_pick(client_id, params)
+            }
+            method => {
+                request.method = method;
+                return Some(request);
+            }
+        };
+        let boot_id = boot_id.to_owned();
+        let message = match result {
+            Ok(result) => crate::server::client_commands::success_message_with_result(
+                boot_id, request.id, result,
+            ),
+            Err((code, message)) => {
+                crate::server::client_commands::error_message(boot_id, request.id, code, message)
+            }
+        };
+        self.send_to_client(client_id, message);
+        None
+    }
+
     /// Handles the public `client.*` methods and returns the message for any
     /// other method.
     pub(super) fn handle_client_api_request(
@@ -68,8 +105,8 @@ impl HeadlessServer {
         report
             .normalize()
             .map_err(|err| ("invalid_params", err.message().to_owned()))?;
-        if self.client_reports.0.get(&client_id) != Some(&report) {
-            self.client_reports.0.insert(client_id, report);
+        if self.fork.client_reports.0.get(&client_id) != Some(&report) {
+            self.fork.client_reports.0.insert(client_id, report);
             self.emit_client_changed(client_id);
         }
         Ok(ResponseResult::Ok {})
@@ -77,7 +114,7 @@ impl HeadlessServer {
 
     /// Drops a departing client's report and tells subscribers it detached.
     pub(super) fn forget_client_report(&mut self, client_id: u64, was_shell_client: bool) {
-        self.client_reports.0.remove(&client_id);
+        self.fork.client_reports.0.remove(&client_id);
         if was_shell_client {
             self.emit_client_changed(client_id);
         }
@@ -100,7 +137,7 @@ impl HeadlessServer {
             .filter(|(_, client)| client.is_shell_client())
             .map(|(&client_id, _)| ClientInfo {
                 client_id,
-                report: self.client_reports.0.get(&client_id).cloned(),
+                report: self.fork.client_reports.0.get(&client_id).cloned(),
             })
             .collect::<Vec<_>>();
         clients.sort_unstable_by_key(|client| client.client_id);

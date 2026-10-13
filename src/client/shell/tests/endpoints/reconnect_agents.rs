@@ -8,10 +8,7 @@ fn state_with_reconnecting_agents(remote: bool) -> (ClientShellState, ClientEndp
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
     state.config.agent_panel_sort = AgentPanelSortConfig::Priority;
     state.config.status_indicators = StatusIndicatorStyle::Symbols;
-    state.config.agents.rows = vec![vec![
-        AgentSidebarToken::StateIcon.into(),
-        AgentSidebarToken::Agent.into(),
-    ]];
+    state.config.agents.rows = vec![vec![AgentSidebarToken::StateIcon, AgentSidebarToken::Agent]];
     let endpoint_id = if remote {
         let profile = remote_profile();
         let id = ClientEndpointId::Ssh(profile.id.clone());

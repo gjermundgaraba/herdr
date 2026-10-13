@@ -127,10 +127,7 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
         server_config_diagnostic: None,
         server_config_diagnostic_without_keybindings: None,
         terminal_attach_owners: HashMap::new(),
-        pending_picks: HashMap::new(),
-        client_reports: Default::default(),
-        client_jumps: Default::default(),
-        unread_presence: Default::default(),
+        fork: Default::default(),
         pending_alt_screen_reads: Vec::new(),
         deferred_alt_screen_reads: Vec::new(),
         next_activity_stamp: 1,
@@ -218,7 +215,7 @@ async fn headless_api_reads_latest_title_without_spinner_event_flooding() {
     server.app.state.selected = 0;
     server.app.state.mode = crate::app::Mode::Terminal;
     server.app.state.sidebar_agents.rows = vec![vec![
-        crate::config::AgentSidebarToken::TerminalTitleStripped.into(),
+        crate::config::AgentSidebarToken::TerminalTitleStripped,
     ]];
     let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
     let terminal_id = server.app.state.workspaces[0].tabs[0].panes[&pane_id]

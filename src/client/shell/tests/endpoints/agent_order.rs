@@ -9,10 +9,7 @@ fn mixed_legacy_fallback_priority_merges_agents_across_endpoints() {
 
     let (mut state, remotes) = crate::client::shell::tests::fleet::fleet(&["Build", "Other"]);
     let (remote_id, third_id) = (remotes[0].clone(), remotes[1].clone());
-    state.config.agents.rows = vec![vec![
-        AgentSidebarToken::Machine.into(),
-        AgentSidebarToken::Agent.into(),
-    ]];
+    state.config.agents.rows = vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
 
     let mut local = snapshot();
     local.agent_view_label = Some("legacy".into());

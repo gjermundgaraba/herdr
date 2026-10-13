@@ -701,17 +701,17 @@ fn agent_sidebar_honors_priority_symbols_tokens_and_stable_hits() {
     let mut config = Config::default();
     config.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
     config.ui.status_indicators = crate::config::StatusIndicatorStyle::Symbols;
-    config.ui.sidebar.agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent.into()]];
+    config.ui.sidebar.agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
     config.ui.sidebar.agents.rows_by_agent.insert(
         "pi".into(),
         vec![
             vec![
-                crate::config::AgentSidebarToken::StateIcon.into(),
-                crate::config::AgentSidebarToken::StateText.into(),
+                crate::config::AgentSidebarToken::StateIcon,
+                crate::config::AgentSidebarToken::StateText,
             ],
             vec![
-                crate::config::AgentSidebarToken::Agent.into(),
-                crate::config::AgentSidebarToken::Custom("summary".into()).into(),
+                crate::config::AgentSidebarToken::Agent,
+                crate::config::AgentSidebarToken::Custom("summary".into()),
             ],
         ],
     );
@@ -845,11 +845,8 @@ fn workspace_state_text_does_not_stack_terminal_faint() {
 
     let mut config = Config::default();
     config.ui.sidebar.spaces.rows = vec![
-        vec![
-            SpaceSidebarToken::StateIcon.into(),
-            SpaceSidebarToken::Workspace.into(),
-        ],
-        vec![SpaceSidebarToken::StateText.into()],
+        vec![SpaceSidebarToken::StateIcon, SpaceSidebarToken::Workspace],
+        vec![SpaceSidebarToken::StateText],
     ];
     let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     state.set_snapshot(Box::new(snapshot()));
@@ -1420,7 +1417,7 @@ fn worktree_open_filters_and_clicks_a_stable_public_entry() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(text.contains("feature"));
-    let row = state.hits.list_rows[0].0;
+    let row = state.hits.worktree_rows[0].0;
     let open = state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: row.x + 2,

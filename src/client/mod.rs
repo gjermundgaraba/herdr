@@ -2131,56 +2131,18 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
-                            Ok(endpoint::EndpointControlMessage::PickOpen(open)) => {
-                                if let Some(shell) = state.shell.as_mut() {
-                                    let origin = shell::ControlOrigin {
-                                        endpoint_id: endpoint_id.clone(),
-                                        generation,
-                                    };
-                                    if shell.receive_pick_open(origin, open) {
-                                        if let Some(frame) = shell
-                                            .compose(state.reported_size.0, state.reported_size.1)
-                                        {
-                                            state.present_frame(frame);
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            Ok(endpoint::EndpointControlMessage::PickClose(close)) => {
-                                if let Some(shell) = state.shell.as_mut() {
-                                    let origin = shell::ControlOrigin {
-                                        endpoint_id: endpoint_id.clone(),
-                                        generation,
-                                    };
-                                    if shell.receive_pick_close(&origin, close) {
-                                        if let Some(frame) = shell
-                                            .compose(state.reported_size.0, state.reported_size.1)
-                                        {
-                                            state.present_frame(frame);
-                                        }
-                                    }
-                                }
-                                continue;
-                            }
-                            Ok(endpoint::EndpointControlMessage::ClientJump(jump)) => {
+                            Ok(endpoint::EndpointControlMessage::Contract(control)) => {
                                 let Some(shell) = state.shell.as_mut() else {
                                     continue;
                                 };
-                                let outcome = shell.receive_client_jump(
-                                    shell::ControlOrigin {
-                                        endpoint_id: endpoint_id.clone(),
-                                        generation,
-                                    },
-                                    jump,
+                                let (outcome, frame) = client_contract::handle_control(
+                                    shell,
+                                    &endpoint_id,
+                                    generation,
+                                    control,
                                     now,
+                                    state.reported_size,
                                 );
-                                let frame = outcome
-                                    .repaint
-                                    .then(|| {
-                                        shell.compose(state.reported_size.0, state.reported_size.1)
-                                    })
-                                    .flatten();
                                 if finish_client_shell_input(
                                     &mut state,
                                     outcome,

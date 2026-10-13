@@ -16,8 +16,8 @@ pub(crate) struct OverlayRender {
     pub(crate) navigator_rows: Vec<(Rect, ClientNavigatorTarget)>,
     pub(crate) navigator_scrollbar: Rect,
     pub(crate) navigator_scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    pub(crate) list_search: Rect,
-    pub(crate) list_rows: Vec<(Rect, usize)>,
+    pub(crate) worktree_search: Rect,
+    pub(crate) worktree_rows: Vec<(Rect, usize)>,
     pub(crate) help_popup: Rect,
     pub(crate) help_scrollbar: Rect,
     pub(crate) help_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -696,8 +696,8 @@ fn render_rename_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        list_search: Rect::default(),
-        list_rows: Vec::new(),
+        worktree_search: Rect::default(),
+        worktree_rows: Vec::new(),
         cursor,
         ..OverlayRender::default()
     })
@@ -1073,8 +1073,8 @@ fn render_navigator_overlay(
         navigator_rows: row_hits,
         navigator_scrollbar: scrollbar.unwrap_or_default(),
         navigator_scroll_metrics: Some(metrics),
-        list_search: Rect::default(),
-        list_rows: Vec::new(),
+        worktree_search: Rect::default(),
+        worktree_rows: Vec::new(),
         cursor,
         ..OverlayRender::default()
     })
@@ -1339,8 +1339,8 @@ fn render_confirm_close_overlay(
         navigator_popup: Rect::default(),
         navigator_search: Rect::default(),
         navigator_rows: Vec::new(),
-        list_search: Rect::default(),
-        list_rows: Vec::new(),
+        worktree_search: Rect::default(),
+        worktree_rows: Vec::new(),
         cursor: None,
         ..OverlayRender::default()
     })

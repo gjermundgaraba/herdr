@@ -177,6 +177,9 @@ pub struct App {
     /// The TUI client whose request is being handled, set only for the
     /// duration of that request. Plugins started by it record their origin.
     pub(crate) invoking_client_id: Option<u64>,
+    /// The target context of the `plugin.invoke` call whose pane is opening,
+    /// set only while that call runs the `plugin.pane.open` handler.
+    pub(crate) invoked_plugin_context: Option<crate::api::schema::PluginInvocationContext>,
 }
 
 pub(crate) const APP_EVENT_CHANNEL_CAPACITY: usize = 256;
@@ -687,6 +690,7 @@ impl App {
             client_shell_keybindings_profile,
             endpoint_commands,
             invoking_client_id: None,
+            invoked_plugin_context: None,
         };
         app.configure_tab_bar_status(&config.ui.tab_bar_right, &config.ui.tab_bar_right_separator);
         app.configure_window_title(&config.ui.window_title);
@@ -1930,22 +1934,22 @@ mod tests {
         assert_eq!(
             app.state.sidebar_agents.rows,
             vec![vec![
-                crate::config::AgentSidebarToken::StateIcon.into(),
-                crate::config::AgentSidebarToken::Custom("summary".into()).into(),
+                crate::config::AgentSidebarToken::StateIcon,
+                crate::config::AgentSidebarToken::Custom("summary".into()),
             ]]
         );
         assert_eq!(
             app.state.sidebar_agents.rows_by_agent["claude"],
             vec![vec![
-                crate::config::AgentSidebarToken::TerminalTitleStripped.into(),
+                crate::config::AgentSidebarToken::TerminalTitleStripped,
             ]]
         );
         assert_eq!(app.state.sidebar_agents.row_gap, 1);
         assert_eq!(
             app.state.sidebar_spaces.rows,
             vec![vec![
-                crate::config::SpaceSidebarToken::Workspace.into(),
-                crate::config::SpaceSidebarToken::Custom("jj_status".into()).into(),
+                crate::config::SpaceSidebarToken::Workspace,
+                crate::config::SpaceSidebarToken::Custom("jj_status".into()),
             ]]
         );
         assert_eq!(app.state.sidebar_spaces.row_gap, 3);

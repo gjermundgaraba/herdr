@@ -11,19 +11,19 @@ pi = [[{ token = "agent", separator_before = " / " }]]
 rows = [["branch", { token = "$git_dirty", separator_before = "\t |\u001b\n" }]]
 "##;
     let config: SidebarConfig = toml::from_str(input).unwrap();
-    assert_eq!(config.agents.rows[0][0].separator_before, None);
+    assert_eq!(config.agents.rows[0][0].separator_before(), None);
     assert_eq!(
-        config.agents.rows[0][1].separator_before.as_deref(),
+        config.agents.rows[0][1].separator_before().as_deref(),
         Some("")
     );
     assert_eq!(
         config.agents.rows_by_agent["pi"][0][0]
-            .separator_before
+            .separator_before()
             .as_deref(),
         Some(" / ")
     );
     assert_eq!(
-        config.spaces.rows[0][1].separator_before.as_deref(),
+        config.spaces.rows[0][1].separator_before().as_deref(),
         Some(" |")
     );
     let encoded = toml::to_string(&config).unwrap();

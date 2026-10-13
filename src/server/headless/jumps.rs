@@ -87,15 +87,15 @@ impl HeadlessServer {
             return;
         }
         // A client that never reported does not answer jumps either.
-        if !self.client_reports.contains(client_id) {
+        if !self.fork.client_reports.contains(client_id) {
             reject(
                 "client_not_reporting",
                 "that client has not sent a report, so it cannot be jumped",
             );
             return;
         }
-        self.client_jumps.next_id += 1;
-        let jump_id = format!("jump-{}", self.client_jumps.next_id);
+        self.fork.client_jumps.next_id += 1;
+        let jump_id = format!("jump-{}", self.fork.client_jumps.next_id);
         let sent = client_jump_message(&EndpointClientJump {
             jump_id: jump_id.clone(),
             endpoint_id: endpoint_id.clone(),
@@ -117,7 +117,7 @@ impl HeadlessServer {
                 "a newer jump to that client replaced this one",
             )),
         );
-        self.client_jumps.pending.insert(
+        self.fork.client_jumps.pending.insert(
             client_id,
             PendingJump {
                 jump_id,
@@ -137,6 +137,7 @@ impl HeadlessServer {
         params: ClientJumpResolveParams,
     ) -> Result<ResponseResult, (&'static str, String)> {
         let owned = self
+            .fork
             .client_jumps
             .pending
             .get(&client_id)
@@ -165,6 +166,7 @@ impl HeadlessServer {
     /// Fails the jumps whose client never answered.
     pub(super) fn expire_client_jumps(&mut self, now: Instant) {
         let client_ids = self
+            .fork
             .client_jumps
             .pending
             .iter()
@@ -186,7 +188,7 @@ impl HeadlessServer {
         client_id: u64,
         outcome: Result<ClientJumpOutcome, (&'static str, &str)>,
     ) {
-        let Some(jump) = self.client_jumps.pending.remove(&client_id) else {
+        let Some(jump) = self.fork.client_jumps.pending.remove(&client_id) else {
             return;
         };
         let failure =
