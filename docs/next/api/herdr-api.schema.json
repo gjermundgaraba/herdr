@@ -9733,7 +9733,7 @@
               ]
             },
             "client_id": {
-              "description": "Server-local id of the TUI client whose request started the plugin.",
+              "description": "Server-local id of the shell client, the TUI or Herdr GPUI, whose request\nstarted the plugin.",
               "format": "uint64",
               "minimum": 0,
               "type": [

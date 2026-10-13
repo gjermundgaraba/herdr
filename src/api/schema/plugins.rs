@@ -401,7 +401,8 @@ pub struct PluginInvocationContext {
     pub clicked_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link_handler_id: Option<String>,
-    /// Server-local id of the TUI client whose request started the plugin.
+    /// Server-local id of the shell client, the TUI or Herdr GPUI, whose request
+    /// started the plugin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_id: Option<u64>,
 }
