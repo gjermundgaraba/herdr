@@ -83,7 +83,21 @@ Herdr writes the bundled extension to:
 
 If `PI_CODING_AGENT_DIR` is set, Herdr writes to `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts` instead. Herdr creates the extensions directory when the Pi agent directory already exists. Uninstall removes only that extension file.
 
-The extension reports only the Pi session. Pi 1.1.0 and later report whether they are working, waiting on a dialog or login, or idle through the Program Status Protocol (OSC 7501). Herdr answers the protocol's support query in every pane, but applies a report only when its `app` names an agent whose state-reporting integration reported the pane's session, so Pi's reports need this extension. An older Pi, or one run with `PI_PROGRAM_STATUS=0`, sends no reports, so Herdr reads its state from the screen and cannot tell when it is blocked. Pi extensions that emit `herdr:blocked` no longer affect Herdr's state for Pi.
+The extension reports only the Pi session. Pi 1.1.0 and later report whether they are working, waiting on a dialog or login, or idle through the Program Status Protocol (OSC 7501). Herdr applies a report only when its `app` names an agent whose state-reporting integration reported the pane's session, so Pi's reports need this extension.
+
+Herdr does not answer the protocol's support query, so Pi reports only when it runs with `PI_PROGRAM_STATUS=1`, which skips the query. Set it in your shell config for shells inside Herdr panes, where `HERDR_ENV` is `1`. In fish (`~/.config/fish/config.fish`):
+
+```fish
+if test "$HERDR_ENV" = 1; set -gx PI_PROGRAM_STATUS 1; end
+```
+
+In bash or zsh (`~/.bashrc` or `~/.zshrc`):
+
+```bash
+if [ "$HERDR_ENV" = 1 ]; then export PI_PROGRAM_STATUS=1; fi
+```
+
+Without it, Pi asks, gets no answer, and sends no reports. An older Pi, or one run with `PI_PROGRAM_STATUS=0`, sends none either. Herdr then reads Pi's state from the screen and cannot tell when it is blocked. Pi extensions that emit `herdr:blocked` no longer affect Herdr's state for Pi.
 
 ## OMP
 
