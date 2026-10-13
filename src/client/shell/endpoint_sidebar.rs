@@ -341,7 +341,7 @@ pub(super) fn render_expanded(
                         Some(
                             super::sidebar::workspace_rows(
                                 workspace,
-                                super::sidebar::workspace_status(
+                                space_groups::workspace_status(
                                     snapshot,
                                     workspace,
                                     *mirror,
@@ -473,34 +473,14 @@ pub(super) fn render_expanded(
                 if y >= body.bottom() {
                     break;
                 }
-                let endpoint = &state.endpoints[*endpoint];
-                let Some(snapshot) = endpoint.snapshot.as_deref() else {
-                    continue;
-                };
-                let rect = Rect::new(body.x, y, content_width, 1);
-                let nested = Rect::new(
-                    rect.x.saturating_add(2),
-                    rect.y,
-                    rect.width.saturating_sub(2),
-                    1,
-                );
-                space_groups::render_marker(
+                space_groups::render_endpoint_marker(
                     buffer,
-                    nested,
+                    Rect::new(body.x, y, content_width, 1),
                     marker,
-                    snapshot,
-                    &endpoint.endpoint_id,
+                    &state.endpoints[*endpoint],
                     config,
                     hits,
                 );
-                if endpoint.status != ClientEndpointStatus::Online {
-                    buffer.set_style(
-                        rect,
-                        Style::default()
-                            .fg(palette.overlay0)
-                            .add_modifier(Modifier::DIM),
-                    );
-                }
                 y = y
                     .saturating_add(1)
                     .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
@@ -521,7 +501,7 @@ pub(super) fn render_expanded(
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                     .unwrap_or(&empty_collapsed_groups);
                 let status =
-                    super::sidebar::workspace_status(snapshot, workspace, mirror, collapsed_groups);
+                    space_groups::workspace_status(snapshot, workspace, mirror, collapsed_groups);
                 let tokens = super::sidebar::workspace_rows(
                     workspace,
                     status,

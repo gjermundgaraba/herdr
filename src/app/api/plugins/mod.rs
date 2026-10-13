@@ -673,6 +673,7 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     mod entrypoints;
+    pub(super) use entrypoints::{invoke_params, plugin_keybinding};
 
     #[tokio::test]
     async fn pane_link_resolve_checks_staleness_without_side_effects() {
@@ -804,17 +805,6 @@ action = "open"
         std::fs::remove_dir_all(root).expect("remove test plugin");
     }
 
-    fn invoke_params(plugin_id: &str, entry_id: &str) -> crate::api::schema::PluginInvokeParams {
-        crate::api::schema::PluginInvokeParams {
-            plugin_id: plugin_id.into(),
-            entry_id: entry_id.into(),
-            workspace_id: None,
-            tab_id: None,
-            pane_id: None,
-            selection: None,
-        }
-    }
-
     pub(super) fn test_app() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         App::new(
@@ -830,18 +820,6 @@ action = "open"
         serde_json::from_str::<SuccessResponse>(response)
             .expect("success response")
             .result
-    }
-
-    pub(super) fn plugin_keybinding(command: &str) -> crate::config::CustomCommandKeybind {
-        crate::config::CustomCommandKeybind {
-            bindings: crate::config::ActionKeybinds::prefix("z"),
-            label: "prefix+z".into(),
-            command: command.into(),
-            action: crate::config::CustomCommandAction::PluginAction,
-            description: None,
-            width: None,
-            height: None,
-        }
     }
 
     pub(super) fn unique_temp_path(name: &str) -> std::path::PathBuf {

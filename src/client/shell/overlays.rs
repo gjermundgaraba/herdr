@@ -975,22 +975,13 @@ fn render_navigator_overlay(
             }
         }
         if let Some(mark) = r.mark.as_deref() {
-            let x = rect.x.saturating_add(display_width(&format!(
-                "{indent}{current}{status}{status_separator}"
-            )));
-            let end = rect.right().saturating_sub(columns);
-            put_text(
-                b,
-                x,
-                rect.y,
-                display_width(mark).min(end.saturating_sub(x)),
-                mark,
-                if r.stale || ix == selected {
-                    st
-                } else {
-                    st.fg(p.yellow)
-                },
-            );
+            let prefix = format!("{indent}{current}{status}{status_separator}");
+            let style = if r.stale || ix == selected {
+                st
+            } else {
+                st.fg(p.yellow)
+            };
+            pick_overlay::paint_mark(b, rect, &prefix, columns, mark, style);
         }
         let machine_status = match &r.target {
             ClientNavigatorTarget::Machine { endpoint_id } if !endpoint_id.is_local() => endpoints

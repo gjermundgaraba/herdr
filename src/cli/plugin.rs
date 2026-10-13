@@ -6,13 +6,14 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::schema::{
-    InstalledPluginInfo, Method, PluginActionListParams, PluginInvokeParams, PluginLinkParams,
-    PluginListParams, PluginLogListParams, PluginPaneCloseParams, PluginPaneFocusParams,
-    PluginPaneOpenParams, PluginPanePlacement, PluginPlatform, PluginSetEnabledParams,
-    PluginSourceInfo, PluginSourceKind, PluginUnlinkParams, Request, ResponseResult,
-    SplitDirection, SuccessResponse,
+    InstalledPluginInfo, Method, PluginActionListParams, PluginLinkParams, PluginListParams,
+    PluginLogListParams, PluginPaneCloseParams, PluginPaneFocusParams, PluginPaneOpenParams,
+    PluginPanePlacement, PluginPlatform, PluginSetEnabledParams, PluginSourceInfo,
+    PluginSourceKind, PluginUnlinkParams, Request, ResponseResult, SplitDirection, SuccessResponse,
 };
 use crate::popup_size::PopupSize;
+
+mod invoke;
 
 const PLUGIN_BUILD_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 const PLUGIN_INSTALL_USAGE: &str =
@@ -35,7 +36,7 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
         "enable" => plugin_set_enabled(&args[1..], true),
         "disable" => plugin_set_enabled(&args[1..], false),
         "action" => run_plugin_action_command(&args[1..]),
-        "invoke" => plugin_invoke(&args[1..]),
+        "invoke" => invoke::plugin_invoke(&args[1..]),
         "log" | "logs" => plugin_log_list(&args[1..]),
         "pane" => run_plugin_pane_command(&args[1..]),
         "help" | "--help" | "-h" => {
@@ -617,44 +618,6 @@ fn plugin_action_list(args: &[String]) -> std::io::Result<i32> {
     print_plugin_response(Method::PluginActionList(PluginActionListParams {
         plugin_id,
     }))
-}
-
-fn plugin_invoke(args: &[String]) -> std::io::Result<i32> {
-    const USAGE: &str =
-        "usage: herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]";
-    // Plugin ids may contain dots and entry ids cannot.
-    let Some((plugin_id, entry_id)) = args.first().and_then(|target| target.rsplit_once('.'))
-    else {
-        eprintln!("{USAGE}");
-        return Ok(2);
-    };
-    let mut params = PluginInvokeParams {
-        plugin_id: plugin_id.to_owned(),
-        entry_id: entry_id.to_owned(),
-        workspace_id: None,
-        tab_id: None,
-        pane_id: None,
-        selection: None,
-    };
-    let mut index = 1;
-    while index < args.len() {
-        let flag = args[index].as_str();
-        let slot = match flag {
-            "--workspace" => &mut params.workspace_id,
-            "--tab" => &mut params.tab_id,
-            "--pane" => &mut params.pane_id,
-            other => {
-                eprintln!("unknown option: {other}");
-                eprintln!("{USAGE}");
-                return Ok(2);
-            }
-        };
-        let Some(value) = required_value(args, &mut index, flag) else {
-            return Ok(2);
-        };
-        *slot = Some(value);
-    }
-    print_plugin_response(Method::PluginInvoke(params))
 }
 
 fn run_plugin_pane_command(args: &[String]) -> std::io::Result<i32> {

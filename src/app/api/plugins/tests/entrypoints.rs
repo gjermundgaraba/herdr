@@ -5,6 +5,34 @@
 
 use super::*;
 
+pub(in crate::app::api::plugins) fn invoke_params(
+    plugin_id: &str,
+    entry_id: &str,
+) -> crate::api::schema::PluginInvokeParams {
+    crate::api::schema::PluginInvokeParams {
+        plugin_id: plugin_id.into(),
+        entry_id: entry_id.into(),
+        workspace_id: None,
+        tab_id: None,
+        pane_id: None,
+        selection: None,
+    }
+}
+
+pub(in crate::app::api::plugins) fn plugin_keybinding(
+    command: &str,
+) -> crate::config::CustomCommandKeybind {
+    crate::config::CustomCommandKeybind {
+        bindings: crate::config::ActionKeybinds::prefix("z"),
+        label: "prefix+z".into(),
+        command: command.into(),
+        action: crate::config::CustomCommandAction::PluginAction,
+        description: None,
+        width: None,
+        height: None,
+    }
+}
+
 #[test]
 fn link_rejects_action_and_pane_sharing_an_id() {
     let root = unique_temp_path("plugin-shared-entrypoint");

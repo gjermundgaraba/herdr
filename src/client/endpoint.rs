@@ -87,17 +87,6 @@ impl ClientEndpointId {
             Self::Ssh(profile_id) => format!("ssh:{profile_id}"),
         }
     }
-
-    /// The endpoint a [`Self::storage_key`] names, as tools and daemons send
-    /// it back.
-    pub(crate) fn from_storage_key(key: &str) -> Option<Self> {
-        if key == "local" {
-            return Some(Self::Local);
-        }
-        ProfileId::parse(key.strip_prefix("ssh:")?)
-            .ok()
-            .map(Self::Ssh)
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

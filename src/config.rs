@@ -226,10 +226,6 @@ new_tab = "prefix+t"
 [[keys.command]]
 key = "prefix+g"
 command = "lazygit"
-[[keys.command]]
-key = "prefix+s"
-type = "plugin"
-command = "example.snippets.palette"
 "#,
         )
         .unwrap();

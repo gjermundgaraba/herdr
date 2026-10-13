@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn finished_hint_waits_for_the_snapshot_that_shows_the_completion() {
+    fn finished_hint_waits_for_the_projected_completion_snapshot() {
         let mut config = ClientShellConfig::from_config(&Config::default());
         config.toast_delivery = crate::config::ToastDelivery::Terminal;
         config.toast_delay_seconds = 0;
