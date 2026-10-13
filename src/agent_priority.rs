@@ -16,7 +16,7 @@ use crate::api::schema::AgentStatus;
 
 /// Workspace metadata key that lifts a space in the priority order and marks
 /// its agents. The space-priority plugin sets it.
-pub(crate) const PRIORITY_TOKEN: &str = "space_priority";
+const PRIORITY_TOKEN: &str = "space_priority";
 
 /// Sort key for an agent in the `priority` order, `(tier, rank, age)`
 /// ascending: tier is `0` for a lifted waiting agent and `1` otherwise.
@@ -80,38 +80,36 @@ pub(crate) fn lifted(value: Option<&str>) -> bool {
     mark(value).is_some()
 }
 
-/// The mark of a space in a client snapshot.
-pub(crate) fn workspace_mark(workspace: &crate::protocol::ClientShellWorkspace) -> Option<&str> {
-    mark(
-        workspace
-            .tokens
-            .iter()
-            .find(|(key, _)| key == PRIORITY_TOKEN)
-            .map(|(_, value)| value.as_str()),
-    )
-}
-
-/// Fills each agent's `priority_key` and `priority_mark` in a client snapshot.
-pub(crate) fn annotate(
+/// An agent's `priority_key` and `priority_mark` in a client snapshot, from
+/// its terminal's ordering stamp and its space's mark. Read before the agent
+/// becomes a client agent, which carries no terminal id.
+pub(crate) fn client_fields(
     app: &crate::app::App,
     workspaces: &[crate::protocol::ClientShellWorkspace],
-    agents: &mut [crate::protocol::ClientShellAgent],
-) {
-    let marks = workspaces
+    agent: &crate::api::schema::AgentInfo,
+) -> (String, Option<String>) {
+    let mark = workspaces
         .iter()
-        .map(|workspace| (workspace.workspace_id.as_str(), workspace_mark(workspace)))
-        .collect::<std::collections::HashMap<_, _>>();
-    for agent in agents {
-        let mark = marks.get(agent.workspace_id.as_str()).copied().flatten();
-        let stamp = app
-            .parse_pane_id(&agent.pane_id)
-            .and_then(|(ws_idx, pane_id)| app.state.terminal_id_for_pane(ws_idx, pane_id))
-            .and_then(|terminal_id| app.state.terminals.get(&terminal_id))
-            .and_then(|terminal| terminal.agent_order_stamp)
-            .unwrap_or(0);
-        agent.priority_key = priority_key(mark.is_some(), agent.agent_status, stamp);
-        agent.priority_mark = mark.map(str::to_owned);
-    }
+        .find(|workspace| workspace.workspace_id == agent.workspace_id)
+        .and_then(|workspace| {
+            mark(
+                workspace
+                    .tokens
+                    .iter()
+                    .find(|(key, _)| key == PRIORITY_TOKEN)
+                    .map(|(_, value)| value.as_str()),
+            )
+        });
+    let stamp = app
+        .state
+        .terminals
+        .get(agent.terminal_id.as_str())
+        .and_then(|terminal| terminal.agent_order_stamp)
+        .unwrap_or(0);
+    (
+        priority_key(mark.is_some(), agent.agent_status, stamp),
+        mark.map(str::to_owned),
+    )
 }
 
 #[cfg(test)]

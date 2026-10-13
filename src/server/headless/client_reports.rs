@@ -2,30 +2,12 @@
 //! Agents list (`client.report`), `client.list`, and the `client.changed`
 //! event. A report lives in memory only and goes when its client does.
 
-use std::collections::HashMap;
-
 use super::HeadlessServer;
 use crate::api;
 use crate::api::schema::{
     ClientInfo, ClientReport, EventData, EventEnvelope, EventKind, Method, ResponseResult,
 };
 use crate::app::{encode_error, encode_success};
-
-/// Latest report per client id.
-#[derive(Default)]
-pub(super) struct ClientReports(HashMap<u64, ClientReport>);
-
-impl ClientReports {
-    #[cfg(test)]
-    pub(super) fn get(&self, client_id: u64) -> Option<&ClientReport> {
-        self.0.get(&client_id)
-    }
-
-    /// Whether the client has sent a report since it attached.
-    pub(super) fn contains(&self, client_id: u64) -> bool {
-        self.0.contains_key(&client_id)
-    }
-}
 
 impl HeadlessServer {
     /// Answers the client-lane methods a client sends whatever it presents:
@@ -105,8 +87,8 @@ impl HeadlessServer {
         report
             .normalize()
             .map_err(|err| ("invalid_params", err.message().to_owned()))?;
-        if self.fork.client_reports.0.get(&client_id) != Some(&report) {
-            self.fork.client_reports.0.insert(client_id, report);
+        if self.fork.client_reports.get(&client_id) != Some(&report) {
+            self.fork.client_reports.insert(client_id, report);
             self.emit_client_changed(client_id);
         }
         Ok(ResponseResult::Ok {})
@@ -114,7 +96,7 @@ impl HeadlessServer {
 
     /// Drops a departing client's report and tells subscribers it detached.
     pub(super) fn forget_client_report(&mut self, client_id: u64, was_shell_client: bool) {
-        self.fork.client_reports.0.remove(&client_id);
+        self.fork.client_reports.remove(&client_id);
         if was_shell_client {
             self.emit_client_changed(client_id);
         }
@@ -137,7 +119,7 @@ impl HeadlessServer {
             .filter(|(_, client)| client.is_shell_client())
             .map(|(&client_id, _)| ClientInfo {
                 client_id,
-                report: self.fork.client_reports.0.get(&client_id).cloned(),
+                report: self.fork.client_reports.get(&client_id).cloned(),
             })
             .collect::<Vec<_>>();
         clients.sort_unstable_by_key(|client| client.client_id);

@@ -87,7 +87,7 @@ impl HeadlessServer {
             return;
         }
         // A client that never reported does not answer jumps either.
-        if !self.fork.client_reports.contains(client_id) {
+        if !self.fork.client_reports.contains_key(&client_id) {
             reject(
                 "client_not_reporting",
                 "that client has not sent a report, so it cannot be jumped",

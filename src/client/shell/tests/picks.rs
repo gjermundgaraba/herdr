@@ -220,3 +220,26 @@ fn a_picker_from_an_endpoint_not_presented_is_cancelled_as_it_arrives() {
     ));
     assert!(state.settle_picks().is_empty());
 }
+
+#[test]
+fn clicking_a_row_picks_it() {
+    let mut state = shell_with_pick(false);
+    state.compose(106, 30).expect("picker frame");
+    let (row, _) = *state
+        .hits
+        .worktree_rows
+        .iter()
+        .find(|(_, index)| *index == 0)
+        .expect("a hit for the first row");
+    state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: row.x + 2,
+        row: row.y,
+        modifiers: KeyModifiers::empty(),
+    })]);
+    assert_eq!(
+        resolved(&mut state),
+        UiPickOutcome::Picked { id: "work".into() }
+    );
+    assert!(state.overlay.is_none());
+}

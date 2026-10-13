@@ -28,7 +28,7 @@ use super::*;
 use crate::config::PinnedSpaceSection;
 
 mod press;
-pub(super) use press::ClientGroupPress;
+pub(super) use press::{ClientGroupPress, DropGroups};
 
 /// Collapse state key of a group, namespaced apart from worktree repo keys.
 fn collapse_key(name: &str) -> String {
@@ -266,6 +266,30 @@ pub(super) fn sidebar_rows(
         }
     }
     rows
+}
+
+impl ClientShellState {
+    /// The sidebar row of a space's own row, below any pinned sections, for
+    /// `reveal_workspace`. The mobile list ignores collapse state.
+    pub(super) fn sidebar_row_of(&self, workspace_id: &str) -> Option<usize> {
+        let snapshot = self.snapshot.as_deref()?;
+        let empty_collapsed_groups = HashSet::new();
+        let collapsed_groups = if self.mobile_layout_active() {
+            None
+        } else {
+            self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
+        };
+        sidebar_rows(
+            snapshot,
+            &self.config.spaces.pinned,
+            collapsed_groups.unwrap_or(&empty_collapsed_groups),
+        )
+        .iter()
+        .position(|row| {
+            matches!(row, SidebarRow::Workspace(entry)
+                if snapshot.workspaces[entry.index].workspace_id == workspace_id)
+        })
+    }
 }
 
 /// Navigable workspace entries in sidebar order. Pinned mirrors are left

@@ -6,8 +6,8 @@ use super::*;
 use crate::api::schema::{
     AgentStatus, EventData, Method, PaneTarget, Request, ResponseResult, WorkspaceTarget,
 };
-use crate::app::unread_hold::UnreadHold;
 use crate::detect::AgentState;
+use crate::pane::unread_hold::UnreadHold;
 
 /// A request from an attached client, then the settle its server loop runs.
 fn client_request(server: &mut HeadlessServer, client_id: u64, method: Method) -> String {

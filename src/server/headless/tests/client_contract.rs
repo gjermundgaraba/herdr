@@ -215,12 +215,12 @@ async fn a_report_is_listed_announced_and_dropped_with_its_client() {
         "test-boot",
         Method::ClientReport(newer.clone()),
     );
-    assert_eq!(server.fork.client_reports.get(61), Some(&newer));
+    assert_eq!(server.fork.client_reports.get(&61), Some(&newer));
     assert_eq!(changes(&hub, before).len(), 1);
 
     let before = hub.current_sequence();
     server.remove_client(61);
-    assert_eq!(server.fork.client_reports.get(61), None);
+    assert_eq!(server.fork.client_reports.get(&61), None);
     assert_eq!(listed(&mut server), [bare(62)]);
     assert_eq!(changes(&hub, before), [61]);
     shutdown_test_runtimes(&mut server);
@@ -249,7 +249,7 @@ async fn a_client_reports_whatever_it_presents_and_however_busy_it_is() {
         Method::ClientReport(sent.clone()),
     );
     assert!(response.contains(r#""type":"ok""#), "{response}");
-    assert_eq!(server.fork.client_reports.get(61), Some(&sent));
+    assert_eq!(server.fork.client_reports.get(&61), Some(&sent));
     assert!(server.clients[&61].shell_endpoint_command_in_flight);
     // Reporting is not user activity: it does not take over the foreground.
     assert_eq!(server.foreground_client_id, Some(62));
@@ -264,7 +264,7 @@ async fn a_client_reports_whatever_it_presents_and_however_busy_it_is() {
         Method::ClientReport(malformed),
     );
     assert_eq!(error_code(&response), "invalid_params");
-    assert_eq!(server.fork.client_reports.get(61), Some(&sent));
+    assert_eq!(server.fork.client_reports.get(&61), Some(&sent));
 
     let response = lane(
         &mut server,
@@ -283,7 +283,7 @@ async fn a_client_reports_whatever_it_presents_and_however_busy_it_is() {
         let response = api(&mut server, method).try_recv().unwrap();
         assert_eq!(error_code(&response), "connection_local_only");
     }
-    assert_eq!(server.fork.client_reports.get(61), Some(&sent));
+    assert_eq!(server.fork.client_reports.get(&61), Some(&sent));
     shutdown_test_runtimes(&mut server);
 }
 

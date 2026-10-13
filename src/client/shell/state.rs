@@ -908,7 +908,6 @@ pub(crate) struct ClientShellState {
     pub(super) last_sidebar_divider_click: Option<std::time::Instant>,
     pub(super) chrome_drag: Option<ClientChromeDrag>,
     pub(super) workspace_press: Option<ClientWorkspacePress>,
-    pub(super) group_press: Option<super::space_groups::ClientGroupPress>,
     pub(super) tab_press: Option<ClientTabPress>,
     pub(super) collapsed_groups: HashSet<String>,
     pub(super) remote_collapsed_groups: HashMap<ClientEndpointId, HashSet<String>>,
@@ -1084,7 +1083,6 @@ impl ClientShellState {
             last_sidebar_divider_click: None,
             chrome_drag: None,
             workspace_press: None,
-            group_press: None,
             tab_press: None,
             collapsed_groups: preferences.collapsed_groups.into_iter().collect(),
             remote_collapsed_groups,
@@ -1232,15 +1230,6 @@ impl ClientShellState {
         }
     }
 
-    /// Collapse state the sidebar applies; the mobile list shows everything.
-    fn sidebar_collapsed_groups(&self) -> Option<&HashSet<String>> {
-        if self.mobile_layout_active() {
-            None
-        } else {
-            self.collapsed_groups_for_endpoint(&self.active_endpoint_id)
-        }
-    }
-
     pub(super) fn reveal_workspace(&mut self, workspace_id: &str) {
         if self
             .hits
@@ -1250,20 +1239,7 @@ impl ClientShellState {
         {
             return;
         }
-        let target = self.snapshot.as_deref().and_then(|snapshot| {
-            let empty_collapsed_groups = HashSet::new();
-            space_groups::sidebar_rows(
-                snapshot,
-                &self.config.spaces.pinned,
-                self.sidebar_collapsed_groups()
-                    .unwrap_or(&empty_collapsed_groups),
-            )
-            .iter()
-            .position(|row| {
-                matches!(row, space_groups::SidebarRow::Workspace(entry)
-                    if snapshot.workspaces[entry.index].workspace_id == workspace_id)
-            })
-        });
+        let target = self.sidebar_row_of(workspace_id);
         if let Some(target) = target {
             self.workspace_scroll = target.min(self.hits.workspace_max_scroll);
         }
@@ -1295,7 +1271,7 @@ impl ClientShellState {
         self.popup_terminal_id = None;
         self.chrome_drag = None;
         self.workspace_press = None;
-        self.group_press = None;
+        self.fork.group_press = None;
         self.tab_press = None;
         self.workspace_scroll = 0;
         self.agent_scroll = 0;
@@ -1748,7 +1724,7 @@ impl ClientShellState {
             self.reset_copy_pipeline();
             self.chrome_drag = None;
             self.workspace_press = None;
-            self.group_press = None;
+            self.fork.group_press = None;
             self.tab_press = None;
             if self.pane_mouse_gesture.as_ref().is_some_and(|gesture| {
                 gesture.hit.popup && previous_popup.as_deref() == Some(gesture.hit.pane_id.as_str())

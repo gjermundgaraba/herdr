@@ -508,33 +508,14 @@ impl ClientShellState {
         Some(last_index + 1)
     }
 
-    /// The nearest drop position for a dragged space or space group. A group
-    /// header or divider stands for the first space of its run, so the drop
-    /// line above a run sits above its header instead of on it. Pinned
-    /// sections take no drops: the pointer over them, or anywhere above the
-    /// regular list's first row, has no target.
     pub(super) fn workspace_drop_target_at(
         &self,
         point: (u16, u16),
     ) -> Option<(Option<String>, u16)> {
-        let pinned_bottom = self
-            .hits
-            .markers
-            .iter()
-            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && hit.pinned)
-            .map(|hit| hit.rect.bottom())
-            .chain(
-                self.hits
-                    .workspaces
-                    .iter()
-                    .filter(|hit| hit.endpoint_id == self.active_endpoint_id && hit.mirror)
-                    .map(|hit| hit.rect.bottom()),
-            )
-            .max();
         if self.hits.workspace_body.height == 0
             || point.1 < self.hits.workspace_body.y.saturating_sub(1)
             || point.1 >= self.hits.new_workspace.y
-            || pinned_bottom.is_some_and(|bottom| point.1 < bottom)
+            || point.1 < self.pinned_drop_floor()
             || self.hits.workspaces.iter().any(|hit| {
                 hit.endpoint_id != self.active_endpoint_id && super::contains(hit.rect, point)
             })
@@ -542,43 +523,28 @@ impl ClientShellState {
             return None;
         }
         let snapshot = self.snapshot.as_deref()?;
-        let markers = self
+        let groups = self.drop_groups();
+        let mut slots = self
             .hits
-            .markers
+            .workspaces
             .iter()
-            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.pinned)
-            .collect::<Vec<_>>();
-        let mut slots = markers
-            .iter()
-            .filter_map(|hit| Some((hit.member_ids.first()?.clone(), hit.rect.y)))
-            .chain(
-                self.hits
-                    .workspaces
-                    .iter()
-                    .filter(|hit| {
-                        hit.endpoint_id == self.active_endpoint_id
-                            && !hit.indented
-                            && !hit.mirror
-                            && !markers
-                                .iter()
-                                .any(|marker| marker.rect.y == hit.rect.y.saturating_sub(1))
-                    })
-                    .filter(|hit| {
-                        hit.group_toggle.as_ref().is_none_or(|(_, key)| {
-                            snapshot
-                                .workspaces
-                                .iter()
-                                .find(|workspace| {
-                                    workspace.worktree.as_ref().is_some_and(|worktree| {
-                                        worktree.key == *key && !worktree.is_linked_worktree
-                                    })
-                                })
-                                .is_some_and(|workspace| workspace.workspace_id == hit.workspace_id)
+            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.indented)
+            .filter(|hit| !groups.covers(hit))
+            .filter(|hit| {
+                hit.group_toggle.as_ref().is_none_or(|(_, key)| {
+                    snapshot
+                        .workspaces
+                        .iter()
+                        .find(|workspace| {
+                            workspace.worktree.as_ref().is_some_and(|worktree| {
+                                worktree.key == *key && !worktree.is_linked_worktree
+                            })
                         })
-                    })
-                    .map(|hit| (hit.workspace_id.clone(), hit.rect.y)),
-            )
-            .map(|(workspace_id, top)| (Some(workspace_id), top.saturating_sub(1)))
+                        .is_some_and(|workspace| workspace.workspace_id == hit.workspace_id)
+                })
+            })
+            .map(|hit| (Some(hit.workspace_id.clone()), hit.rect.y.saturating_sub(1)))
+            .chain(groups.slots())
             .collect::<Vec<_>>();
         let empty_collapsed_groups = HashSet::new();
         let collapsed_groups = self
@@ -613,17 +579,12 @@ impl ClientShellState {
                     .get(entry.index)
                     .map(|workspace| workspace.workspace_id.clone())
             });
-            // Below the last drawn row, which may be a collapsed group's header.
-            let row = markers
-                .iter()
-                .map(|hit| hit.rect.bottom())
-                .fold(last_hit.rect.bottom(), u16::max);
+            let row = groups.bottom(last_hit.rect.bottom());
             if row < self.hits.new_workspace.y {
                 slots.push((before, row));
             }
         }
-        slots.sort_by_key(|(_, row)| *row);
-        slots.dedup_by(|later, earlier| later.0 == earlier.0);
+        super::space_groups::DropGroups::order(&mut slots);
         slots
             .into_iter()
             .enumerate()
@@ -1313,7 +1274,7 @@ impl ClientShellState {
         if mouse.kind == MouseEventKind::Up(MouseButton::Left) {
             if let Some(drag) = self.chrome_drag.take() {
                 self.workspace_press = None;
-                self.group_press = None;
+                self.fork.group_press = None;
                 self.tab_press = None;
                 match drag {
                     ClientChromeDrag::Tab {
@@ -2003,7 +1964,7 @@ impl ClientShellState {
                 self.word_selection_gesture = None;
                 let previous_pane_click = self.last_pane_click.take();
                 self.workspace_press = None;
-                self.group_press = None;
+                self.fork.group_press = None;
                 self.tab_press = None;
                 self.chrome_drag = None;
                 // The toggle is painted over the agent scrollbar's last cell.

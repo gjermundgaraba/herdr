@@ -4,9 +4,17 @@
 
 use std::sync::Arc;
 
-use super::{AgentSidebarToken, SpaceSidebarToken};
+use super::{AgentSidebarToken, SidebarTokenRule, SidebarTokenStyle, SpaceSidebarToken};
 
 pub(super) type Separator = Option<Arc<str>>;
+
+/// A raw token's name, style, rules, and `separator_before`.
+pub(super) type RawParts = (
+    String,
+    Option<SidebarTokenStyle>,
+    Vec<SidebarTokenRule>,
+    Separator,
+);
 
 /// Control characters would break the row's layout, so they are dropped.
 pub(super) fn sanitize(separator: Option<String>) -> Separator {

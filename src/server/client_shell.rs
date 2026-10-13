@@ -148,10 +148,12 @@ pub(super) fn snapshot_with_completions(
             }
         })
         .collect();
-    let mut agents = snapshot
+    let agents = snapshot
         .agents
         .into_iter()
         .map(|agent| {
+            let (priority_key, priority_mark) =
+                crate::agent_priority::client_fields(app, &workspaces, &agent);
             let pane_id = agent.pane_id;
             let focused = focused_pane_id.as_deref() == Some(pane_id.as_str());
             let mut state_labels = agent.state_labels.into_iter().collect::<Vec<_>>();
@@ -173,12 +175,11 @@ pub(super) fn snapshot_with_completions(
                 state_labels,
                 tokens,
                 focused,
-                priority_key: String::new(),
-                priority_mark: None,
+                priority_key,
+                priority_mark,
             }
         })
-        .collect::<Vec<_>>();
-    crate::agent_priority::annotate(app, &workspaces, &mut agents);
+        .collect();
 
     let agent_view_label = app
         .state
