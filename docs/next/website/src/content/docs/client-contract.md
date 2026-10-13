@@ -316,7 +316,7 @@ arrives. The client therefore always performs the newer navigation, even when
 it already presents the pane the newer jump names, so that navigation is the
 last one it starts and the one it ends on. Only a client that is performing no
 jump skips the navigation for a pane it already presents, and answers `focused`
-at once.
+once no switch of machine is under way (see below).
 
 The clients differ while a switch of machine that the user started is under
 way. The TUI counts the machine it is leaving as presented until the switch is
