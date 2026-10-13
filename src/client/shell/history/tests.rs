@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::api::schema::AgentStatus;
-use crate::client::shell::tests::fleet::{agent, fleet, machine};
+use crate::client::shell::tests::fleet::{agent, fleet, machine, profiles};
 use crate::protocol::ClientShellPane;
 
 /// A snapshot of `boot` with `panes` open and `focused` focused.
@@ -338,4 +338,31 @@ fn each_endpoint_keeps_its_own_trail_and_back_never_crosses_to_another() {
     state.set_endpoint_snapshot(&build, host("build-boot", "pane_1", 1));
     assert!(state.activate_endpoint_projection(&build));
     assert_eq!(press(&mut state, Step::Back), None);
+}
+
+#[test]
+fn a_removed_profile_loses_its_trail_and_a_reconnecting_one_keeps_it() {
+    let (mut state, remotes) = fleet(&["Build", "Deploy"]);
+    let (build, deploy) = (remotes[0].clone(), remotes[1].clone());
+    let profiles = profiles(&["Build", "Deploy"]);
+    state.set_snapshot(host("local-boot", "pane_1", 1));
+    for remote in &remotes {
+        state.set_endpoint_snapshot(remote, host("remote-boot", "pane_1", 1));
+        state.set_endpoint_snapshot(remote, host("remote-boot", "pane_2", 2));
+    }
+
+    // Build drops and comes back to the same daemon while the catalog is
+    // read again: its trail is kept.
+    state.mark_endpoint_disconnected(&build);
+    state.set_endpoint_catalog(&profiles);
+    state.set_endpoint_status(&build, ClientEndpointStatus::Online);
+    state.set_endpoint_snapshot(&build, host("remote-boot", "pane_2", 3));
+    assert!(state.activate_endpoint_projection(&build));
+    assert_eq!(press(&mut state, Step::Back).unwrap().2, "pane_1");
+
+    // Deploy leaves the catalog: its trail goes, Build's and Local's stay.
+    state.set_endpoint_catalog(&profiles[..1]);
+    assert!(!state.fork.history.contains_key(&deploy));
+    assert!(state.fork.history.contains_key(&build));
+    assert!(state.fork.history.contains_key(&ClientEndpointId::Local));
 }

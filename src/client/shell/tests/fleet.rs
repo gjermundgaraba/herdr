@@ -87,13 +87,9 @@ pub(in crate::client) fn machine(
     machine
 }
 
-/// A client on the `priority` sort with Local and one online SSH machine per
-/// label, in that display order. No machine has sent a snapshot yet.
-pub(in crate::client) fn fleet(labels: &[&str]) -> (ClientShellState, Vec<ClientEndpointId>) {
-    let mut config = ClientShellConfig::from_config(&Config::default());
-    config.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
-    let mut state = ClientShellState::new(config);
-    let profiles = labels
+/// The enabled SSH profiles [`fleet`] configures, one per label.
+pub(in crate::client) fn profiles(labels: &[&str]) -> Vec<SavedSshEndpoint> {
+    labels
         .iter()
         .enumerate()
         .map(|(index, label)| SavedSshEndpoint {
@@ -103,7 +99,16 @@ pub(in crate::client) fn fleet(labels: &[&str]) -> (ClientShellState, Vec<Client
             session: "agents".into(),
             enabled: true,
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
+
+/// A client on the `priority` sort with Local and one online SSH machine per
+/// label, in that display order. No machine has sent a snapshot yet.
+pub(in crate::client) fn fleet(labels: &[&str]) -> (ClientShellState, Vec<ClientEndpointId>) {
+    let mut config = ClientShellConfig::from_config(&Config::default());
+    config.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
+    let mut state = ClientShellState::new(config);
+    let profiles = profiles(labels);
     state.set_endpoint_catalog(&profiles);
     let remotes = profiles
         .into_iter()

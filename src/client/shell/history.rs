@@ -36,8 +36,10 @@ pub(super) struct History {
     travel: Option<usize>,
 }
 
-/// Each endpoint's trail. The entry of an endpoint that went away is kept: a
-/// snapshot of another boot resets it, so it never steps to a stale pane.
+/// Each endpoint's trail. An endpoint that disconnects or is disabled keeps
+/// its entry: a snapshot of another boot resets it, so it never steps to a
+/// stale pane. One removed from the catalog loses it
+/// ([`ClientShellState::prune_history`]).
 pub(super) type Trails = HashMap<ClientEndpointId, History>;
 
 impl History {
@@ -146,6 +148,19 @@ impl ClientShellState {
             .entry(endpoint_id.clone())
             .or_default()
             .observe(Some(snapshot), navigating);
+    }
+
+    /// Drops the trails of endpoints the catalog no longer lists, as Herdr
+    /// GPUI drops an endpoint's history with the endpoint. A disconnected or
+    /// disabled profile stays listed, so its trail is kept; a removed one
+    /// added again starts a new trail.
+    pub(super) fn prune_history(&mut self) {
+        let endpoints = &self.endpoints;
+        self.fork.history.retain(|endpoint_id, _| {
+            endpoints
+                .iter()
+                .any(|endpoint| &endpoint.endpoint_id == endpoint_id)
+        });
     }
 
     /// Whether a pane focus request awaits its answer, which is how long a
