@@ -4,7 +4,7 @@
 //! first; working and idle agents show the newest first. The server computes
 //! the order and sends each agent's place in it as `priority_key`, so clients
 //! sort and merge endpoints without knowing the rule
-//! (`client/shell/aggregate_navigation.rs`).
+//! (`client/shell/aggregate_navigation/agent_order.rs`).
 //!
 //! A space whose [`PRIORITY_TOKEN`] workspace metadata token has a non-empty
 //! value is lifted: its blocked and done agents come before every other agent.

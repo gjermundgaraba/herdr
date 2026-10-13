@@ -1,6 +1,6 @@
 //! The `priority` order of the Agents list: daemons send each agent's
 //! `priority_key`, and the client only compares keys and merges machines
-//! (`aggregate_navigation::priority_order`).
+//! (`aggregate_navigation::agent_order::priority_order`).
 
 use super::fleet::{agent, fleet, keyed_agent, lifted_agent, listed, machine};
 use super::*;
@@ -321,4 +321,40 @@ fn the_picker_shows_the_mark_and_shares_the_order() {
             ("local-done".to_owned(), None),
         ]
     );
+}
+
+#[test]
+fn the_picker_matches_each_search_word_on_its_own() {
+    let (mut state, remotes) = fleet(&["Build"]);
+    state.set_snapshot(Box::new(machine(
+        "boot-1",
+        vec![agent("local-done", AgentStatus::Done, 1)],
+    )));
+    state.set_endpoint_snapshot(
+        &remotes[0],
+        Box::new(machine(
+            "build-boot",
+            vec![lifted_agent("build-lifted", AgentStatus::Blocked, 9)],
+        )),
+    );
+    let navigator = ClientNavigatorOverlay {
+        layout: NavigatorLayout::Agents,
+        query: TextEditor::new("lifted build", false),
+        search_focused: false,
+        selected: None,
+        scroll: 0,
+        filter: None,
+    };
+
+    let picker = aggregate_navigation::navigator_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        &navigator,
+    )
+    .into_iter()
+    .map(|row| row.label)
+    .collect::<Vec<_>>();
+
+    assert_eq!(picker.len(), 1, "{picker:?}");
+    assert!(picker[0].ends_with("build-lifted"), "{picker:?}");
 }

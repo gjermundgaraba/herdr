@@ -1,13 +1,10 @@
-//! Endpoint-qualified rows shared by aggregate navigation surfaces: the
-//! Agents list, the agent picker, the workspace picker, and keyboard agent
-//! navigation.
-//!
-//! Row building and ordering here read retained snapshots only and draw
-//! nothing. They are mirrored client logic: Herdr GPUI lists and orders agents
-//! by the same rules (see "Sibling fork: Herdr GPUI" in `FORK.md`).
+//! Endpoint-qualified rows shared by aggregate navigation surfaces.
 
 use super::*;
 use crate::protocol::ClientShellAgent;
+
+pub(super) mod agent_order;
+mod agent_picker;
 
 #[derive(Clone, Copy)]
 pub(super) struct CachedEndpointSnapshot<'a> {
@@ -42,15 +39,6 @@ pub(super) fn cached_endpoint_snapshots(
                     snapshot,
                 })
         })
-}
-
-pub(super) fn active_agent_view_label<'a>(
-    endpoints: &'a [ClientShellEndpoint],
-    active_endpoint_id: &ClientEndpointId,
-) -> Option<&'a str> {
-    cached_endpoint_snapshots(endpoints)
-        .find(|endpoint| endpoint.endpoint_id == active_endpoint_id)
-        .and_then(|endpoint| endpoint.snapshot.agent_view_label.as_deref())
 }
 
 pub(super) struct AggregateAgentRow<'a> {
@@ -93,34 +81,6 @@ fn legacy_projected_agents(snapshot: &ClientShellSnapshot) -> Vec<&ClientShellAg
     } else {
         snapshot.agents.iter().collect()
     }
-}
-
-/// The `priority` order across endpoints. Client-local rules come first: the
-/// rows of an endpoint that is not online follow every online row. Within
-/// each of those halves the daemons' `priority_key`s decide, compared as
-/// plain byte strings, smallest first; they already carry the priority lift
-/// and compare across daemons. An empty key, which a daemon that sends no
-/// keys decodes to, follows every non-empty key. Equal keys keep the endpoint
-/// display order, then the agents' order within their endpoint.
-pub(super) fn priority_order(
-    left: &AggregateAgentRow<'_>,
-    right: &AggregateAgentRow<'_>,
-) -> std::cmp::Ordering {
-    left.endpoint
-        .stale()
-        .cmp(&right.endpoint.stale())
-        .then_with(|| {
-            let (left, right) = (&left.agent.priority_key, &right.agent.priority_key);
-            left.is_empty()
-                .cmp(&right.is_empty())
-                .then_with(|| left.as_bytes().cmp(right.as_bytes()))
-        })
-        .then_with(|| {
-            left.endpoint
-                .endpoint_index
-                .cmp(&right.endpoint.endpoint_index)
-        })
-        .then_with(|| left.position.cmp(&right.position))
 }
 
 pub(super) fn aggregate_agent_rows<'a>(
@@ -198,7 +158,7 @@ fn sort_aggregate_rows(
     sort: crate::config::AgentPanelSortConfig,
 ) {
     if sort == crate::config::AgentPanelSortConfig::Priority {
-        rows.sort_by(priority_order);
+        rows.sort_by(agent_order::priority_order);
     }
 }
 
@@ -307,11 +267,14 @@ pub(super) fn navigator_rows(
     active_endpoint_id: &ClientEndpointId,
     navigator: &ClientNavigatorOverlay,
 ) -> Vec<ClientNavigatorRow> {
-    if navigator.layout == NavigatorLayout::Agents {
-        return agent_navigator_rows(endpoints, active_endpoint_id, navigator);
-    }
     let query = navigator.query.trim().to_lowercase();
-    let filter = |status| filter_matches(navigator.filter, status);
+    let filter = |status| match navigator.filter {
+        Some(ClientNavigatorFilter::Blocked) => status == crate::api::schema::AgentStatus::Blocked,
+        Some(ClientNavigatorFilter::Working) => status == crate::api::schema::AgentStatus::Working,
+        Some(ClientNavigatorFilter::Idle) => status == crate::api::schema::AgentStatus::Idle,
+        Some(ClientNavigatorFilter::Done) => status == crate::api::schema::AgentStatus::Done,
+        None => true,
+    };
     let words = query.split_whitespace().collect::<Vec<_>>();
     let text = |value: &str| {
         if words.is_empty() {
@@ -320,6 +283,9 @@ pub(super) fn navigator_rows(
         let value = value.to_lowercase();
         words.iter().all(|word| value.contains(word))
     };
+    if navigator.layout == NavigatorLayout::Agents {
+        return agent_picker::agent_navigator_rows(endpoints, active_endpoint_id, &filter, &text);
+    }
     let filtering = navigator.filter.is_some() || !query.is_empty();
     let federated = endpoints.len() > 1;
     let depth_offset = u8::from(federated);
@@ -492,92 +458,6 @@ pub(super) fn navigator_rows(
         }
     }
     rows
-}
-
-fn filter_matches(
-    filter: Option<ClientNavigatorFilter>,
-    status: crate::api::schema::AgentStatus,
-) -> bool {
-    match filter {
-        Some(ClientNavigatorFilter::Blocked) => status == crate::api::schema::AgentStatus::Blocked,
-        Some(ClientNavigatorFilter::Working) => status == crate::api::schema::AgentStatus::Working,
-        Some(ClientNavigatorFilter::Idle) => status == crate::api::schema::AgentStatus::Idle,
-        Some(ClientNavigatorFilter::Done) => status == crate::api::schema::AgentStatus::Done,
-        None => true,
-    }
-}
-
-/// Every agent pane across machines as one flat list in priority order.
-fn agent_navigator_rows(
-    endpoints: &[ClientShellEndpoint],
-    active_endpoint_id: &ClientEndpointId,
-    navigator: &ClientNavigatorOverlay,
-) -> Vec<ClientNavigatorRow> {
-    let query = navigator.query.trim().to_lowercase();
-    let text = |value: &str| query.is_empty() || value.to_lowercase().contains(&query);
-    let federated = endpoints.len() > 1;
-    aggregate_agent_rows(
-        endpoints,
-        active_endpoint_id,
-        crate::config::AgentPanelSortConfig::Priority,
-    )
-    .into_iter()
-    .filter_map(|row| {
-        let agent = row.agent;
-        let snapshot = row.endpoint.snapshot;
-        if !filter_matches(navigator.filter, agent.agent_status) {
-            return None;
-        }
-        let pane = snapshot
-            .panes
-            .iter()
-            .find(|pane| pane.pane_id == agent.pane_id);
-        let workspace = snapshot
-            .workspaces
-            .iter()
-            .find(|workspace| workspace.workspace_id == agent.workspace_id);
-        let mark = agent.priority_mark.clone();
-        let workspace = workspace.map_or(agent.workspace_id.as_str(), |workspace| {
-            workspace.label.as_str()
-        });
-        let name = pane
-            .and_then(|pane| pane.label.clone())
-            .or_else(|| agent.name.clone())
-            .or_else(|| agent.display_agent.clone())
-            .or_else(|| agent.title.clone())
-            .unwrap_or_else(|| agent.pane_id.clone());
-        let label = if federated && !row.endpoint.endpoint_id.is_local() {
-            format!("{} · {workspace}: {name}", row.endpoint.label)
-        } else {
-            format!("{workspace}: {name}")
-        };
-        let meta = pane
-            .and_then(|pane| pane.foreground_cwd.clone().or_else(|| pane.cwd.clone()))
-            .unwrap_or_default();
-        if !(text(&label) || text(&meta)) {
-            return None;
-        }
-        let tab = pane
-            .and_then(|pane| snapshot.tabs.iter().find(|tab| tab.tab_id == pane.tab_id))
-            .map_or("", |tab| tab.label.as_str());
-        Some(ClientNavigatorRow {
-            depth: 0,
-            label,
-            meta,
-            detail: format!("{workspace} / {tab} / {}", agent.pane_id),
-            agent: agent.agent.clone().or_else(|| agent.display_agent.clone()),
-            status: Some(agent.agent_status),
-            stale: row.endpoint.stale(),
-            current: row.endpoint.endpoint_id == active_endpoint_id
-                && snapshot.focused_pane_id.as_deref() == Some(agent.pane_id.as_str()),
-            mark,
-            target: ClientNavigatorTarget::Pane {
-                endpoint_id: row.endpoint.endpoint_id.clone(),
-                pane_id: agent.pane_id.clone(),
-            },
-        })
-    })
-    .collect()
 }
 
 pub(super) fn navigator_selected_index(

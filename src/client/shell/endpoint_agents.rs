@@ -83,8 +83,10 @@ pub(super) fn render_expanded(
     agent_scroll: &mut usize,
     hits: &mut ShellHitMap,
 ) {
-    let agent_view_label =
-        super::aggregate_navigation::active_agent_view_label(endpoints, active_endpoint_id);
+    let agent_view_label = super::aggregate_navigation::agent_order::active_agent_view_label(
+        endpoints,
+        active_endpoint_id,
+    );
     if !super::agent_sidebar::render_agent_panel_header(
         buffer,
         area,
