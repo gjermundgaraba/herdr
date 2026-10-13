@@ -142,7 +142,7 @@ first two kinds below.
 | Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/space_groups/group_row.rs` | no: Herdr GPUI does not show pinned sections, which the TUI resolves from its own config; group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
 | Mark unread | `src/client/shell/mark_unread.rs` | `crates/herdr-gpui/src/client_contract/follow.rs` | yes |
 | Client report | `src/client/shell/client_report.rs`, `src/client/client_contract.rs` | `crates/herdr-gpui/src/client_contract.rs`, `crates/herdr-gpui/src/client_contract/report.rs` | yes, except Herdr GPUI sends a report, and a jump or picker answer, only after the request its connection holds is answered |
-| Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes, except under an open menu (Herdr GPUI leaves it open, so the jump waits for it and can time out) and during a host switch the user started: Herdr GPUI selects the new host at the click, so a jump to the host it left navigates back and can answer `focused`, while the TUI lets the switch finish, so such a jump answers `timeout` |
+| Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes, except under an open menu (Herdr GPUI leaves it open, so the jump waits for it and can time out) and during a host switch the user started: Herdr GPUI selects the new host at the click, so a jump to the host it left navigates back and can answer `focused`, while the TUI lets the switch finish, so a first jump to the pane it still shows answers `timeout` |
 | Agent and workspace pickers | `src/client/shell/aggregate_navigation/agent_picker.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
 | Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail |
 | Client-side keys stay local | `src/config/keybinds/client_actions.rs`, `src/client/shell/client_actions.rs` | `crates/herdr-gpui/src/keymap/daemon/client_actions.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
@@ -186,7 +186,14 @@ lands.
   `aggregate_navigation.rs`) stay rewritten because the fork's agents list
   keeps a reconnecting host's cached agents, dimmed and skipped by
   navigation, which upstream's paths drop. That is a fork feature (fork
-  commit 2c42afce), so do not restore upstream's.
+  commit 2c42afce), so do not restore upstream's. `aggregate_navigation.rs`
+  also stays rewritten in two places for other fork features. Its rows carry
+  a `position` instead of upstream's `recency`, because the priority order
+  breaks ties between equal keys by snapshot order, not client-side recency.
+  It drops the recency and presentation fields and the `seen` flag, and
+  `seen()` reads the daemon's status, because the TUI's completion ledger is
+  removed. The helpers that build its rows live in
+  `aggregate_navigation/agent_order.rs`.
 
 ## Upstream guardrails
 
