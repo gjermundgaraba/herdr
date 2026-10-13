@@ -130,21 +130,21 @@ impl ClientShellState {
             }
         };
         // The replaced jump's navigation may still land elsewhere, so only a
-        // client with no other jump takes the pane it presents as reached.
-        if replaced.is_none() && self.presents_pane(&endpoint_id, &jump.pane_id) {
-            self.resolve_client_jump(origin, jump.jump_id, ClientJumpOutcome::Focused);
-            return outcome;
+        // client with no other jump skips the navigation to the pane it
+        // presents. Settlement still answers it, once no switch is under way.
+        let navigate = replaced.is_some() || !self.presents_pane(&endpoint_id, &jump.pane_id);
+        if navigate {
+            self.focus_or_activate(
+                endpoint_id,
+                ClientEndpointFocusTarget::Pane(jump.pane_id.clone()),
+                &mut outcome,
+            );
         }
-        self.focus_or_activate(
-            endpoint_id,
-            ClientEndpointFocusTarget::Pane(jump.pane_id.clone()),
-            &mut outcome,
-        );
         self.fork.client_jumps.pending = Some(PendingClientJump {
             origin,
             jump,
             deadline: now + NAVIGATION_SETTLE_DEADLINE,
-            navigation_dispatched: true,
+            navigation_dispatched: navigate,
         });
         outcome
     }
