@@ -153,8 +153,8 @@ fn agent_picker_shows_the_priority_mark_the_endpoint_sent() {
     marked.label = "urgent".into();
     marked.focused = false;
     // The space's own tokens are not consulted: the endpoint resolved the
-    // mark from its `ui.agent_priority_tokens`.
-    marked.tokens = vec![("urgent".into(), "!".into())];
+    // mark from its `space_priority` token.
+    marked.tokens = vec![("space_priority".into(), "?".into())];
     snapshot.workspaces.push(marked);
     let mut priority = agent("priority idle", AgentStatus::Idle, 2);
     priority.pane_id = "pane_2".into();

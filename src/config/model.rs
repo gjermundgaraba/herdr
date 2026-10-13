@@ -101,39 +101,6 @@ pub enum AgentPanelSortConfig {
     Priority,
 }
 
-/// Most workspace metadata token keys `ui.agent_priority_tokens` may list.
-pub const MAX_AGENT_PRIORITY_TOKENS: usize = 16;
-
-fn deserialize_agent_priority_tokens<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let tokens = Vec::<String>::deserialize(deserializer)?;
-    validate_agent_priority_tokens(&tokens).map_err(de::Error::custom)?;
-    Ok(tokens)
-}
-
-fn validate_agent_priority_tokens(tokens: &[String]) -> Result<(), String> {
-    if tokens.len() > MAX_AGENT_PRIORITY_TOKENS {
-        return Err(format!(
-            "ui.agent_priority_tokens may list at most {MAX_AGENT_PRIORITY_TOKENS} tokens"
-        ));
-    }
-    let mut seen = BTreeSet::new();
-    for token in tokens {
-        if !crate::metadata_tokens::is_valid_key(token) {
-            return Err(format!(
-                "invalid ui.agent_priority_tokens key {token:?}: use 1 to {} ASCII letters, digits, underscores, or hyphens",
-                crate::metadata_tokens::MAX_KEY_LEN
-            ));
-        }
-        if !seen.insert(token.as_str()) {
-            return Err(format!("duplicate ui.agent_priority_tokens key {token:?}"));
-        }
-    }
-    Ok(())
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum LegacyAgentPanelScopeConfig {
@@ -1056,12 +1023,6 @@ pub struct UiConfig {
     pub window_title: String,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
-    /// Workspace metadata token keys that lift a space's blocked and done agents
-    /// to the top of the "priority" order while the space carries any of them with
-    /// a non-empty value. The value of the first listed token that has a non-empty
-    /// one marks the space's agents in the agent picker. Default: empty.
-    #[serde(deserialize_with = "deserialize_agent_priority_tokens")]
-    pub agent_priority_tokens: Vec<String>,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
     #[serde(rename = "agent_panel_scope")]
     _legacy_agent_panel_scope: Option<LegacyAgentPanelScopeConfig>,
@@ -1298,7 +1259,6 @@ impl Default for UiConfig {
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
             agent_panel_sort: AgentPanelSortConfig::Spaces,
-            agent_priority_tokens: Vec::new(),
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
             sidebar: SidebarConfig::default(),
@@ -1408,8 +1368,6 @@ impl Default for AdvancedConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    mod agent_priority_tokens;
 
     #[test]
     fn update_config_defaults_and_parses() {

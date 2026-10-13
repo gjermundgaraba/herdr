@@ -404,23 +404,13 @@ fn pinned_snapshot(spaces: &[&[(&str, &str)]]) -> ClientShellSnapshot {
             .collect();
         projected.workspaces.push(workspace);
     }
-    resolve_pinned_sections(&mut projected);
     projected
 }
 
-/// Fills in the sections an endpoint configured with [`PINNED_CONFIG`] sends
-/// for the snapshot's spaces.
-fn resolve_pinned_sections(projected: &mut ClientShellSnapshot) {
-    let config: Config = toml::from_str(PINNED_CONFIG).expect("pinned config");
-    projected.pinned_sections = crate::server::client_shell::pinned_sections(
-        &config.ui.sidebar.spaces.pinned,
-        &projected.workspaces,
-    );
-}
-
-/// The client's own config has no pinned sections: the endpoint sends them.
+/// A client configured with [`PINNED_CONFIG`] showing these spaces.
 fn pinned_state(spaces: &[&[(&str, &str)]]) -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    let config: Config = toml::from_str(PINNED_CONFIG).expect("pinned config");
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
     state.set_snapshot(Box::new(pinned_snapshot(spaces)));
     state.set_pane_surface(surface());
     state
@@ -907,8 +897,10 @@ fn an_overflowing_pinned_sidebar_scrolls_to_and_reveals_real_rows() {
     assert!(metrics.max_offset_from_bottom > 9);
 }
 
+/// The client's own sections apply to every machine's spaces, each machine
+/// showing those its spaces match.
 #[test]
-fn each_machine_shows_its_own_pinned_sections() {
+fn every_machine_shows_the_client_pinned_sections_it_matches() {
     use crate::client::endpoint::{ClientEndpointStatus, ProfileId, SavedSshEndpoint};
 
     let mut state = pinned_state(&[&[("prio", "1")], &[]]);

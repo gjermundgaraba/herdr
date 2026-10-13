@@ -74,9 +74,11 @@ pub(crate) fn apply_agent_view(app: &AppState, entries: &mut Vec<AgentPanelEntry
         entries.sort_by_key(|entry| {
             crate::agent_priority::sort_key(
                 app.workspaces.get(entry.ws_idx).is_some_and(|workspace| {
-                    crate::agent_priority::lifted(&app.agent_priority_tokens, |key| {
-                        workspace.metadata_tokens.get(key)
-                    })
+                    crate::agent_priority::lifted(
+                        workspace
+                            .metadata_tokens
+                            .get(crate::agent_priority::PRIORITY_TOKEN),
+                    )
                 }),
                 super::api_helpers::pane_agent_status(entry.state, entry.seen),
                 entry.agent_order_stamp.unwrap_or_default(),

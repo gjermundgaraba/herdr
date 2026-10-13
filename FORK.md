@@ -42,31 +42,32 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   completion once the marking client stops presenting the pane, so every
   client shows the same badge (`src/app/unread_hold.rs`)
 - Agent status comes from the daemon alone: the TUI's per-client completion
-  ledger and the `endpoint.agent-completions.v1` control are removed, so the
-  TUI shows each agent's `agent_status` as the snapshot sends it, like Herdr
-  GPUI. A completion in the daemon's current tab therefore never becomes a
-  badge while every client presents another machine; see "Agent status" in
-  the client contract
+  ledger is removed, so the TUI shows each agent's `agent_status` as the
+  snapshot sends it, like Herdr GPUI. The daemon still sends upstream's
+  `endpoint.agent-completions.v1` control, which both clients ignore. A
+  completion in the daemon's current tab therefore never becomes a badge
+  while every client presents another machine; see "Agent status" in the
+  client contract
 - Space groups: the `space_group` workspace metadata token puts runs of
   spaces under collapsible, draggable sidebar headers. `workspace.set_group`
   assigns and places a worktree family, moved families take the group of
   where they land, and a family's spaces are kept together, checkout first
   (`src/space_order.rs`, `src/app/api/space_groups.rs`,
   `src/client/shell/space_groups.rs`)
-- Pinned space sections: each `[[ui.sidebar.spaces.pinned]]` entry shows a
-  collapsible section at the top of every machine's space list with copies of
-  the spaces whose given workspace metadata token is non-empty, optionally
-  matched with `equals`, `contains`, or `starts_with`. Copies focus and open
-  menus like the real rows, but do not drag or take drops, and navigation
-  skips them. The daemon resolves the sections and sends them in the snapshot
-  as `pinned_sections` (`src/config/sidebar/pinned.rs`,
-  `src/server/client_shell.rs`, `src/client/shell/space_groups.rs`)
-- Agent priority tokens: `ui.agent_priority_tokens` lists workspace metadata
-  token keys, and a space carrying any of them with a non-empty value lifts
-  its blocked and done agents to the top of the `priority` agent order; the
-  agent picker shows the value of the first listed token that has a non-empty
-  one. That order also queues blocked and done agents oldest state change
-  first. The daemon sends it as a
+- Pinned space sections: each `[[ui.sidebar.spaces.pinned]]` entry in the
+  TUI's own config shows a collapsible section at the top of every machine's
+  space list with copies of that machine's spaces whose given workspace
+  metadata token is non-empty, optionally matched with `equals`, `contains`,
+  or `starts_with`. Copies focus and open menus like the real rows, but do
+  not drag or take drops, and navigation skips them. The TUI resolves the
+  sections from each machine's snapshot; the daemon neither resolves nor
+  sends them, and Herdr GPUI does not show them
+  (`src/config/sidebar/pinned.rs`, `src/client/shell/space_groups.rs`)
+- Agent priority: a space whose `space_priority` workspace metadata token,
+  the key the space-priority plugin writes, has a non-empty value lifts its
+  blocked and done agents to the top of the `priority` agent order, and the
+  agent picker shows the token's value. That order also queues blocked and
+  done agents oldest state change first. The daemon sends it as a
   `priority_key` per agent, which clients compare as plain strings, also
   across hosts, and sends the mark as `priority_mark` (`src/agent_priority.rs`)
 - One invoke path: `type = "plugin"` keybindings and `plugin.invoke`
@@ -80,7 +81,8 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   (`src/app/api/plugins/context.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
   saves tokens in the session snapshot, so plugin state such as space groups
-  and priority tokens survives restarts and handoffs (`src/metadata_tokens.rs`)
+  and the `space_priority` token survives restarts and handoffs
+  (`src/metadata_tokens.rs`)
 - Plugin-facing events and starts: `pane.closed` and `pane.exited` carry
   `tab_id`, `pane.cwd_changed` reports shell cwd changes, and `agent.start`
   waits for a starting shell and reports `agent_present`,
@@ -122,13 +124,13 @@ first two kinds below.
 | --- | --- | --- | --- |
 | Sidebar `separator_before` | `src/config/sidebar.rs`, `src/ui/sidebar/tokens.rs` | `crates/herdr-gpui/src/config/sidebar.rs`, `crates/herdr-gpui/src/sidebar/tokens.rs` | yes |
 | Plugin picker | `src/client/shell/picks.rs`, `src/client/shell/pick_overlay.rs` | `crates/herdr-gpui/src/picker.rs`, `crates/herdr-gpui/src/picker/` | yes, except a picker that arrives while a menu or dialog is open: Herdr GPUI answers `cancelled`, the TUI replaces its overlay and shows the picker |
-| Agent priority order | `src/client/shell/aggregate_navigation.rs` | `crates/herdr-gpui/src/sidebar/agents.rs`, `crates/herdr-gpui/src/sidebar/order.rs` | yes, except under a plugin agent view: Herdr GPUI keeps each host's own view order, the TUI applies the active host's view across hosts |
-| Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/group_row.rs` | no: group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
+| Agent priority order | `src/client/shell/aggregate_navigation.rs` | `crates/herdr-gpui/src/sidebar/agents.rs`, `crates/herdr-gpui/src/sidebar/order.rs` | yes: both sort by the daemon's `priority_key`, whose `space_priority` lift neither client configures, except under a plugin agent view: Herdr GPUI keeps each host's own view order, the TUI applies the active host's view across hosts |
+| Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/group_row.rs` | no: Herdr GPUI does not show pinned sections, which the TUI resolves from its own config; group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
 | Mark unread | `src/client/shell/endpoints.rs`, `src/client/shell/actions.rs` | `crates/herdr-gpui/src/window/commands.rs`, `crates/herdr-gpui/src/client_contract/follow.rs` | yes |
 | Client report | `src/client/shell/client_report.rs`, `src/client/client_contract.rs` | `crates/herdr-gpui/src/client_contract.rs`, `crates/herdr-gpui/src/client_contract/report.rs` | yes, except Herdr GPUI sends a report, and a jump or picker answer, only after the request its connection holds is answered |
 | Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes, except under an open menu (Herdr GPUI leaves it open, so the jump waits for it and can time out) |
 | Agent and workspace pickers | `src/client/shell/aggregate_navigation.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
-| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's) | yes |
+| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail |
 | Client-side keys stay local | `src/config/keybinds.rs` | `crates/herdr-gpui/src/keymap/daemon.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
 
 Add a row, in both `FORK.md` files, when a mirrored feature lands in either

@@ -39,7 +39,7 @@ fn agent(
         state_labels: Vec::new(),
         tokens: Vec::new(),
         focused: true,
-        // What a daemon without priority tokens sends, with the lifecycle
+        // What a daemon sends for an unlifted space, with the lifecycle
         // sequence standing in for its stamp.
         priority_key: crate::agent_priority::priority_key(false, status, state_change_seq),
         priority_mark: None,

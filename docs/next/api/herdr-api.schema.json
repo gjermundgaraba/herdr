@@ -2055,12 +2055,12 @@
             },
             "priority_key": {
               "default": "",
-              "description": "The agent's place in the `priority` order, with the priority-token\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first; an empty key follows every non-empty one. Keys\nfrom different endpoints compare the same way; see\n[`crate::agent_priority::priority_key`].",
+              "description": "The agent's place in the `priority` order, with the `space_priority`\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first; an empty key follows every non-empty one. Keys\nfrom different endpoints compare the same way; see\n[`crate::agent_priority::priority_key`].",
               "type": "string"
             },
             "priority_mark": {
               "default": null,
-              "description": "The mark of the agent's space: the value of the first\n`ui.agent_priority_tokens` entry the space carries with a non-empty\nvalue, if any.",
+              "description": "The mark of the agent's space: its `space_priority` workspace metadata\ntoken, if that is non-empty.",
               "type": [
                 "string",
                 "null"
@@ -7648,12 +7648,12 @@
             },
             "priority_key": {
               "default": "",
-              "description": "The agent's place in the `priority` order, with the priority-token\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first; an empty key follows every non-empty one. Keys\nfrom different endpoints compare the same way; see\n[`crate::agent_priority::priority_key`].",
+              "description": "The agent's place in the `priority` order, with the `space_priority`\nlift applied. Opaque: order agents by comparing these strings byte by\nbyte, smallest first; an empty key follows every non-empty one. Keys\nfrom different endpoints compare the same way; see\n[`crate::agent_priority::priority_key`].",
               "type": "string"
             },
             "priority_mark": {
               "default": null,
-              "description": "The mark of the agent's space: the value of the first\n`ui.agent_priority_tokens` entry the space carries with a non-empty\nvalue, if any.",
+              "description": "The mark of the agent's space: its `space_priority` workspace metadata\ntoken, if that is non-empty.",
               "type": [
                 "string",
                 "null"

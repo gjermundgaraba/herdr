@@ -14,27 +14,12 @@ advertises in its welcome, three endpoint control kinds, and socket API methods.
 
 ## Snapshot additions
 
-The endpoint snapshot (`shell.snapshot.v1`) carries three optional additions.
-A client that lacks them decodes an empty list, an empty key, and no mark.
+The endpoint snapshot (`shell.snapshot.v1`) carries two optional additions.
+A client that lacks them decodes an empty key and no mark.
 
-### Pinned sections
-
-`pinned_sections` is the daemon's `[[ui.sidebar.spaces.pinned]]` config with
-the matching spaces already resolved, so a client draws the sections without
-reading that config:
-
-```json
-"pinned_sections": [
-  { "title": "Priority", "fg": "#ff8800", "workspace_ids": ["w1"] },
-  { "title": "Platform", "fg": null, "workspace_ids": ["w1", "w2"] }
-]
-```
-
-Sections come in config order. `workspace_ids` lists the member spaces in the
-snapshot's space order and is never empty: a section no space matches is left
-out. A space is a member when it carries the section's token with a non-empty
-value that meets the section's `equals`, `contains`, or `starts_with`
-condition, if it has one. `fg` is `#rrggbb` or `null`.
+Pinned space sections are not part of the snapshot. The TUI resolves its own
+`[[ui.sidebar.spaces.pinned]]` config against each machine's spaces and their
+metadata tokens, and Herdr GPUI does not show pinned sections.
 
 ### Agent priority
 
@@ -45,16 +30,17 @@ Each entry of `agents` has two more fields:
 ```
 
 `priority_key` is the agent's place in the `priority` order, with the
-`ui.agent_priority_tokens` lift already applied. It is opaque. To order agents,
-compare the keys as plain strings, byte by byte, smallest first. Every key has
-the same length. An empty key, which is what an agent of a daemon that sends no
+`space_priority` lift already applied: a space whose `space_priority` workspace
+metadata token has a non-empty value lifts its blocked and done agents. It is
+opaque. To order agents, compare the keys as plain strings, byte by byte,
+smallest first. Every key has the same length. An empty key, which is what an agent of a daemon that sends no
 keys decodes to, sorts after every non-empty key; agents with equal keys, empty
 ones included, keep the tie order described below. A client that sorts by
 space instead ignores the key.
 
-`priority_mark` is the value of the first `ui.agent_priority_tokens` entry the
-agent's space carries with a non-empty value, or `null`. The agent picker shows
-it before the agent's label.
+`priority_mark` is the value of the agent's space's `space_priority` token
+when it is non-empty, or `null`. The agent picker shows it before the agent's
+label.
 
 Keys from different daemons compare the same way, so a client merges the agents
 of several machines by sorting all of them on `priority_key`. This works
@@ -109,9 +95,9 @@ request: one that takes the command lease, such as `pane.focus`.
 `client.report`, `client.jump.resolve`, and `ui.pick.resolve` do not take it
 and change nothing here.
 
-This build's daemon does not send the `endpoint.agent-completions.v1` control
-and does not advertise the `agent_completions` capability. A client attached to
-a daemon that still sends the control ignores it.
+The daemon still sends upstream's `endpoint.agent-completions.v1` control and
+advertises the `agent_completions` capability, but both clients ignore the
+control: neither keeps a record of completions.
 
 ## Unread hold
 
@@ -393,7 +379,7 @@ the plugins SDK, which reads reports through the socket API.
 
 | File | Shape | Copied by |
 | --- | --- | --- |
-| `endpoint-snapshot-shared-v1.json` | Snapshot with `pinned_sections`, `priority_key`, and `priority_mark` | Herdr GPUI, plugins SDK |
+| `endpoint-snapshot-shared-v1.json` | Snapshot with `priority_key` and `priority_mark` | Herdr GPUI, plugins SDK |
 | `endpoint-client-report-v1.json` | `client.report` request | Herdr GPUI, plugins SDK |
 | `endpoint-client-jump-v1.json` | `endpoint.client-jump.v1` control data | Herdr GPUI |
 | `endpoint-client-jump-resolve-v1.json` | `client.jump.resolve` requests, one per outcome | Herdr GPUI |

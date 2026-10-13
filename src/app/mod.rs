@@ -534,7 +534,6 @@ impl App {
             prefix_keys,
             headless_size: config.headless_size(),
             agent_panel_sort,
-            agent_priority_tokens: config.ui.agent_priority_tokens.clone(),
             agent_view_override: None,
             sidebar_agents: config.ui.sidebar.agents.clone(),
             sidebar_spaces: config.ui.sidebar.spaces.clone(),
@@ -923,7 +922,6 @@ impl App {
                 self.configure_window_title(&config.ui.window_title);
                 self.state.agent_panel_sort =
                     agent_panel_sort_from_config(config.ui.agent_panel_sort);
-                self.state.agent_priority_tokens = config.ui.agent_priority_tokens.clone();
                 self.state.sidebar_agents = config.ui.sidebar.agents.clone();
                 self.state.sidebar_spaces = config.ui.sidebar.spaces.clone();
                 self.state.sound = config.ui.sound.clone();
@@ -1417,7 +1415,6 @@ mod tests {
     fn startup_uses_configured_agent_panel_sort() {
         let mut config = Config::default();
         config.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
-        config.ui.agent_priority_tokens = vec!["lift".to_string()];
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let app = App::new(
@@ -1429,7 +1426,6 @@ mod tests {
         );
 
         assert_eq!(app.state.agent_panel_sort, state::AgentPanelSort::Priority);
-        assert_eq!(app.state.agent_priority_tokens, ["lift"]);
     }
 
     #[test]
@@ -1769,7 +1765,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+m\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[server]\nheadless_cols = 160\nheadless_rows = 50\n[ui]\nagent_panel_sort = \"priority\"\nagent_priority_tokens = [\"lift\"]\n[ui.toast]\ndelivery = \"herdr\"\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+m\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[server]\nheadless_cols = 160\nheadless_rows = 50\n[ui]\nagent_panel_sort = \"priority\"\n[ui.toast]\ndelivery = \"herdr\"\n",
         )
         .unwrap();
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -1795,7 +1791,6 @@ mod tests {
             crate::config::ToastDelivery::Herdr
         );
         assert_eq!(app.state.agent_panel_sort, state::AgentPanelSort::Priority);
-        assert_eq!(app.state.agent_priority_tokens, ["lift"]);
         let report = app.reload_config();
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
         assert!(app.state.request_client_config_reload);
@@ -1926,7 +1921,7 @@ mod tests {
 
         std::fs::write(
             &path,
-            "[ui.sidebar.agents]\nrows = [[\"state_icon\", \"$summary\"]]\nrow_gap = 1\n\n[ui.sidebar.agents.rows_by_agent]\nclaude = [[\"terminal_title_stripped\"]]\n\n[ui.sidebar.spaces]\nrows = [[\"workspace\", \"$jj_status\"]]\nrow_gap = 3\n\n[[ui.sidebar.spaces.pinned]]\ntitle = \"Priority\"\ntoken = \"prio\"\n",
+            "[ui.sidebar.agents]\nrows = [[\"state_icon\", \"$summary\"]]\nrow_gap = 1\n\n[ui.sidebar.agents.rows_by_agent]\nclaude = [[\"terminal_title_stripped\"]]\n\n[ui.sidebar.spaces]\nrows = [[\"workspace\", \"$jj_status\"]]\nrow_gap = 3\n",
         )
         .unwrap();
         let report = app.reload_config();
@@ -1954,8 +1949,6 @@ mod tests {
             ]]
         );
         assert_eq!(app.state.sidebar_spaces.row_gap, 3);
-        assert_eq!(app.state.sidebar_spaces.pinned.len(), 1);
-        assert_eq!(app.state.sidebar_spaces.pinned[0].token, "prio");
 
         let conditional = "[ui.sidebar.agents]\nrows = [[{ token = '$load', rules = [{ gt = 80, bold = true }] }]]\n";
         std::fs::write(&path, conditional).unwrap();

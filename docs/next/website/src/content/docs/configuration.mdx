@@ -369,15 +369,14 @@ status_indicators = "symbols"
 
 The symbols are static, so this option does not enable spinner animation.
 
-`agent_panel_sort = "priority"` orders agents as an attention queue: blocked, then done, working, idle, and unknown. Blocked and done agents queue oldest first, so the agent that has waited longest comes next; working and idle agents show the newest first. `agent_priority_tokens` lists workspace metadata token keys that lift a space in that order. While a space carries any listed token with a non-empty value, its blocked and done agents come before every other agent; its working and idle agents keep their usual place. Plugins set such tokens with `workspace.report_metadata`; for example, a plugin that sets `space_priority` on spaces you mark urgent:
+`agent_panel_sort = "priority"` orders agents as an attention queue: blocked, then done, working, idle, and unknown. Blocked and done agents queue oldest first, so the agent that has waited longest comes next; working and idle agents show the newest first. A space whose `space_priority` workspace metadata token has a non-empty value is lifted in that order: its blocked and done agents come before every other agent, and its working and idle agents keep their usual place. Plugins set the token with `workspace.report_metadata`; the space-priority plugin, for example, sets it on spaces you mark urgent:
 
 ```toml
 [ui]
 agent_panel_sort = "priority"
-agent_priority_tokens = ["space_priority"]
 ```
 
-The agent picker shows, before the labels of a space's agents, the value of the first listed token that the space carries with a non-empty value. The list is empty by default, so no space is lifted. It accepts at most 16 distinct keys of ASCII letters, digits, underscores, and hyphens. The `spaces` order ignores these tokens.
+The agent picker shows the token's value before the labels of the space's agents. The `spaces` order ignores the token.
 
 ### Sidebar row layouts
 
@@ -524,7 +523,7 @@ equals = "review"
 
 A space belongs to a section when it reports the section's `token` with a non-empty value. Add at most one of `equals`, `contains`, or `starts_with` to also require a case-sensitive match on that value; above, only spaces whose `$stage` is exactly `review` join the Review section. `title` and `token` are required, and titles must be unique. `fg` optionally colors the header title and accepts strict `#RGB` or `#RRGGBB`. At most 16 sections are allowed. Invalid sections are rejected when loading config.
 
-Each machine shows its sections above its regular space list, in config order, followed by a divider. A section without matching spaces is hidden. A section starts with a header like a space group header, with the number of matching spaces, and then lists them in space order using the `rows` layout, without worktree indentation. These rows are copies: every space also keeps its regular place, and a space that matches several sections appears in each of them. Clicking a copy focuses the space and right-clicking opens its usual menu, but copies cannot be dragged or dropped onto, and keyboard navigation skips them. Click a section header to collapse it; a collapsed header shows the most urgent agent state among its spaces. Each client remembers collapsed sections separately from space groups. Pinned sections appear only in the expanded desktop sidebar.
+Sections come from the local config, like the other sidebar settings, so the same sections apply to every machine: each machine shows the sections its spaces match above its regular space list, in config order, followed by a divider. A section without matching spaces is hidden. A section starts with a header like a space group header, with the number of matching spaces, and then lists them in space order using the `rows` layout, without worktree indentation. These rows are copies: every space also keeps its regular place, and a space that matches several sections appears in each of them. Clicking a copy focuses the space and right-clicking opens its usual menu, but copies cannot be dragged or dropped onto, and keyboard navigation skips them. Click a section header to collapse it; a collapsed header shows the most urgent agent state among its spaces. Each client remembers collapsed sections separately from space groups. Pinned sections appear only in the expanded desktop sidebar.
 
 Report the token like any custom Space token, with `herdr workspace report-metadata` or a plugin.
 

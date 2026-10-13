@@ -1329,6 +1329,7 @@ impl ClientShellState {
             let empty_collapsed_groups = HashSet::new();
             space_groups::sidebar_rows(
                 snapshot,
+                &self.config.spaces.pinned,
                 self.sidebar_collapsed_groups()
                     .unwrap_or(&empty_collapsed_groups),
             )

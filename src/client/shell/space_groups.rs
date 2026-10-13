@@ -10,19 +10,22 @@
 //! dropping one inside another group splits that group into two runs.
 //! Runs of one group share a collapse key, so collapsing either collapses both.
 //!
-//! Pinned sections come first. The endpoint resolves them from its
-//! `[[ui.sidebar.spaces.pinned]]` config and sends them as the snapshot's
-//! `pinned_sections`: each shows a header and a flat mirror row per member, in
-//! the order the endpoint lists them. Mirrors are copies; every space keeps
-//! its place in the regular list, which follows behind a divider. Mirrors and
-//! pinned headers neither drag nor take drops, and navigation skips mirrors.
+//! Pinned sections come first. The client resolves them from its own
+//! `[[ui.sidebar.spaces.pinned]]` config against each endpoint's spaces and
+//! their metadata tokens: each section that some space matches shows a header
+//! and a flat mirror row per member, in config order and space order. Mirrors
+//! are copies; every space keeps its place in the regular list, which follows
+//! behind a divider. Mirrors and pinned headers neither drag nor take drops,
+//! and navigation skips mirrors.
 //!
-//! [`sidebar_rows`] and [`workspace_entries`] build rows from a snapshot and
-//! the collapse state alone; drawing starts at [`render_marker`]. The row
-//! building is mirrored client logic: Herdr GPUI builds the same rows (see
-//! "Sibling fork: Herdr GPUI" in `FORK.md`).
+//! [`sidebar_rows`] and [`workspace_entries`] build rows from a snapshot, the
+//! pinned sections, and the collapse state alone; drawing starts at
+//! [`render_marker`]. The group rows are mirrored client logic: Herdr GPUI
+//! builds the same groups (see "Sibling fork: Herdr GPUI" in `FORK.md`), but
+//! shows no pinned sections.
 
 use super::*;
+use crate::config::PinnedSpaceSection;
 
 /// Collapse state key of a group, namespaced apart from worktree repo keys.
 fn collapse_key(name: &str) -> String {
@@ -145,26 +148,35 @@ fn runs(snapshot: &ClientShellSnapshot) -> Vec<Run<'_>> {
     runs
 }
 
-/// The snapshot's pinned sections in the order the endpoint sent them: a
-/// header, then unless collapsed a flat mirror row per member. Members the
-/// snapshot does not list are skipped, and a section left without any is not
-/// shown.
+/// The spaces of `snapshot` that `section` pins, in space order: those that
+/// carry its token with a non-empty value meeting its condition.
+fn pinned_members(snapshot: &ClientShellSnapshot, section: &PinnedSpaceSection) -> Vec<usize> {
+    snapshot
+        .workspaces
+        .iter()
+        .enumerate()
+        .filter(|(_, workspace)| {
+            section.matches(
+                workspace
+                    .tokens
+                    .iter()
+                    .map(|(key, value)| (key.as_str(), value.as_str())),
+            )
+        })
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// The pinned sections in config order: a header, then unless collapsed a
+/// flat mirror row per member. A section no space matches is not shown.
 fn pinned_rows(
     snapshot: &ClientShellSnapshot,
+    pinned: &[PinnedSpaceSection],
     collapsed_groups: &HashSet<String>,
 ) -> Vec<SidebarRow> {
     let mut rows = Vec::new();
-    for section in &snapshot.pinned_sections {
-        let members = section
-            .workspace_ids
-            .iter()
-            .filter_map(|workspace_id| {
-                snapshot
-                    .workspaces
-                    .iter()
-                    .position(|workspace| &workspace.workspace_id == workspace_id)
-            })
-            .collect::<Vec<_>>();
+    for section in pinned {
+        let members = pinned_members(snapshot, section);
         if members.is_empty() {
             continue;
         }
@@ -179,11 +191,7 @@ fn pinned_rows(
                 name: section.title.clone(),
                 collapsed,
                 pinned: true,
-                title_color: section
-                    .fg
-                    .as_deref()
-                    .and_then(crate::config::SidebarTokenColor::parse)
-                    .map(crate::config::SidebarTokenColor::ratatui),
+                title_color: section.fg.map(crate::config::SidebarTokenColor::ratatui),
             }),
             members,
         }));
@@ -204,9 +212,10 @@ fn pinned_rows(
 /// and pinned sections this is upstream's flat list.
 pub(super) fn sidebar_rows(
     snapshot: &ClientShellSnapshot,
+    pinned: &[PinnedSpaceSection],
     collapsed_groups: &HashSet<String>,
 ) -> Vec<SidebarRow> {
-    let mut rows = pinned_rows(snapshot, collapsed_groups);
+    let mut rows = pinned_rows(snapshot, pinned, collapsed_groups);
     let after_pinned = !rows.is_empty();
     let runs = runs(snapshot);
     let mut run_of = vec![0; snapshot.workspaces.len()];
@@ -257,12 +266,12 @@ pub(super) fn sidebar_rows(
 }
 
 /// Navigable workspace entries in sidebar order. Pinned mirrors are left
-/// out, so every space appears once.
+/// out, so every space appears once, and pinned sections change nothing here.
 pub(super) fn workspace_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
 ) -> Vec<WorkspaceEntry> {
-    sidebar_rows(snapshot, collapsed_groups)
+    sidebar_rows(snapshot, &[], collapsed_groups)
         .into_iter()
         .filter_map(|row| match row {
             SidebarRow::Workspace(entry) => Some(entry),

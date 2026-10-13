@@ -2,7 +2,9 @@
 //!
 //! Each section mirrors every space whose workspace metadata carries the
 //! section's token with a non-empty value, optionally narrowed by one text
-//! condition. The client shell draws them above the regular space list.
+//! condition. The TUI resolves them against each endpoint's spaces and draws
+//! them above the regular space list (`client/shell/space_groups.rs`); the
+//! daemon does not use them.
 
 use serde::{Deserialize, Serialize};
 
