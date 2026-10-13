@@ -29,10 +29,10 @@ impl App {
             ));
         };
         let args = command.iter().skip(1).cloned().collect::<Vec<_>>();
-        let detailed;
+        let invoked;
         let context = if event_json.is_none() {
-            detailed = self.with_invocation_details(context.clone());
-            &detailed
+            invoked = self.with_invoking_client(context.clone());
+            &invoked
         } else {
             context
         };

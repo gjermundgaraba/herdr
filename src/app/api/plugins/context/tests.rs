@@ -1,5 +1,3 @@
-use crate::api::schema::PluginInvocationContext;
-
 fn app_with_unfocused_target() -> crate::app::App {
     let mut app = super::super::tests::test_app();
     let mut target = crate::workspace::Workspace::test_new("target");
@@ -60,38 +58,18 @@ fn targets_reject_unknown_and_disagreeing_ids() {
 }
 
 #[test]
-fn invocation_details_carry_the_client_tabs_and_every_workspace() {
+fn invocations_carry_the_invoking_client() {
     let mut app = app_with_unfocused_target();
+    let context = app.current_plugin_context("menu");
+    assert_eq!(app.with_invoking_client(context.clone()).client_id, None);
     app.invoking_client_id = Some(7);
-    let context = app.with_invocation_details(PluginInvocationContext {
-        workspace_id: Some(app.public_workspace_id(1)),
-        ..Default::default()
-    });
-    assert_eq!(context.client_id, Some(7));
-    assert_eq!(
-        context
-            .tabs
-            .iter()
-            .map(|tab| tab.tab_id.clone())
-            .collect::<Vec<_>>(),
-        vec![
-            app.public_tab_id(1, 0).unwrap(),
-            app.public_tab_id(1, 1).unwrap()
-        ]
-    );
-    assert_eq!(
-        context
-            .workspaces
-            .iter()
-            .map(|workspace| workspace.workspace_id.clone())
-            .collect::<Vec<_>>(),
-        vec![app.public_workspace_id(0), app.public_workspace_id(1)]
-    );
+    assert_eq!(app.with_invoking_client(context).client_id, Some(7));
 }
 
 #[test]
-fn event_contexts_stay_lean() {
-    let app = app_with_unfocused_target();
+fn event_contexts_name_no_client() {
+    let mut app = app_with_unfocused_target();
+    app.invoking_client_id = Some(7);
     let context = app.plugin_context_for_event(
         &crate::api::schema::EventEnvelope {
             event: crate::api::schema::EventKind::WorkspaceFocused,
@@ -102,6 +80,4 @@ fn event_contexts_stay_lean() {
         "workspace.focused",
     );
     assert!(context.client_id.is_none());
-    assert!(context.tabs.is_empty());
-    assert!(context.workspaces.is_empty());
 }

@@ -76,18 +76,18 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   share one id namespace and one resolver; a pane opens through upstream's
   `plugin.pane.open` handler (`src/app/api/plugins/entrypoint.rs`)
 - Plugin invocation context: the target a `plugin.invoke` call names
-  supplies the context instead of focus; actions, panes, and startup hooks
-  also get the invoking TUI's `client_id` (`HERDR_CLIENT_ID`), the target
-  pane's agent session, the space's tabs, and every space
-  (`src/app/api/plugins/entrypoint.rs`)
+  supplies the context instead of focus, and actions, panes, and startup
+  hooks also get the invoking TUI's `client_id` (`HERDR_CLIENT_ID`). Plugins
+  read anything else, such as tabs, spaces, or a pane's agent session,
+  through the socket API (`src/app/api/plugins/entrypoint.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
   saves tokens in the session snapshot, so plugin state such as space groups
   and the `space_priority` token survives restarts and handoffs
   (`src/metadata_tokens.rs`)
-- Plugin-facing events and starts: `pane.closed` and `pane.exited` carry
-  `tab_id`, `pane.cwd_changed` reports shell cwd changes, and `agent.start`
-  waits for a starting shell and reports `shell_not_ready` when it stays
-  starting
+- Plugin-facing events: `pane.closed` and `pane.exited` carry `tab_id`, and
+  `pane.cwd_changed` reports shell cwd changes. `agent.start` is upstream's:
+  the plugin SDK's `start_agent` retries a starting shell as upstream's CLI
+  does
 - Native pickers: `ui.pick` blocks while the invoking TUI shows a filterable
   list, and returns the picked id, created text, or cancellation
   (`src/server/headless/picks.rs`, `src/client/shell/picks.rs`)

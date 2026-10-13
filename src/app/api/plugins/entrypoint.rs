@@ -256,34 +256,20 @@ impl App {
         &self,
         context: &PluginInvocationContext,
     ) -> PluginInvocationContext {
-        self.with_invocation_details(
+        self.with_invoking_client(
             self.invoked_plugin_context
                 .clone()
                 .unwrap_or_else(|| context.clone()),
         )
     }
 
-    /// Adds what an invoked plugin would otherwise query next: the invoking
-    /// client, the context workspace's tabs, and every workspace. Event hooks
-    /// skip this; they fire per event and their event JSON names the entities.
-    pub(super) fn with_invocation_details(
+    /// Names the TUI client whose request started the plugin. Event hooks
+    /// skip this: they fire per event, not for a client.
+    pub(super) fn with_invoking_client(
         &self,
         mut context: PluginInvocationContext,
     ) -> PluginInvocationContext {
         context.client_id = self.invoking_client_id.or(context.client_id);
-        if let Some((ws_idx, ws)) = context
-            .workspace_id
-            .as_deref()
-            .and_then(|workspace_id| self.parse_workspace_id(workspace_id))
-            .and_then(|ws_idx| Some((ws_idx, self.state.workspaces.get(ws_idx)?)))
-        {
-            context.tabs = (0..ws.tabs.len())
-                .filter_map(|tab_idx| self.tab_info(ws_idx, tab_idx))
-                .collect();
-        }
-        context.workspaces = (0..self.state.workspaces.len())
-            .map(|ws_idx| self.workspace_info(ws_idx))
-            .collect();
         context
     }
 

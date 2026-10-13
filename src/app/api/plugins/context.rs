@@ -274,8 +274,6 @@ impl App {
                 context.focused_pane_cwd = pane.cwd.clone();
                 context.focused_pane_agent = pane.agent.clone();
                 context.focused_pane_status = Some(pane.agent_status);
-                context.focused_pane_foreground_cwd = pane.foreground_cwd.clone();
-                context.focused_pane_agent_session = pane.agent_session.clone();
                 context
             })
     }
@@ -353,15 +351,14 @@ impl App {
             focused_pane_cwd: focused_pane.as_ref().and_then(|pane| pane.cwd.clone()),
             focused_pane_agent: focused_pane.as_ref().and_then(|pane| pane.agent.clone()),
             focused_pane_status: focused_pane.as_ref().map(|pane| pane.agent_status),
-            focused_pane_foreground_cwd: focused_pane
-                .as_ref()
-                .and_then(|pane| pane.foreground_cwd.clone()),
-            focused_pane_agent_session: focused_pane.and_then(|pane| pane.agent_session),
             // Selection is client presentation state. Client keybindings provide
             // revision-validated coordinates; API callers can provide explicit context.
+            selected_text: None,
             invocation_source: Some("api".to_string()),
             correlation_id: Some(correlation_id.to_string()),
-            ..Default::default()
+            clicked_url: None,
+            link_handler_id: None,
+            client_id: None,
         }
     }
 
@@ -378,9 +375,22 @@ impl App {
 
 fn empty_plugin_context(correlation_id: &str) -> PluginInvocationContext {
     PluginInvocationContext {
+        workspace_id: None,
+        workspace_label: None,
+        workspace_cwd: None,
+        worktree: None,
+        tab_id: None,
+        tab_label: None,
+        focused_pane_id: None,
+        focused_pane_cwd: None,
+        focused_pane_agent: None,
+        focused_pane_status: None,
+        selected_text: None,
         invocation_source: Some("api".to_string()),
         correlation_id: Some(correlation_id.to_string()),
-        ..Default::default()
+        clicked_url: None,
+        link_handler_id: None,
+        client_id: None,
     }
 }
 

@@ -182,7 +182,7 @@ fn agent_start_stops_retrying_when_the_pane_shell_stays_busy() {
     );
     assert_eq!(unavailable.status.code(), Some(1));
     let error: serde_json::Value = serde_json::from_slice(&unavailable.stderr).unwrap();
-    assert_eq!(error["error"]["code"], "shell_not_ready");
+    assert_eq!(error["error"]["code"], "agent_pane_busy");
     assert!(started_at.elapsed() >= Duration::from_secs(2));
     assert!(started_at.elapsed() < Duration::from_secs(4));
     assert!(!invocations.exists());
