@@ -559,6 +559,30 @@ fn pinned_sections_mirror_matching_spaces_in_config_order_above_the_list() {
 }
 
 #[test]
+fn pinned_members_follow_a_changed_space_order() {
+    let mut state = mixed_pinned_state();
+    let mut reordered = (**state.snapshot.as_ref().expect("snapshot")).clone();
+    reordered.workspaces.swap(0, 3);
+    state.set_snapshot(Box::new(reordered));
+    state.compose(106, 60).expect("pinned sidebar");
+
+    assert_eq!(
+        drawn_spaces(&state),
+        [
+            ("ws_4", true),
+            ("ws_3", true),
+            ("ws_3", true),
+            ("ws_1", true),
+            ("ws_4", false),
+            ("ws_2", false),
+            ("ws_3", false),
+            ("ws_1", false),
+            ("ws_5", false),
+        ]
+    );
+}
+
+#[test]
 fn pinned_sections_precede_groups_and_keep_group_headers() {
     let mut state = pinned_state(&[
         &[("space_group", "work"), ("prio", "1")],

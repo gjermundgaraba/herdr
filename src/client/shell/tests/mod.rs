@@ -265,7 +265,6 @@ mod link_hover;
 mod mobile;
 mod mouse_selection;
 mod picks;
-mod pinned_sections;
 mod plugin_popups;
 mod popup_focus_projection;
 mod priority_order;
