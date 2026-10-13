@@ -22,7 +22,7 @@ pub struct UiPickCreate {
     pub label: String,
 }
 
-/// Opens a picker on a TUI client and waits until it resolves.
+/// Opens a picker on a shell client and waits until it resolves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct UiPickParams {
     pub title: String,
