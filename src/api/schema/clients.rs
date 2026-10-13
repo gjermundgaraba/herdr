@@ -236,9 +236,6 @@ pub enum ClientJumpOutcome {
     Unavailable,
     /// The client did not see the pane focused in time; it may still happen.
     Timeout,
-    Failed {
-        message: String,
-    },
 }
 
 /// Sent by the client that received the jump.

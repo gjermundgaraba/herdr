@@ -311,7 +311,7 @@ mod tests {
         );
         assert_eq!(
             actual.remove("client.jump.resolve").as_deref(),
-            Some("56603c696ed9fd9261c466a00a63ac02b8bcd5ec2b3e8505f1130b79586ff17f")
+            Some("148b1bbd841d098c9c355c337a253c57d6a6bf94658fba1f34bc35934dc11fb2")
         );
         assert_eq!(
             actual.remove("agent.mark_unread").as_deref(),

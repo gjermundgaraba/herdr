@@ -48,16 +48,5 @@
         "type": "timeout"
       }
     }
-  },
-  {
-    "id": "client-shell:13",
-    "method": "client.jump.resolve",
-    "params": {
-      "jump_id": "jump-3",
-      "outcome": {
-        "type": "failed",
-        "message": "activation was cancelled"
-      }
-    }
   }
 ]

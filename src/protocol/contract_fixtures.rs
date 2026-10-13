@@ -305,9 +305,6 @@ fn client_jump_resolve_fixture_lists_every_outcome() {
         ClientJumpOutcome::NotFound,
         ClientJumpOutcome::Unavailable,
         ClientJumpOutcome::Timeout,
-        ClientJumpOutcome::Failed {
-            message: "activation was cancelled".into(),
-        },
     ]
     .into_iter()
     .enumerate()

@@ -271,9 +271,9 @@ client-lane method `client.jump.resolve`, which needs no active surface either:
 {"id":"client-shell:8","method":"client.jump.resolve","params":{"jump_id":"jump-3","outcome":{"type":"focused"}}}
 ```
 
-The outcome is `focused`, `stale_boot`, `not_found`, `unavailable`, `timeout`,
-or `{"type":"failed","message":"..."}`. A jump id the client does not hold
-answers `jump_not_found`. The caller of `client.jump` then receives
+The outcome is `focused`, `stale_boot`, `not_found`, `unavailable`, or
+`timeout`. A jump id the client does not hold answers `jump_not_found`. The
+caller of `client.jump` then receives
 `{"type":"client_jumped","client_id":7,"endpoint_id":"...","pane_id":"..."}` or
 an error:
 
@@ -287,7 +287,6 @@ an error:
 | `jump_target_not_found` | The client knows no such endpoint or pane. |
 | `jump_endpoint_unavailable` | The endpoint is not online, or the client has no snapshot of it. |
 | `jump_timeout` | The client did not see the pane focused in time, or did not answer within 20 seconds. |
-| `jump_failed` | The client could not perform the jump. The message is the client's, trimmed and cut to 512 bytes, or the daemon's own when the client sent none. |
 | `invalid_params` | An id is empty or longer than 128 bytes. |
 
 After `client_departed`, `jump_timeout`, and `jump_superseded` the jump may
@@ -335,8 +334,7 @@ navigation's own request or switch: the client answers `focused` once it
 presents the endpoint with the pane focused, and `timeout` when that has not
 happened 12 seconds after the jump arrived. A navigation the endpoint refuses,
 the client withdraws, or another selection replaces therefore ends the jump as
-`timeout`, unless one of the checks above ends it first. Neither client
-answers `failed`.
+`timeout`, unless one of the checks above ends it first.
 
 A client that navigated does not answer `focused` on the turn it started the
 navigation, when the pane it shows predates it. No client answers `focused`
