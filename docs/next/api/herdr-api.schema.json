@@ -4838,7 +4838,7 @@
           ]
         },
         "UiPickParams": {
-          "description": "Opens a picker on a TUI client and waits until it resolves.",
+          "description": "Opens a picker on a shell client and waits until it resolves.",
           "properties": {
             "client_id": {
               "description": "Client to show the picker on; defaults to the foreground client.\nPlugins pass the `client_id` from their invocation context.",
