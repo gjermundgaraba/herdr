@@ -18,7 +18,7 @@ height = "80%"
     assert!(config.collect_diagnostics().is_empty());
     let bindings = config.keybinds();
     let binding = &bindings.custom_commands[0];
-    assert_eq!(binding.action, CustomCommandAction::Plugin);
+    assert_eq!(binding.action, CustomCommandAction::PluginAction);
     assert_eq!(binding.command, "gjermundgaraba.clankersnip.palette");
     assert_eq!(binding.width, Some(PopupSize::Cells(90)));
     assert_eq!(binding.height, Some(PopupSize::Percent(80)));

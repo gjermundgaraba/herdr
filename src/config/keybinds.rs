@@ -117,7 +117,8 @@ pub enum CommandKeybindType {
     Shell,
     Pane,
     Popup,
-    Plugin,
+    #[serde(rename = "plugin")]
+    PluginAction,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -156,7 +157,7 @@ pub enum CustomCommandAction {
     Shell,
     Pane,
     Popup,
-    Plugin,
+    PluginAction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -847,11 +848,11 @@ fn append_custom_command_bindings(
             CommandKeybindType::Shell => CustomCommandAction::Shell,
             CommandKeybindType::Pane => CustomCommandAction::Pane,
             CommandKeybindType::Popup => CustomCommandAction::Popup,
-            CommandKeybindType::Plugin => CustomCommandAction::Plugin,
+            CommandKeybindType::PluginAction => CustomCommandAction::PluginAction,
         };
         let (width, height) = if matches!(
             action,
-            CustomCommandAction::Popup | CustomCommandAction::Plugin
+            CustomCommandAction::Popup | CustomCommandAction::PluginAction
         ) {
             (command.width, command.height)
         } else {

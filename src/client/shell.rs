@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 mod actions;
 mod agent_sidebar;
 mod aggregate_navigation;
+mod client_actions;
 mod client_jump;
 #[cfg(test)]
 pub(crate) use client_jump::NAVIGATION_SETTLE_DEADLINE;
