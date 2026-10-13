@@ -975,15 +975,7 @@ fn render_navigator_overlay(
                 );
             }
         }
-        if let Some(mark) = r.mark.as_deref() {
-            let prefix = format!("{indent}{current}{status}{status_separator}");
-            let style = if r.stale || ix == selected {
-                st
-            } else {
-                st.fg(p.yellow)
-            };
-            agent_picker_marks::paint_mark(b, rect, &prefix, columns, mark, style);
-        }
+        agent_picker_marks::paint_mark(b, rect, columns, r, &label, ix == selected, st, p);
         let machine_status = match &r.target {
             ClientNavigatorTarget::Machine { endpoint_id } if !endpoint_id.is_local() => endpoints
                 .iter()
