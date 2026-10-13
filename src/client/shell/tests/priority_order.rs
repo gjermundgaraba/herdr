@@ -8,7 +8,19 @@ use crate::client::endpoint::ClientEndpointStatus;
 use crate::config::AgentPanelSortConfig;
 
 fn panes(state: &ClientShellState) -> Vec<String> {
-    listed(state).into_iter().map(|(_, pane)| pane).collect()
+    let panes = listed(state)
+        .into_iter()
+        .map(|(_, pane)| pane)
+        .collect::<Vec<_>>();
+    // One machine's sidebar and agent keys read that machine's own list.
+    if !state.multi_endpoint_active() {
+        let snapshot = state.snapshot.as_deref().expect("one machine");
+        assert_eq!(
+            agent_sidebar::ordered_agent_pane_ids(snapshot, state.config.agent_panel_sort),
+            panes
+        );
+    }
+    panes
 }
 
 fn rows<'a>(order: &'a [(&'a str, &'a str)]) -> Vec<(String, String)> {
@@ -37,19 +49,44 @@ fn one_machine_lists_agents_by_key() {
 
     // Lifted waiting agents first; then blocked, done oldest first, working,
     // and idle newest first. A lifted idle agent keeps its normal place.
-    assert_eq!(
-        panes(&state),
-        [
-            "lifted-done",
-            "blocked",
-            "done-old",
-            "done-new",
-            "working",
-            "idle-new",
-            "lifted-idle",
-            "idle-old",
-        ]
+    let expected = [
+        "lifted-done",
+        "blocked",
+        "done-old",
+        "done-new",
+        "working",
+        "idle-new",
+        "lifted-idle",
+        "idle-old",
+    ];
+    assert_eq!(panes(&state), expected);
+
+    // The sidebar draws that order, expanded and collapsed, and the agent
+    // keys follow it.
+    state.set_pane_surface(surface());
+    for collapsed in [false, true] {
+        state.sidebar_collapsed = collapsed;
+        state.compose(146, 80).expect("one machine frame");
+        assert_eq!(
+            state
+                .hits
+                .agents
+                .iter()
+                .map(|(_, pane)| pane.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "collapsed={collapsed}"
+        );
+    }
+    let mut outcome = ClientShellInput::default();
+    state.record_binding(
+        crate::input::KeybindMatch::Action(crate::input::KeybindAction::FocusAgent(1)),
+        &mut outcome,
     );
+    assert!(matches!(outcome.actions.as_slice(),
+        [ClientShellAction::Endpoint { request, .. }]
+        if matches!(&request.method,
+            crate::api::schema::Method::PaneFocus(target) if target.pane_id == "blocked")));
 }
 
 #[test]
@@ -239,13 +276,13 @@ fn a_reconnecting_machine_lists_last_whatever_its_keys_say() {
         ])
     );
     // Keyboard navigation skips them altogether.
-    let online = aggregate_navigation::online_agent_rows(
+    let online = aggregate_navigation::online_agent_targets(
         &state.endpoints,
         &state.active_endpoint_id,
         AgentPanelSortConfig::Priority,
     )
     .into_iter()
-    .map(|row| row.agent.pane_id.clone())
+    .map(|target| target.pane_id)
     .collect::<Vec<_>>();
     assert_eq!(online, ["lab-done", "local-idle"]);
 }

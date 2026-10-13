@@ -1,7 +1,6 @@
-//! The order of the cross-host Agents list, which the agent picker and
-//! keyboard agent navigation share: each endpoint's rows numbered in its
-//! snapshot's order, or its legacy view's, then the active endpoint's plugin
-//! view, or else under the `priority` sort the daemons' `priority_key`s.
+//! The `priority` order of the Agents list: one machine's list, and the
+//! cross-host list that the agent picker and keyboard agent navigation
+//! share, which merges each endpoint's rows in that endpoint's own order.
 //!
 //! Mirrored client logic: Herdr GPUI's counterpart is
 //! `crates/herdr-gpui/src/sidebar/agents/priority.rs` (see "Sibling fork:
@@ -9,58 +8,20 @@
 
 use super::*;
 
-/// One endpoint's rows in their unsorted order.
-pub(super) fn endpoint_rows<'a>(
-    endpoint: CachedEndpointSnapshot<'a>,
-    agents: impl IntoIterator<Item = &'a ClientShellAgent>,
-) -> impl Iterator<Item = AggregateAgentRow<'a>> {
-    agents
-        .into_iter()
-        .enumerate()
-        .map(move |(position, agent)| AggregateAgentRow {
-            endpoint,
-            agent,
-            position,
-        })
+/// What the `priority` order compares an agent by: the daemon's
+/// `priority_key`, as a plain byte string, smallest first. The key already
+/// carries the priority lift and compares across daemons. An empty key,
+/// which a daemon that sends no keys decodes to, follows every non-empty key.
+/// A stable sort by it keeps equal keys in their snapshot order.
+pub(in crate::client::shell) fn priority_key(agent: &ClientShellAgent) -> (bool, &[u8]) {
+    (agent.priority_key.is_empty(), agent.priority_key.as_bytes())
 }
 
-/// A legacy view supplies membership and an initial order. Without its
-/// definition, the selected built-in sort determines the combined order.
-pub(super) fn legacy_projected_agents(snapshot: &ClientShellSnapshot) -> Vec<&ClientShellAgent> {
-    if snapshot.agent_view_label.is_some() {
-        snapshot
-            .agent_order
-            .iter()
-            .filter_map(|pane_id| {
-                snapshot
-                    .agents
-                    .iter()
-                    .find(|agent| &agent.pane_id == pane_id)
-            })
-            .collect()
-    } else {
-        snapshot.agents.iter().collect()
-    }
-}
-
-/// The label of the plugin agent view the active endpoint applies, which
-/// orders the Agents list across endpoints.
-pub(in crate::client::shell) fn active_agent_view_label<'a>(
-    endpoints: &'a [ClientShellEndpoint],
-    active_endpoint_id: &ClientEndpointId,
-) -> Option<&'a str> {
-    cached_endpoint_snapshots(endpoints)
-        .find(|endpoint| endpoint.endpoint_id == active_endpoint_id)
-        .and_then(|endpoint| endpoint.snapshot.agent_view_label.as_deref())
-}
-
-/// The `priority` order across endpoints. Client-local rules come first: the
-/// rows of an endpoint that is not online follow every online row. Within
-/// each of those halves the daemons' `priority_key`s decide, compared as
-/// plain byte strings, smallest first; they already carry the priority lift
-/// and compare across daemons. An empty key, which a daemon that sends no
-/// keys decodes to, follows every non-empty key. Equal keys keep the endpoint
-/// display order, then the agents' order within their endpoint.
+/// The `priority` order across endpoints. A client-local rule comes first:
+/// the rows of an endpoint that is not online follow every online row.
+/// Within each of those halves [`priority_key`] decides. Equal keys keep the
+/// rows' order, which is the endpoint display order, then the agents' order
+/// within their endpoint, since the sort is stable.
 pub(super) fn priority_order(
     left: &AggregateAgentRow<'_>,
     right: &AggregateAgentRow<'_>,
@@ -68,16 +29,5 @@ pub(super) fn priority_order(
     left.endpoint
         .stale()
         .cmp(&right.endpoint.stale())
-        .then_with(|| {
-            let (left, right) = (&left.agent.priority_key, &right.agent.priority_key);
-            left.is_empty()
-                .cmp(&right.is_empty())
-                .then_with(|| left.as_bytes().cmp(right.as_bytes()))
-        })
-        .then_with(|| {
-            left.endpoint
-                .endpoint_index
-                .cmp(&right.endpoint.endpoint_index)
-        })
-        .then_with(|| left.position.cmp(&right.position))
+        .then_with(|| priority_key(left.agent).cmp(&priority_key(right.agent)))
 }

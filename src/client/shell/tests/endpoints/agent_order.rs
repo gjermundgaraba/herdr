@@ -46,26 +46,29 @@ fn mixed_legacy_fallback_priority_merges_agents_across_endpoints() {
     third.agents = vec![agent("other working", AgentStatus::Working, 1)];
     state.set_endpoint_snapshot(&third_id, Box::new(third));
 
-    for rows in [
-        aggregate_navigation::aggregate_agent_rows(
-            &state.endpoints,
-            &state.active_endpoint_id,
-            AgentPanelSortConfig::Priority,
-        ),
-        aggregate_navigation::online_agent_rows(
-            &state.endpoints,
-            &state.active_endpoint_id,
-            AgentPanelSortConfig::Priority,
-        ),
-    ] {
-        assert_eq!(rows.len(), 4);
-        assert_eq!(rows[0].endpoint.endpoint_id, &remote_id);
-        assert_eq!(rows[1].endpoint.endpoint_id, &third_id);
-        assert!(rows[2..]
+    let rows = aggregate_navigation::aggregate_agent_rows(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        AgentPanelSortConfig::Priority,
+    );
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0].endpoint.endpoint_id, &remote_id);
+    assert_eq!(rows[1].endpoint.endpoint_id, &third_id);
+    assert!(rows[2..]
+        .iter()
+        .all(|row| row.endpoint.endpoint_id.is_local()
+            && row.agent.agent_status == AgentStatus::Idle));
+    let targets = aggregate_navigation::online_agent_targets(
+        &state.endpoints,
+        &state.active_endpoint_id,
+        AgentPanelSortConfig::Priority,
+    );
+    assert!(targets
+        .iter()
+        .map(|target| (&target.endpoint_id, target.pane_id.as_str()))
+        .eq(rows
             .iter()
-            .all(|row| row.endpoint.endpoint_id.is_local()
-                && row.agent.agent_status == AgentStatus::Idle));
-    }
+            .map(|row| (row.endpoint.endpoint_id, row.agent.pane_id.as_str()))));
     let frame = state.compose(100, 28).expect("mixed legacy fallback frame");
     let text = frame_rows(&frame).join("\n");
     let blocked = text
