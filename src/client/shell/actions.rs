@@ -1,4 +1,6 @@
 use super::*;
+mod advertised;
+use advertised::advertised_as;
 
 impl ClientShellState {
     pub(super) fn record_binding(
@@ -182,29 +184,29 @@ impl ClientShellState {
                 outcome.actions.push(ClientShellAction::Keybind(action));
             }
             crate::input::KeybindMatch::Command(command) => {
+                let action = command.action.into();
                 let resolved_labels = command.bindings.labels();
-                // The server advertises what each command does; plugin bindings
-                // that open a popup pane advertise as popups.
-                let candidate = self.snapshot.as_deref().and_then(|snapshot| {
-                    if let Some(candidate) = snapshot
-                        .commands
-                        .iter()
-                        .find(|candidate| candidate.command_id == command.command)
-                    {
-                        return Some(candidate);
+                let command_id = self.snapshot.as_deref().and_then(|snapshot| {
+                    if let Some(candidate) = snapshot.commands.iter().find(|candidate| {
+                        candidate.command_id == command.command
+                            && advertised_as(candidate.action, action)
+                    }) {
+                        return Some((candidate.command_id.clone(), candidate.action));
                     }
                     let mut candidates = snapshot.commands.iter().filter(|candidate| {
-                        !resolved_labels.is_empty()
+                        advertised_as(candidate.action, action)
+                            && !resolved_labels.is_empty()
                             && resolved_labels
                                 .iter()
                                 .all(|label| candidate.binding_labels.contains(label))
                     });
                     let candidate = candidates.next()?;
-                    candidates.next().is_none().then_some(candidate)
+                    candidates
+                        .next()
+                        .is_none()
+                        .then(|| (candidate.command_id.clone(), candidate.action))
                 });
-                let Some((command_id, action)) =
-                    candidate.map(|candidate| (candidate.command_id.clone(), candidate.action))
-                else {
+                let Some((command_id, action)) = command_id else {
                     self.set_endpoint_error(
                         "custom command is not available on this endpoint; reload configuration",
                     );
