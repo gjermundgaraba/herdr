@@ -1,7 +1,7 @@
-//! `ui.pick`: plugin pickers shown natively on one TUI client. The waiting
-//! API caller holds the request open; the picker's client answers with the
-//! client-lane method `ui.pick.resolve`, and a closed picker or a departed
-//! client cancels it.
+//! `ui.pick`: plugin pickers shown natively on one shell client, the TUI or
+//! Herdr GPUI. The waiting API caller holds the request open; the picker's
+//! client answers with the client-lane method `ui.pick.resolve`, and a closed
+//! picker or a departed client cancels it.
 
 use super::HeadlessServer;
 use crate::api;
@@ -27,7 +27,7 @@ impl HeadlessServer {
                     let _ = msg.respond_to.send(encode_error(
                         id,
                         "no_client",
-                        "no TUI client is attached to show the picker",
+                        "no shell client is attached to show the picker",
                     ));
                     return None;
                 };

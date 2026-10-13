@@ -33,8 +33,10 @@ metadata token has a non-empty value lifts its blocked and done agents. It is
 opaque. To order agents, compare the keys as plain strings, byte by byte,
 smallest first. Every key has the same length. An empty key, which is what an
 agent of a daemon that sends no keys decodes to, sorts after every non-empty
-key; agents with equal keys, empty ones included, keep the tie order described
-below. A client that sorts by space instead ignores the key.
+key; agents with equal non-empty keys keep the tie order described below. A
+client may order agents without a key its own way: Herdr GPUI ranks them by
+status and recency, the TUI keeps their listing order. A client that sorts by
+space instead ignores the key.
 
 `priority_mark` is the value of the agent's space's `space_priority` token
 when it is non-empty, or `null`. The agent picker shows it before the agent's
@@ -313,9 +315,17 @@ The earlier jump's navigation may still be under way when the newer jump
 arrives. The client therefore always performs the newer navigation, even when
 it already presents the pane the newer jump names, so that navigation is the
 last one it starts and the one it ends on. Only a client that is performing no
-jump skips the navigation for a pane it already presents. It answers `focused`
-at once, unless it is still switching machine; then it answers once the switch
-is over, `focused` if it still presents the pane.
+jump skips the navigation for a pane it already presents, and answers `focused`
+at once.
+
+The clients differ while a switch of machine that the user started is under
+way. The TUI counts the machine it is leaving as presented until the switch is
+over, so a jump to the pane that machine shows skips the navigation and is
+answered once the switch is over: `focused` only if the TUI still presents the
+pane, so after a switch to another machine the jump waits and answers
+`timeout`. Herdr GPUI selects the new machine at the click, so it no longer
+presents the machine it left: a jump to that machine navigates back to it, as
+to any pane it does not present, and can answer `focused`.
 
 ### Choosing the outcome
 
