@@ -1,6 +1,6 @@
 //! `separator_before` on a sidebar token table replaces the row's separator
 //! before that token. Herdr GPUI reads the same option in
-//! `crates/herdr-gpui/src/config/sidebar.rs`.
+//! `crates/herdr-gpui/src/config/sidebar/separator.rs`.
 
 use std::sync::Arc;
 
