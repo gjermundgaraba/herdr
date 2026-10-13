@@ -140,15 +140,24 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         snapshot: &ClientShellSnapshot,
     ) {
-        let navigating = endpoint_id == &self.active_endpoint_id
-            && self
-                .pending_requests
-                .values()
-                .any(|request| request.method_name == "pane.focus");
+        let navigating = endpoint_id == &self.active_endpoint_id && self.focus_request_in_flight();
         self.history
             .entry(endpoint_id.clone())
             .or_default()
             .observe(Some(snapshot), navigating);
+    }
+
+    /// Whether a pane focus request awaits its answer, which is how long a
+    /// travel lasts. Requests go only to the presented endpoint.
+    fn focus_request_in_flight(&self) -> bool {
+        let pane_focus = crate::api::api_method_name(&crate::api::schema::Method::PaneFocus(
+            crate::api::schema::PaneTarget {
+                pane_id: String::new(),
+            },
+        ));
+        self.pending_requests
+            .values()
+            .any(|request| request.method_name == pane_focus)
     }
 
     /// Runs `history_back` and `history_forward`; false for any other action.
@@ -169,7 +178,15 @@ impl ClientShellState {
     /// Back or Forward along the presented endpoint's trail. The trail
     /// remembers the step only once its focus request is queued, so a press
     /// that cannot be sent changes nothing.
+    ///
+    /// A travel whose request is gone, answered, refused, or cancelled
+    /// before it was sent, ends here rather than at the next snapshot, so
+    /// the step starts from where the user is.
     fn travel(&mut self, step: Step, outcome: &mut ClientShellInput) {
+        let navigating = self.focus_request_in_flight();
+        if let Some(history) = self.history.get_mut(&self.active_endpoint_id) {
+            history.observe(None, navigating);
+        }
         let Some((index, pane_id)) = self.snapshot.as_deref().and_then(|snapshot| {
             let (index, pane_id) = self
                 .history

@@ -75,9 +75,12 @@ fn refused(state: &mut ClientShellState, jump: EndpointClientJump) -> ClientJump
     let now = Instant::now();
     let input = state.receive_client_jump(origin(), jump, now);
     assert!(input.actions.is_empty(), "{:?}", input.actions);
-    let mut resolved = state.settle_client_jumps(now);
+    let mut resolved = state.settle_client_jumps(now, false);
     assert_eq!(resolved.len(), 1);
-    assert!(state.settle_client_jumps(now).is_empty(), "answered once");
+    assert!(
+        state.settle_client_jumps(now, false).is_empty(),
+        "answered once"
+    );
     resolved.remove(0).outcome
 }
 
@@ -140,7 +143,7 @@ fn a_jump_on_the_presented_endpoint_focuses_the_pane_and_answers_once_it_shows()
     let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
 
     focus_request(&input, &ClientEndpointId::Local, "pane_2");
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, false).is_empty());
 
     // The endpoint accepted the request; the answer still waits for the
     // snapshot that shows the pane focused.
@@ -150,14 +153,17 @@ fn a_jump_on_the_presented_endpoint_focuses_the_pane_and_answers_once_it_shows()
         &request_id,
         Ok(crate::api::schema::ResponseResult::Ok {}),
     );
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, false).is_empty());
 
     focus(&mut state, "pane_2");
     assert_eq!(
-        state.settle_client_jumps(start + Duration::from_millis(40)),
+        state.settle_client_jumps(start + Duration::from_millis(40), false),
         answer(ClientJumpOutcome::Focused)
     );
-    assert!(state.settle_client_jumps(start).is_empty(), "answered once");
+    assert!(
+        state.settle_client_jumps(start, false).is_empty(),
+        "answered once"
+    );
 }
 
 #[test]
@@ -169,7 +175,7 @@ fn a_jump_to_the_pane_already_presented_is_answered_at_once() {
 
     assert!(input.actions.is_empty());
     assert_eq!(
-        state.settle_client_jumps(now),
+        state.settle_client_jumps(now, false),
         answer(ClientJumpOutcome::Focused)
     );
 }
@@ -187,16 +193,16 @@ fn a_jump_to_another_endpoint_activates_it_with_the_pane_as_target() {
     );
 
     assert_activates(&input, &remote, "pane_7");
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, false).is_empty());
 
     // Presenting Build is not enough: its focus is still elsewhere.
     assert!(state.activate_endpoint_projection(&remote));
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, false).is_empty());
 
     // Presenting Build with the pane focused is the answer.
     focus(&mut state, "pane_7");
     assert_eq!(
-        state.settle_client_jumps(start + Duration::from_secs(1)),
+        state.settle_client_jumps(start + Duration::from_secs(1), false),
         answer(ClientJumpOutcome::Focused)
     );
 }
@@ -211,10 +217,10 @@ fn a_jump_back_to_local_from_a_federated_client_goes_through_activation() {
 
     assert_activates(&input, &ClientEndpointId::Local, "pane_2");
     assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, false).is_empty());
     focus(&mut state, "pane_2");
     assert_eq!(
-        state.settle_client_jumps(start),
+        state.settle_client_jumps(start, false),
         answer(ClientJumpOutcome::Focused)
     );
 }
@@ -326,13 +332,13 @@ fn a_jump_that_never_shows_its_pane_times_out_before_the_daemon_does() {
     assert_activates(&input, &remote, "pane_7");
 
     let just_before = start + NAVIGATION_SETTLE_DEADLINE - Duration::from_millis(1);
-    assert!(state.settle_client_jumps(just_before).is_empty());
+    assert!(state.settle_client_jumps(just_before, false).is_empty());
     assert_eq!(
-        state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE),
+        state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE, false),
         answer(ClientJumpOutcome::Timeout)
     );
     assert!(state
-        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2)
+        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2, false)
         .is_empty());
     assert!(NAVIGATION_SETTLE_DEADLINE < Duration::from_secs(20));
 }
@@ -359,9 +365,9 @@ fn a_refused_or_withdrawn_navigation_is_not_followed_and_the_jump_times_out() {
         }
 
         // Only what the client presents answers the jump.
-        assert!(state.settle_client_jumps(start).is_empty());
+        assert!(state.settle_client_jumps(start, false).is_empty());
         assert_eq!(
-            state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE),
+            state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE, false),
             answer(ClientJumpOutcome::Timeout)
         );
     }
@@ -376,7 +382,7 @@ fn a_jump_ends_when_its_endpoint_restarts_or_goes_away_meanwhile() {
     state.receive_client_jump(origin(), jump(&key, "build-boot", "pane_7"), start);
     state.set_endpoint_status(&remote, ClientEndpointStatus::Reconnecting);
     assert_eq!(
-        state.settle_client_jumps(start),
+        state.settle_client_jumps(start, false),
         answer(ClientJumpOutcome::Unavailable)
     );
 
@@ -386,7 +392,7 @@ fn a_jump_ends_when_its_endpoint_restarts_or_goes_away_meanwhile() {
     restarted.revision = 1;
     state.set_endpoint_snapshot(&remote, Box::new(restarted));
     assert_eq!(
-        state.settle_client_jumps(start),
+        state.settle_client_jumps(start, false),
         answer(ClientJumpOutcome::StaleBoot)
     );
 
@@ -395,7 +401,7 @@ fn a_jump_ends_when_its_endpoint_restarts_or_goes_away_meanwhile() {
     closed.revision = 2;
     state.set_endpoint_snapshot(&remote, Box::new(closed));
     assert_eq!(
-        state.settle_client_jumps(start),
+        state.settle_client_jumps(start, false),
         answer(ClientJumpOutcome::NotFound)
     );
 }
@@ -416,7 +422,7 @@ fn each_answer_keeps_the_connection_its_jump_arrived_on() {
     state.receive_client_jump(from_build.clone(), second, now);
 
     assert_eq!(
-        state.settle_client_jumps(now),
+        state.settle_client_jumps(now, false),
         [
             ResolvedClientJump {
                 origin: origin(),
@@ -455,7 +461,7 @@ fn a_newer_jump_replaces_the_pending_one_which_is_never_answered() {
         start,
     );
     assert_activates(&first, &remote, "pane_7");
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, true).is_empty());
 
     // The daemon forwards another jump before the activation settles.
     let second = state.receive_client_jump(
@@ -464,14 +470,14 @@ fn a_newer_jump_replaces_the_pending_one_which_is_never_answered() {
         start,
     );
     assert_activates(&second, &ClientEndpointId::Local, "pane_2");
-    assert!(state.settle_client_jumps(start).is_empty());
+    assert!(state.settle_client_jumps(start, true).is_empty());
 
     focus(&mut state, "pane_2");
-    assert_eq!(state.settle_client_jumps(start), focused(2));
+    assert_eq!(state.settle_client_jumps(start, false), focused(2));
     // The replaced jump has no answer, not even a timeout: its daemon
     // answered its caller when it forwarded the second one.
     assert!(state
-        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2)
+        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2, false)
         .is_empty());
 }
 
@@ -492,12 +498,14 @@ fn a_jump_that_replaces_a_pending_one_navigates_even_to_the_pane_already_present
 
     let (_, second_request) = focus_request(&second, &ClientEndpointId::Local, "pane_1");
     assert_ne!(first_request, second_request);
-    assert_eq!(state.settle_client_jumps(start), focused(2));
+    // The pane shown in the turn that sent the request predates it.
+    assert!(state.settle_client_jumps(start, false).is_empty());
+    assert_eq!(state.settle_client_jumps(start, false), focused(2));
     // The first jump is never answered, whatever its navigation still does.
     focus(&mut state, "pane_2");
     focus(&mut state, "pane_1");
     assert!(state
-        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2)
+        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2, false)
         .is_empty());
 }
 
@@ -511,6 +519,7 @@ fn a_jump_to_the_pane_still_shown_navigates_in_place_of_the_replaced_jumps_activ
         start,
     );
     assert_activates(&first, &remote, "pane_7");
+    assert!(state.settle_client_jumps(start, true).is_empty());
 
     // Build's activation is in flight and Local is still shown. Answering
     // without navigating would let that activation complete, so the jump
@@ -523,10 +532,13 @@ fn a_jump_to_the_pane_still_shown_navigates_in_place_of_the_replaced_jumps_activ
     );
 
     assert_activates(&second, &ClientEndpointId::Local, "pane_1");
-    // The pane is presented, so the jump is answered on the next turn.
-    assert_eq!(state.settle_client_jumps(start), focused(2));
+    // The pane is presented, but the switch is not over yet.
+    assert!(state.settle_client_jumps(start, true).is_empty());
+    assert!(state.settle_client_jumps(start, true).is_empty());
+    // Once it is, Local still shows the pane.
+    assert_eq!(state.settle_client_jumps(start, false), focused(2));
     assert!(state
-        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2)
+        .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2, false)
         .is_empty());
 }
 
@@ -537,6 +549,7 @@ fn a_jump_to_the_remote_pane_still_shown_navigates_after_the_replaced_jump() {
     let start = Instant::now();
     let first = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
     assert_activates(&first, &ClientEndpointId::Local, "pane_2");
+    assert!(state.settle_client_jumps(start, true).is_empty());
 
     // Build is still shown with `pane_1` focused. The jump navigates there
     // as a click on the agent would: a focus request to the endpoint shown.
@@ -545,9 +558,53 @@ fn a_jump_to_the_remote_pane_still_shown_navigates_after_the_replaced_jump() {
         numbered(jump(&remote.storage_key(), "build-boot", "pane_1"), 2),
         start,
     );
-
     focus_request(&second, &remote, "pane_1");
-    assert_eq!(state.settle_client_jumps(start), focused(2));
+
+    // The switch to Local goes on, and the loop drops the request it cannot
+    // send: the pane shown meanwhile is not the jump's doing.
+    assert!(state.settle_client_jumps(start, true).is_empty());
+    // The switch ends on Local, so the jump never sees its pane.
+    assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
+    assert!(state.settle_client_jumps(start, false).is_empty());
+    assert_eq!(
+        state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE, false),
+        vec![ResolvedClientJump {
+            origin: origin(),
+            jump_id: "jump-2".into(),
+            outcome: ClientJumpOutcome::Timeout,
+        }]
+    );
+}
+
+#[test]
+fn no_jump_is_focused_while_a_switch_is_under_way_even_with_its_pane_shown() {
+    let (mut state, remote) = federated();
+    assert!(state.activate_endpoint_projection(&remote));
+    let start = Instant::now();
+    let key = remote.storage_key();
+    let first = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
+    assert_activates(&first, &ClientEndpointId::Local, "pane_2");
+    let second = state.receive_client_jump(
+        origin(),
+        numbered(jump(&key, "build-boot", "pane_1"), 2),
+        start,
+    );
+    focus_request(&second, &remote, "pane_1");
+
+    // Build shows the pane on every turn while Local's activation runs.
+    for turn in 1..=3 {
+        let now = start + Duration::from_millis(100 * turn);
+        assert!(
+            state.settle_client_jumps(now, true).is_empty(),
+            "turn {turn}"
+        );
+    }
+    // The activation gave way and Build is still presented: that is the
+    // answer, on the first turn with no switch under way.
+    assert_eq!(
+        state.settle_client_jumps(start + Duration::from_secs(1), false),
+        focused(2)
+    );
 }
 
 #[test]
@@ -568,5 +625,6 @@ fn a_replacing_jump_on_the_presented_remote_is_a_focus_request_without_an_activa
     );
 
     focus_request(&second, &remote, "pane_1");
-    assert_eq!(state.settle_client_jumps(start), focused(2));
+    assert!(state.settle_client_jumps(start, false).is_empty());
+    assert_eq!(state.settle_client_jumps(start, false), focused(2));
 }

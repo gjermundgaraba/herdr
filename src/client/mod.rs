@@ -787,8 +787,16 @@ async fn run_client_loop(
         // Once per turn, the client contract settles jumps against what is
         // presented, and however many events changed the Agents list, one
         // report follows them.
+        let switching = pending_activation.is_some()
+            || scheduled_activation.is_some()
+            || state.deferred_local_activation.is_some();
         if let Some(shell) = state.shell.as_mut() {
-            client_contract.sync(shell, &mut write_stream, std::time::Instant::now());
+            client_contract.sync(
+                shell,
+                &mut write_stream,
+                std::time::Instant::now(),
+                switching,
+            );
         }
         let timer_delay = state
             .shell
