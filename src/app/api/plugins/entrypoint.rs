@@ -41,13 +41,6 @@ pub(super) fn reject_shared_entrypoint_ids(
     ))
 }
 
-pub(super) fn plugin_error(code: &str, message: impl Into<String>) -> ErrorBody {
-    ErrorBody {
-        code: code.to_owned(),
-        message: message.into(),
-    }
-}
-
 impl App {
     pub(super) fn resolve_plugin_entrypoint(
         &self,
@@ -284,20 +277,31 @@ impl App {
         context
     }
 
-    /// Whether a qualified target names a popup pane in the loaded registry.
-    /// The client uses this to hold input until the popup surface arrives.
-    pub(crate) fn plugin_target_opens_popup(&self, target: &str) -> bool {
-        target
-            .rsplit_once('.')
-            .and_then(|(plugin_id, entrypoint)| {
-                self.state
-                    .installed_plugins
-                    .get(plugin_id.trim())?
-                    .panes
-                    .iter()
-                    .find(|pane| pane.id == entrypoint.trim())
-            })
-            .is_some_and(|pane| pane.placement == PluginPanePlacement::Popup)
+    /// The kind a command binding advertises to clients. A plugin binding
+    /// whose target is a popup pane in the loaded registry advertises as a
+    /// popup, so the client holds input until the popup surface arrives.
+    pub(crate) fn client_shell_command_action(
+        &self,
+        binding: &crate::config::CustomCommandKeybind,
+    ) -> crate::protocol::ClientShellCommandAction {
+        let opens_popup = binding.action == crate::config::CustomCommandAction::PluginAction
+            && binding
+                .command
+                .rsplit_once('.')
+                .and_then(|(plugin_id, entrypoint)| {
+                    self.state
+                        .installed_plugins
+                        .get(plugin_id.trim())?
+                        .panes
+                        .iter()
+                        .find(|pane| pane.id == entrypoint.trim())
+                })
+                .is_some_and(|pane| pane.placement == PluginPanePlacement::Popup);
+        if opens_popup {
+            crate::protocol::ClientShellCommandAction::Popup
+        } else {
+            binding.action.into()
+        }
     }
 }
 

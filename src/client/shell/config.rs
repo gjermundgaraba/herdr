@@ -255,7 +255,7 @@ impl ClientShellConfig {
                                 crate::config::CommandKeybindType::Popup
                             }
                             crate::protocol::ClientShellCommandAction::PluginAction => {
-                                crate::config::CommandKeybindType::Plugin
+                                crate::config::CommandKeybindType::PluginAction
                             }
                             crate::protocol::ClientShellCommandAction::Unknown => return None,
                         };
@@ -319,15 +319,8 @@ impl ClientShellConfig {
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
 
-        if !invalid_section("keys")
-            && self.keybinding_source == ClientShellKeybindingSource::Endpoint
-        {
-            // The endpoint's profile stays in effect. Only the client's own
-            // actions are the local config's, as when the client started.
-            self.local_client_actions = config.keybinds();
-            self.keybinds
-                .keybinds
-                .copy_client_actions(&self.local_client_actions);
+        if !invalid_section("keys") {
+            self.reload_client_actions(config);
         }
         if !invalid_section("keys")
             && self.keybinding_source != ClientShellKeybindingSource::Endpoint
@@ -335,7 +328,6 @@ impl ClientShellConfig {
             match config.live_keybinds_with_diagnostics() {
                 Ok((mut keybinds, keybind_diagnostics)) => {
                     self.local_keys = config.keys.clone();
-                    self.local_client_actions = keybinds.keybinds.clone();
                     if self.keybinding_source == ClientShellKeybindingSource::RemoteLocal {
                         keybinds.keybinds.custom_commands.clear();
                     }

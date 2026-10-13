@@ -837,7 +837,7 @@ action = "open"
             bindings: crate::config::ActionKeybinds::prefix("z"),
             label: "prefix+z".into(),
             command: command.into(),
-            action: crate::config::CustomCommandAction::Plugin,
+            action: crate::config::CustomCommandAction::PluginAction,
             description: None,
             width: None,
             height: None,

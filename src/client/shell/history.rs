@@ -13,7 +13,6 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 
 use super::*;
-use crate::input::KeybindAction;
 
 /// How many panes the trail remembers; older ones fall off the back.
 const LIMIT: usize = 100;
@@ -166,21 +165,6 @@ impl ClientShellState {
             .any(|request| request.method_name == *PANE_FOCUS)
     }
 
-    /// Runs `history_back` and `history_forward`; false for any other action.
-    pub(super) fn history_key(
-        &mut self,
-        action: KeybindAction,
-        outcome: &mut ClientShellInput,
-    ) -> bool {
-        let step = match action {
-            KeybindAction::HistoryBack => Step::Back,
-            KeybindAction::HistoryForward => Step::Forward,
-            _ => return false,
-        };
-        self.travel(step, outcome);
-        true
-    }
-
     /// Back or Forward along the presented endpoint's trail. The trail
     /// remembers the step only once its focus request is queued, so a press
     /// that cannot be sent changes nothing.
@@ -188,7 +172,7 @@ impl ClientShellState {
     /// A travel whose request is gone, answered, refused, or cancelled
     /// before it was sent, ends here rather than at the next snapshot, so
     /// the step starts from where the user is.
-    fn travel(&mut self, step: Step, outcome: &mut ClientShellInput) {
+    pub(super) fn travel(&mut self, step: Step, outcome: &mut ClientShellInput) {
         let navigating = self.focus_request_in_flight();
         if let Some(history) = self.fork.history.get_mut(&self.active_endpoint_id) {
             history.observe(None, navigating);

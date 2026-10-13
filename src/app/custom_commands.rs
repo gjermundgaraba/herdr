@@ -64,21 +64,6 @@ impl App {
             .collect()
     }
 
-    /// Plugin bindings that open a popup pane advertise as popups, so the
-    /// client holds input until the popup surface arrives.
-    fn client_shell_command_action(
-        &self,
-        binding: &crate::config::CustomCommandKeybind,
-    ) -> crate::protocol::ClientShellCommandAction {
-        if binding.action == crate::config::CustomCommandAction::Plugin
-            && self.plugin_target_opens_popup(&binding.command)
-        {
-            crate::protocol::ClientShellCommandAction::Popup
-        } else {
-            binding.action.into()
-        }
-    }
-
     pub(crate) fn resolve_client_shell_command(
         &self,
         id: &str,
@@ -105,7 +90,7 @@ impl App {
         if let Err((code, message)) = self.focus_client_shell_command_target(&params) {
             return crate::app::api::responses::encode_error(id, code, message);
         }
-        let selected_text = if binding.action == crate::config::CustomCommandAction::Plugin {
+        let selected_text = if binding.action == crate::config::CustomCommandAction::PluginAction {
             let Some(selection) = params.selection.as_ref() else {
                 return self.execute_custom_command_response(id, &binding, None);
             };
@@ -233,7 +218,7 @@ impl App {
                 self.spawn_pane_command(&binding.command, Vec::new())
             }
             crate::config::CustomCommandAction::Popup => self.spawn_custom_popup_command(binding),
-            crate::config::CustomCommandAction::Plugin => self
+            crate::config::CustomCommandAction::PluginAction => self
                 .invoke_plugin_from_keybind(binding, selected_text)
                 .map_err(io::Error::other),
         }
@@ -713,7 +698,7 @@ mod tests {
             terminal_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"selected text\n"),
         );
-        let mut plugin = binding(crate::config::CustomCommandAction::Plugin);
+        let mut plugin = binding(crate::config::CustomCommandAction::PluginAction);
         plugin.command = "missing.plugin-action".into();
         install(&mut app, plugin);
         let command_id = app.client_shell_command_manifest()[0].command_id.clone();

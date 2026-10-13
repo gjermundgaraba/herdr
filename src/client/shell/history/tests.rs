@@ -4,6 +4,7 @@
 use super::*;
 use crate::api::schema::AgentStatus;
 use crate::client::shell::tests::fleet::{agent, fleet, machine};
+use crate::input::KeybindAction;
 use crate::protocol::ClientShellPane;
 
 /// A snapshot of `boot` with `panes` open and `focused` focused.

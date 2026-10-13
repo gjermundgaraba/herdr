@@ -47,7 +47,7 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_CLIENT_ID\" > client.tmp && mv clie
             bindings: crate::config::ActionKeybinds::prefix("z"),
             label: "prefix+z".into(),
             command: "example.client-origin.record".into(),
-            action: crate::config::CustomCommandAction::Plugin,
+            action: crate::config::CustomCommandAction::PluginAction,
             description: None,
             width: None,
             height: None,
