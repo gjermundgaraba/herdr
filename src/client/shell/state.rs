@@ -373,17 +373,6 @@ pub(super) struct ClientNavigatorRow {
     pub(super) target: ClientNavigatorTarget,
 }
 
-/// Which rows the Navigator lists.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum NavigatorLayout {
-    /// Machines, workspaces, and their panes.
-    Tree,
-    /// Every agent pane across machines as a flat list in priority order.
-    Agents,
-    /// Workspaces alone; their panes appear only while searching.
-    Workspaces,
-}
-
 #[derive(Debug)]
 pub(super) struct ClientNavigatorOverlay {
     pub(super) layout: NavigatorLayout,

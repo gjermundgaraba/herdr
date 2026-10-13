@@ -32,7 +32,7 @@ impl App {
         // Event hooks fire per event, not for a client.
         let mut invoked = context.clone();
         if event_json.is_none() {
-            invoked.client_id = self.invoking_client_id;
+            invoked.client_id = self.fork.invoking_client_id;
         }
         let context = &invoked;
         let context_json = serde_json::to_string(context)

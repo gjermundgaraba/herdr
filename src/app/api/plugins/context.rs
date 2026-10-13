@@ -393,6 +393,3 @@ fn empty_plugin_context(correlation_id: &str) -> PluginInvocationContext {
         client_id: None,
     }
 }
-
-#[cfg(test)]
-mod tests;

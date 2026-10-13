@@ -79,11 +79,6 @@ pub(crate) fn mark(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.is_empty())
 }
 
-/// Whether a space whose [`PRIORITY_TOKEN`] is `value` is lifted.
-pub(crate) fn lifted(value: Option<&str>) -> bool {
-    mark(value).is_some()
-}
-
 /// The mark of a space in a client snapshot.
 pub(crate) fn workspace_mark(workspace: &crate::protocol::ClientShellWorkspace) -> Option<&str> {
     mark(
@@ -140,9 +135,6 @@ mod tests {
         assert_eq!(mark(Some("★")), Some("★"));
         assert_eq!(mark(Some("")), None);
         assert_eq!(mark(None), None);
-        assert!(lifted(Some("!")));
-        assert!(!lifted(Some("")));
-        assert!(!lifted(None));
     }
 
     #[test]

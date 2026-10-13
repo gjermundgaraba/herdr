@@ -18,12 +18,12 @@ impl HeadlessServer {
     /// Restores and ends unread holds according to what clients now present.
     /// Returns whether an agent's status changed.
     pub(super) fn settle_unread_holds(&mut self) -> bool {
-        if !self.app.state.unread_holds_pending {
+        if !self.app.state.fork.unread_holds_pending {
             return false;
         }
         let holds = self.app.state.unread_holds();
         if holds.is_empty() {
-            self.app.state.unread_holds_pending = false;
+            self.app.state.fork.unread_holds_pending = false;
             self.fork.unread_presence.clear();
             return false;
         }
@@ -66,7 +66,7 @@ impl HeadlessServer {
             }
         }
         if self.app.state.unread_holds().is_empty() {
-            self.app.state.unread_holds_pending = false;
+            self.app.state.fork.unread_holds_pending = false;
             self.fork.unread_presence.clear();
         } else {
             self.fork.unread_presence = attentive;

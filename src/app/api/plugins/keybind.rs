@@ -36,6 +36,13 @@ impl App {
             Err(_) => Ok(()),
         }
     }
+
+    /// Replaces the key commands clients may invoke, as a config load does.
+    #[cfg(test)]
+    pub(crate) fn set_custom_commands_for_test(&mut self, bindings: &[CustomCommandKeybind]) {
+        self.endpoint_commands =
+            crate::app::custom_commands::EndpointCommandRegistry::new(bindings);
+    }
 }
 
 #[cfg(test)]
@@ -109,8 +116,7 @@ command = ["./pane.sh"]
     }
 
     fn install(app: &mut App, binding: CustomCommandKeybind) -> String {
-        app.endpoint_commands =
-            crate::app::custom_commands::EndpointCommandRegistry::new(&[binding]);
+        app.set_custom_commands_for_test(&[binding]);
         app.client_shell_command_manifest()[0].command_id.clone()
     }
 

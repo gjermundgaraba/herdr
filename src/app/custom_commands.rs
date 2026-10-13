@@ -50,15 +50,6 @@ impl App {
         self.client_shell_keybindings_profile.as_deref()
     }
 
-    /// Replaces the key commands clients may invoke, as a config load does.
-    #[cfg(test)]
-    pub(crate) fn set_custom_commands_for_test(
-        &mut self,
-        bindings: &[crate::config::CustomCommandKeybind],
-    ) {
-        self.endpoint_commands = EndpointCommandRegistry::new(bindings);
-    }
-
     pub(crate) fn client_shell_command_manifest(&self) -> Vec<crate::protocol::ClientShellCommand> {
         self.endpoint_commands
             .entries

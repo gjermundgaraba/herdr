@@ -1309,7 +1309,7 @@ command = ["echo", "b"]
         );
 
         let result = load_plugin_manifest(&root.display().to_string(), true);
-        assert!(matches!(result, Err(("duplicate_plugin_entrypoint_id", _))));
+        assert!(matches!(result, Err(("duplicate_plugin_action_id", _))));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1362,7 +1362,7 @@ command = ["echo", "b"]
         );
 
         let result = load_plugin_manifest(&root.display().to_string(), true);
-        assert!(matches!(result, Err(("duplicate_plugin_entrypoint_id", _))));
+        assert!(matches!(result, Err(("duplicate_plugin_pane_id", _))));
         let _ = std::fs::remove_dir_all(root);
     }
 

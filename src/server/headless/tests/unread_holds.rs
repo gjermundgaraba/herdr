@@ -198,7 +198,7 @@ async fn a_marked_completion_returns_when_its_client_leaves_and_clears_on_return
     fixture.visit(61, 0);
     assert_eq!(fixture.status(), AgentStatus::Idle);
     assert_eq!(fixture.hold(), None);
-    assert!(!fixture.server.app.state.unread_holds_pending);
+    assert!(!fixture.server.app.state.fork.unread_holds_pending);
     // The requeue stays: the sequence is the restored one.
     assert_eq!(fixture.agent().state_change_seq, restored.state_change_seq);
     shutdown_test_runtimes(&mut fixture.server);
@@ -367,7 +367,7 @@ async fn a_real_lifecycle_change_cancels_the_hold() {
 
     fixture.visit(61, 1);
     assert_eq!(fixture.status(), AgentStatus::Working);
-    assert!(!fixture.server.app.state.unread_holds_pending);
+    assert!(!fixture.server.app.state.fork.unread_holds_pending);
 
     // The same holds once the completion is back.
     fixture.visit(61, 0);
