@@ -38,6 +38,24 @@ fn grouped_state(groups: &[Option<&str>]) -> ClientShellState {
     state
 }
 
+/// Replaces the state's snapshot with an edited copy.
+fn edit_snapshot(state: &mut ClientShellState, edit: impl FnOnce(&mut ClientShellSnapshot)) {
+    let mut snapshot = (**state.snapshot.as_ref().expect("snapshot")).clone();
+    edit(&mut snapshot);
+    state.set_snapshot(Box::new(snapshot));
+}
+
+/// Makes `ws_1` a checkout and `ws_3` its linked worktree.
+fn link_worktree_family(snapshot: &mut ClientShellSnapshot) {
+    for (index, linked) in [(0, false), (2, true)] {
+        snapshot.workspaces[index].worktree = Some(ClientShellWorktree {
+            key: "repo".into(),
+            label: "repo".into(),
+            is_linked_worktree: linked,
+        });
+    }
+}
+
 fn navigation_ids(state: &ClientShellState) -> Vec<String> {
     let snapshot = state.snapshot.as_deref().expect("snapshot");
     state
@@ -85,17 +103,15 @@ fn mouse(
     })])
 }
 
-fn click(state: &mut ClientShellState, column: u16, row: u16) {
+fn click(state: &mut ClientShellState, column: u16, row: u16) -> ClientShellInput {
     mouse(state, MouseEventKind::Down(MouseButton::Left), column, row);
-    mouse(state, MouseEventKind::Up(MouseButton::Left), column, row);
+    mouse(state, MouseEventKind::Up(MouseButton::Left), column, row)
 }
 
 /// Presses at `from`, drags to `(column, row)`, releases, and returns the
 /// request the drop sent, if any.
 fn drag(state: &mut ClientShellState, from: Rect, column: u16, row: u16) -> Option<Method> {
-    let x = from.x + 3;
-    mouse(state, MouseEventKind::Down(MouseButton::Left), x, from.y);
-    mouse(state, MouseEventKind::Drag(MouseButton::Left), column, row);
+    drag_target(state, from, column, row);
     let release = mouse(state, MouseEventKind::Up(MouseButton::Left), column, row);
     match &release.actions[..] {
         [ClientShellAction::Endpoint { request, .. }] => Some(request.method.clone()),
@@ -149,9 +165,9 @@ fn a_split_group_shows_a_header_for_each_run_without_reordering() {
 #[test]
 fn clicking_a_header_collapses_the_group_but_keeps_its_focused_member() {
     let mut state = grouped_state(&[Some("work"), Some("work"), Some("play"), None]);
-    let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
-    replacement.workspaces[1].agent_status = AgentStatus::Blocked;
-    state.set_snapshot(Box::new(replacement));
+    edit_snapshot(&mut state, |snapshot| {
+        snapshot.workspaces[1].agent_status = AgentStatus::Blocked;
+    });
     state.compose(106, 40).expect("expanded groups");
     let work = header_rect(&state, "group:work");
 
@@ -250,15 +266,7 @@ fn dragging_a_header_moves_the_whole_run() {
 #[test]
 fn worktree_children_follow_their_parent_group() {
     let mut state = grouped_state(&[Some("work"), None, Some("play")]);
-    let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
-    for (index, linked) in [(0, false), (2, true)] {
-        replacement.workspaces[index].worktree = Some(ClientShellWorktree {
-            key: "repo".into(),
-            label: "repo".into(),
-            is_linked_worktree: linked,
-        });
-    }
-    state.set_snapshot(Box::new(replacement));
+    edit_snapshot(&mut state, link_worktree_family);
     assert_eq!(navigation_ids(&state), ["ws_1", "ws_3", "ws_2"]);
     state.compose(106, 40).expect("grouped worktrees");
     assert_eq!(header_keys(&state), ["group:work"]);
@@ -546,6 +554,28 @@ fn pinned_sections_mirror_matching_spaces_in_config_order_above_the_list() {
 }
 
 #[test]
+fn pinned_members_follow_a_changed_space_order() {
+    let mut state = mixed_pinned_state();
+    edit_snapshot(&mut state, |snapshot| snapshot.workspaces.swap(0, 3));
+    state.compose(106, 60).expect("pinned sidebar");
+
+    assert_eq!(
+        drawn_spaces(&state),
+        [
+            ("ws_4", true),
+            ("ws_3", true),
+            ("ws_3", true),
+            ("ws_1", true),
+            ("ws_4", false),
+            ("ws_2", false),
+            ("ws_3", false),
+            ("ws_1", false),
+            ("ws_5", false),
+        ]
+    );
+}
+
+#[test]
 fn pinned_sections_precede_groups_and_keep_group_headers() {
     let mut state = pinned_state(&[
         &[("space_group", "work"), ("prio", "1")],
@@ -567,16 +597,8 @@ fn pinned_sections_precede_groups_and_keep_group_headers() {
 
 #[test]
 fn linked_worktree_mirrors_render_flat() {
-    let mut projected = spaces_snapshot(&[&[], &[], &[("prio", "1")]]);
-    for (index, linked) in [(0, false), (2, true)] {
-        projected.workspaces[index].worktree = Some(ClientShellWorktree {
-            key: "repo".into(),
-            label: "repo".into(),
-            is_linked_worktree: linked,
-        });
-    }
-    let mut state = pinned_state(&[]);
-    state.set_snapshot(Box::new(projected));
+    let mut state = pinned_state(&[&[], &[], &[("prio", "1")]]);
+    edit_snapshot(&mut state, link_worktree_family);
     let frame = state.compose(106, 60).expect("pinned worktrees");
     let mirror = state
         .hits
@@ -601,9 +623,9 @@ fn linked_worktree_mirrors_render_flat() {
 #[test]
 fn clicking_a_pinned_header_collapses_only_that_section() {
     let mut state = mixed_pinned_state();
-    let mut replacement = (**state.snapshot.as_ref().expect("snapshot")).clone();
-    replacement.workspaces[3].agent_status = AgentStatus::Blocked;
-    state.set_snapshot(Box::new(replacement));
+    edit_snapshot(&mut state, |snapshot| {
+        snapshot.workspaces[3].agent_status = AgentStatus::Blocked;
+    });
     state.compose(106, 60).expect("pinned sidebar");
     let priority = header_rect(&state, "pinned:Priority");
 
@@ -719,18 +741,7 @@ fn clicking_a_mirror_focuses_the_real_space() {
     let mut state = mixed_pinned_state();
     state.compose(106, 60).expect("pinned sidebar");
     let mirror = mirror_rect(&state, "ws_4");
-    mouse(
-        &mut state,
-        MouseEventKind::Down(MouseButton::Left),
-        mirror.x + 3,
-        mirror.y,
-    );
-    let release = mouse(
-        &mut state,
-        MouseEventKind::Up(MouseButton::Left),
-        mirror.x + 3,
-        mirror.y,
-    );
+    let release = click(&mut state, mirror.x + 3, mirror.y);
     let [ClientShellAction::Endpoint { request, .. }] = &release.actions[..] else {
         panic!("mirror click should focus through the endpoint API");
     };

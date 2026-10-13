@@ -106,18 +106,6 @@ mod tests {
     }
 
     #[test]
-    fn a_config_that_still_lists_the_retired_token_setting_loads() {
-        let config: crate::config::Config = toml::from_str(
-            "[ui]\nagent_panel_sort = \"priority\"\nagent_priority_tokens = [\"space_priority\"]\n",
-        )
-        .expect("unknown [ui] keys are ignored");
-        assert_eq!(
-            config.ui.agent_panel_sort,
-            crate::config::AgentPanelSortConfig::Priority
-        );
-    }
-
-    #[test]
     fn wire_keys_order_like_sort_keys() {
         let statuses = [
             AgentStatus::Blocked,

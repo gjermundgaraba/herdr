@@ -17,9 +17,7 @@ advertises in its welcome, three endpoint control kinds, and socket API methods.
 The endpoint snapshot (`shell.snapshot.v1`) carries two optional additions.
 A client that lacks them decodes an empty key and no mark.
 
-Pinned space sections are not part of the snapshot. The TUI resolves its own
-`[[ui.sidebar.spaces.pinned]]` config against each machine's spaces and their
-metadata tokens, and Herdr GPUI does not show pinned sections.
+Pinned space sections are TUI configuration, not part of the snapshot.
 
 ### Agent priority
 
@@ -33,10 +31,10 @@ Each entry of `agents` has two more fields:
 `space_priority` lift already applied: a space whose `space_priority` workspace
 metadata token has a non-empty value lifts its blocked and done agents. It is
 opaque. To order agents, compare the keys as plain strings, byte by byte,
-smallest first. Every key has the same length. An empty key, which is what an agent of a daemon that sends no
-keys decodes to, sorts after every non-empty key; agents with equal keys, empty
-ones included, keep the tie order described below. A client that sorts by
-space instead ignores the key.
+smallest first. Every key has the same length. An empty key, which is what an
+agent of a daemon that sends no keys decodes to, sorts after every non-empty
+key; agents with equal keys, empty ones included, keep the tie order described
+below. A client that sorts by space instead ignores the key.
 
 `priority_mark` is the value of the agent's space's `space_priority` token
 when it is non-empty, or `null`. The agent picker shows it before the agent's
