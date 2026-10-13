@@ -291,8 +291,8 @@ pane, tab, or space, the context describes that target rather than whatever has
 focus. Shell plugins can read the individual env vars for common ids, or parse
 the context JSON for the full shape.
 
-When a TUI client started the plugin, `client_id` and `HERDR_CLIENT_ID`
-identify that client within the server; event hooks omit both.
+When a shell client, the TUI or Herdr GPUI, started the plugin, `client_id` and
+`HERDR_CLIENT_ID` identify that client within the server; event hooks omit both.
 
 Use `HERDR_BIN_PATH` when a plugin needs to call Herdr portably from Node,
 PowerShell, Bash, or another runtime. The raw socket transport behind

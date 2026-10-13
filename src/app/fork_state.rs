@@ -3,7 +3,7 @@
 /// The fork's fields of [`super::App`].
 #[derive(Default)]
 pub(crate) struct AppFork {
-    /// The TUI client whose request is being handled, set only for the
+    /// The shell client whose request is being handled, set only for the
     /// duration of that request. Plugins started by it record their origin.
     pub(crate) invoking_client_id: Option<u64>,
     /// The target context of the `plugin.invoke` call whose pane is opening,

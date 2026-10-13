@@ -77,9 +77,10 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   `plugin.pane.open` handler (`src/app/api/plugins/entrypoint.rs`)
 - Plugin invocation context: the target a `plugin.invoke` call names
   supplies the context instead of focus, and actions, panes, and startup
-  hooks also get the invoking TUI's `client_id` (`HERDR_CLIENT_ID`). Plugins
-  read anything else, such as tabs, spaces, or a pane's agent session,
-  through the socket API (`src/app/api/plugins/entrypoint.rs`)
+  hooks also get the `client_id` (`HERDR_CLIENT_ID`) of the invoking shell
+  client, the TUI or Herdr GPUI. Plugins read anything else, such as tabs,
+  spaces, or a pane's agent session, through the socket API
+  (`src/app/api/plugins/entrypoint.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
   saves tokens in the session snapshot, so plugin state such as space groups
   and the `space_priority` token survives restarts and handoffs

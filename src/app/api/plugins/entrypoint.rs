@@ -263,7 +263,7 @@ impl App {
 
     /// The context a plugin pane launches with: that of the invoked target
     /// while `plugin.invoke` opens it, otherwise the one `plugin.pane.open`
-    /// resolved, naming the TUI client whose request opened it.
+    /// resolved, naming the shell client whose request opened it.
     pub(super) fn invoked_pane_context(
         &self,
         context: &PluginInvocationContext,

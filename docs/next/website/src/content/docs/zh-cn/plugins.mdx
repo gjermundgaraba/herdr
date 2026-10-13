@@ -257,7 +257,8 @@ Herdr 恢复会话且 API socket 就绪后,会为每个已启用插件运行一�
 而不是当前聚焦的对象。shell 插件可以从各个环境变量读取常用 id,或解析上下文
 JSON 获取完整结构。
 
-当插件由 TUI 客户端启动时,`client_id` 和 `HERDR_CLIENT_ID` 在服务器内标识该客户端;
+当插件由 shell 客户端(TUI 或 Herdr GPUI)启动时,`client_id` 和 `HERDR_CLIENT_ID`
+在服务器内标识该客户端;
 事件钩子省略这两项。
 
 当插件需要从 Node、PowerShell、Bash 或其他运行时可移植地调用 Herdr 时,
