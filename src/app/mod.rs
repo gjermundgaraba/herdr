@@ -18,6 +18,7 @@ pub(crate) use api::responses::{encode_error, encode_success};
 pub(crate) use api_helpers::limit_snapshot_lines;
 mod creation;
 mod custom_commands;
+mod fork_state;
 mod git_refresh;
 mod ids;
 mod popup;
@@ -175,12 +176,7 @@ pub struct App {
     // False when startup could not pin every installation; cleanup could
     // otherwise reclaim files a restored consumer still uses.
     pub(crate) plugin_installation_cleanup_allowed: bool,
-    /// The TUI client whose request is being handled, set only for the
-    /// duration of that request. Plugins started by it record their origin.
-    pub(crate) invoking_client_id: Option<u64>,
-    /// The target context of the `plugin.invoke` call whose pane is opening,
-    /// set only while that call runs the `plugin.pane.open` handler.
-    pub(crate) invoked_plugin_context: Option<crate::api::schema::PluginInvocationContext>,
+    pub(crate) fork: fork_state::AppFork,
 }
 
 pub(crate) const APP_EVENT_CHANNEL_CAPACITY: usize = 256;
@@ -542,8 +538,7 @@ impl App {
             sidebar_agents: config.ui.sidebar.agents.clone(),
             sidebar_spaces: config.ui.sidebar.spaces.clone(),
             next_agent_state_change_seq: 0,
-            last_agent_order_stamp: 0,
-            unread_holds_pending: false,
+            fork: Default::default(),
             confirm_close: config.ui.confirm_close,
             pane_borders: config.ui.pane_borders,
             pane_outer_borders: config.ui.pane_outer_borders,
@@ -690,8 +685,7 @@ impl App {
             config_reloaded_from_disk: false,
             client_shell_keybindings_profile,
             endpoint_commands,
-            invoking_client_id: None,
-            invoked_plugin_context: None,
+            fork: Default::default(),
         };
         app.configure_tab_bar_status(&config.ui.tab_bar_right, &config.ui.tab_bar_right_separator);
         app.configure_window_title(&config.ui.window_title);

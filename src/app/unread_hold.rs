@@ -28,11 +28,11 @@ impl AppState {
     /// its stamp on the priority clock.
     pub(crate) fn next_agent_order_event(&mut self) -> (u64, u64) {
         self.next_agent_state_change_seq += 1;
-        self.last_agent_order_stamp =
-            crate::agent_priority::next_stamp(self.last_agent_order_stamp);
+        self.fork.last_agent_order_stamp =
+            crate::agent_priority::next_stamp(self.fork.last_agent_order_stamp);
         (
             self.next_agent_state_change_seq,
-            self.last_agent_order_stamp,
+            self.fork.last_agent_order_stamp,
         )
     }
 
@@ -59,7 +59,7 @@ impl AppState {
             return Err(MarkUnreadError::NotIdle);
         }
         pane.unread_hold = Some(UnreadHold::Armed { client_id });
-        self.unread_holds_pending = true;
+        self.fork.unread_holds_pending = true;
         Ok(())
     }
 
@@ -135,7 +135,7 @@ impl App {
         };
         match self
             .state
-            .arm_unread_hold(ws_idx, pane_id, self.invoking_client_id)
+            .arm_unread_hold(ws_idx, pane_id, self.fork.invoking_client_id)
         {
             Ok(()) => {}
             Err(MarkUnreadError::NotAgent) => {

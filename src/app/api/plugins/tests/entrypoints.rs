@@ -170,7 +170,7 @@ command = ["sh", "-c", "exit 0"]
         panic!("expected opened pane: {response}");
     };
     assert_eq!(plugin_pane.pane.workspace_id, workspace_id);
-    assert!(app.invoked_plugin_context.is_none());
+    assert!(app.fork.invoked_plugin_context.is_none());
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while !root.join("ready").exists() {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
@@ -193,7 +193,7 @@ command = ["sh", "-c", "exit 0"]
     let error: crate::api::schema::ErrorResponse =
         serde_json::from_str(&response).expect(&response);
     assert_eq!(error.error.code, "ui_busy");
-    assert!(app.invoked_plugin_context.is_none());
+    assert!(app.fork.invoked_plugin_context.is_none());
     for (_, runtime) in app.terminal_runtimes.drain() {
         runtime.shutdown();
     }
@@ -210,7 +210,7 @@ fn event_hooks_name_no_invoking_client() {
     link_manifest(&mut app, &root);
     let plugin = app.state.installed_plugins["example.worktree-bootstrap"].clone();
     let context = app.current_plugin_context("event");
-    app.invoking_client_id = Some(7);
+    app.fork.invoking_client_id = Some(7);
     let command = format!(
         "printf '%s\\n%s' \"${{HERDR_CLIENT_ID-unset}}\" \"$HERDR_PLUGIN_CONTEXT_JSON\" > {}",
         capture.display()

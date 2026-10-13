@@ -77,7 +77,7 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_CLIENT_ID\" > client.tmp && mv clie
             response_write_complete: None,
         },
     );
-    assert_eq!(server.app.invoking_client_id, None);
+    assert_eq!(server.app.fork.invoking_client_id, None);
     let recorded = root.join("client");
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while !recorded.exists() {

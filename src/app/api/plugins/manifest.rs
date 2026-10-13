@@ -168,6 +168,7 @@ pub(crate) fn load_plugin_manifest(
         .into_iter()
         .map(normalize_manifest_action)
         .collect::<Result<Vec<_>, _>>()?;
+    reject_duplicate_action_ids(&actions)?;
     actions.sort_by(|a, b| a.id.cmp(&b.id));
     let mut events = raw
         .events
@@ -187,7 +188,8 @@ pub(crate) fn load_plugin_manifest(
         .into_iter()
         .map(normalize_manifest_pane)
         .collect::<Result<Vec<_>, _>>()?;
-    reject_duplicate_entrypoint_ids(&actions, &panes)?;
+    reject_duplicate_pane_ids(&panes)?;
+    super::entrypoint::reject_shared_entrypoint_ids(&actions, &panes)?;
     panes.sort_by(|a, b| a.id.cmp(&b.id));
     let link_handlers = raw
         .link_handlers
@@ -316,22 +318,15 @@ pub(super) fn normalize_plugin_source(
     Ok(source)
 }
 
-/// Actions and panes share one namespace so `plugin_id.entrypoint` names
-/// exactly one of them.
-fn reject_duplicate_entrypoint_ids(
+fn reject_duplicate_action_ids(
     actions: &[PluginManifestAction],
-    panes: &[PluginManifestPane],
 ) -> Result<(), (&'static str, String)> {
     let mut seen = std::collections::HashSet::new();
-    let ids = actions
-        .iter()
-        .map(|action| action.id.as_str())
-        .chain(panes.iter().map(|pane| pane.id.as_str()));
-    for id in ids {
-        if !seen.insert(id) {
+    for action in actions {
+        if !seen.insert(action.id.as_str()) {
             return Err((
-                "duplicate_plugin_entrypoint_id",
-                format!("duplicate entrypoint id '{id}'"),
+                "duplicate_plugin_action_id",
+                format!("duplicate action id '{}'", action.id),
             ));
         }
     }
@@ -345,6 +340,19 @@ fn validate_event_names(events: &[crate::api::schema::PluginManifestEventHook]) 
         .filter(|hook| !known.contains(&hook.on.as_str()))
         .map(|hook| format!("unknown event '{}'", hook.on))
         .collect()
+}
+
+fn reject_duplicate_pane_ids(panes: &[PluginManifestPane]) -> Result<(), (&'static str, String)> {
+    let mut seen = std::collections::HashSet::new();
+    for pane in panes {
+        if !seen.insert(pane.id.as_str()) {
+            return Err((
+                "duplicate_plugin_pane_id",
+                format!("duplicate pane id '{}'", pane.id),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn reject_duplicate_link_handler_ids(

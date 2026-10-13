@@ -71,13 +71,13 @@ fn rank(status: AgentStatus) -> u8 {
 }
 
 /// A space's mark: its [`PRIORITY_TOKEN`] value, unless that is empty.
-pub(crate) fn mark(value: Option<&str>) -> Option<&str> {
+fn mark(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.is_empty())
 }
 
-/// Whether a space whose [`PRIORITY_TOKEN`] is `value` is lifted.
-pub(crate) fn lifted(value: Option<&str>) -> bool {
-    mark(value).is_some()
+/// Whether a space's [`PRIORITY_TOKEN`] lifts its waiting agents.
+pub(crate) fn lifts(workspace: &crate::workspace::Workspace) -> bool {
+    mark(workspace.metadata_tokens.get(PRIORITY_TOKEN)).is_some()
 }
 
 /// An agent's `priority_key` and `priority_mark` in a client snapshot, from
@@ -121,9 +121,6 @@ mod tests {
         assert_eq!(mark(Some("★")), Some("★"));
         assert_eq!(mark(Some("")), None);
         assert_eq!(mark(None), None);
-        assert!(lifted(Some("!")));
-        assert!(!lifted(Some("")));
-        assert!(!lifted(None));
     }
 
     #[test]

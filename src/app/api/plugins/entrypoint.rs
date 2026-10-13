@@ -9,8 +9,8 @@ use super::{
     normalize_plugin_id, plugin_manifest_available,
 };
 use crate::api::schema::{
-    ErrorBody, InstalledPluginInfo, PaneSelectionReadParams, PluginActionInfo,
-    PluginInvocationContext, PluginInvokeParams, PluginManifestPane, PluginPaneOpenParams,
+    InstalledPluginInfo, PaneSelectionReadParams, PluginActionInfo, PluginInvocationContext,
+    PluginInvokeParams, PluginManifestAction, PluginManifestPane, PluginPaneOpenParams,
     PluginPanePlacement, ResponseResult,
 };
 use crate::app::api::responses::{encode_error, encode_success};
@@ -20,6 +20,25 @@ use crate::popup_size::PopupSize;
 pub(super) enum PluginEntrypoint {
     Action(PluginActionInfo),
     Pane(PluginManifestPane),
+}
+
+/// Rejects a manifest whose action reuses a pane's id, which would make
+/// `plugin_id.entrypoint` ambiguous. Upstream's checks already reject
+/// duplicates among actions and among panes.
+pub(super) fn reject_shared_entrypoint_ids(
+    actions: &[PluginManifestAction],
+    panes: &[PluginManifestPane],
+) -> Result<(), (&'static str, String)> {
+    let Some(action) = actions
+        .iter()
+        .find(|action| panes.iter().any(|pane| pane.id == action.id))
+    else {
+        return Ok(());
+    };
+    Err((
+        "duplicate_plugin_entrypoint_id",
+        format!("action id '{}' is also a pane id", action.id),
+    ))
 }
 
 pub(super) fn plugin_error(code: &str, message: impl Into<String>) -> ErrorBody {
@@ -243,9 +262,9 @@ impl App {
             focus: true,
             env: Default::default(),
         };
-        self.invoked_plugin_context = Some(context);
+        self.fork.invoked_plugin_context = Some(context);
         let response = self.handle_plugin_pane_open(id, params);
-        self.invoked_plugin_context = None;
+        self.fork.invoked_plugin_context = None;
         response
     }
 
@@ -257,10 +276,11 @@ impl App {
         context: &PluginInvocationContext,
     ) -> PluginInvocationContext {
         let mut context = self
+            .fork
             .invoked_plugin_context
             .clone()
             .unwrap_or_else(|| context.clone());
-        context.client_id = self.invoking_client_id;
+        context.client_id = self.fork.invoking_client_id;
         context
     }
 
@@ -280,3 +300,6 @@ impl App {
             .is_some_and(|pane| pane.placement == PluginPanePlacement::Popup)
     }
 }
+
+#[cfg(test)]
+mod tests;

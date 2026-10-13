@@ -8,6 +8,8 @@ use super::Config;
 use crate::input::TerminalKey;
 use crate::popup_size::PopupSize;
 
+mod client_actions;
+
 pub type KeyCombo = (KeyCode, KeyModifiers);
 
 /// Built-in prefix used when `keys.prefix` is unset or invalid.
@@ -409,22 +411,6 @@ pub struct Keybinds {
     pub resize_pane_right: ActionKeybinds,
     pub toggle_sidebar: ActionKeybinds,
     pub custom_commands: Vec<CustomCommandKeybind>,
-}
-
-impl Keybinds {
-    /// Actions handled by the TUI client itself. They come from the local
-    /// config even when an endpoint's keybinding profile is in effect, and
-    /// win a key that profile also binds
-    /// (`input::keybindings::resolve_non_indexed_action`). Mirrored client
-    /// logic: Herdr GPUI's counterpart is
-    /// `crates/herdr-gpui/src/keymap/daemon.rs`.
-    pub(crate) fn copy_client_actions(&mut self, from: &Keybinds) {
-        self.agent_picker = from.agent_picker.clone();
-        self.workspace_list = from.workspace_list.clone();
-        self.history_back = from.history_back.clone();
-        self.history_forward = from.history_forward.clone();
-        self.mark_unread = from.mark_unread.clone();
-    }
 }
 
 impl Default for Keybinds {

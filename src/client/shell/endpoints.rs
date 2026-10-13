@@ -510,7 +510,7 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.store_endpoint_snapshot(endpoint_id, None, snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot);
     }
 
     pub(crate) fn cache_endpoint_snapshot_for_generation(
@@ -519,7 +519,7 @@ impl ClientShellState {
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.store_endpoint_snapshot(endpoint_id, Some(generation), snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot);
     }
 
     /// Metadata delivered while an endpoint surface is inactive must never advance this
@@ -530,13 +530,10 @@ impl ClientShellState {
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.store_endpoint_snapshot(endpoint_id, Some(generation), snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot);
     }
 
-    /// Retains an endpoint's snapshot as its daemon sent it. Agent statuses,
-    /// and so completion badges, are the daemon's: this client keeps no
-    /// record of what it has shown.
-    fn store_endpoint_snapshot(
+    fn cache_endpoint_snapshot_with_surface(
         &mut self,
         endpoint_id: &ClientEndpointId,
         generation: Option<u64>,
@@ -602,33 +599,6 @@ impl ClientShellState {
                 endpoint.agent_view_projection = None;
             }
         }
-    }
-
-    /// Asks the daemon that owns the focused pane to hold its agent's
-    /// acknowledged completion (`agent.mark_unread`). The daemon keeps the
-    /// hold and decides when the badge comes back and when it clears, so this
-    /// client records nothing: it shows what the next snapshots say. Herdr
-    /// GPUI's counterpart is `crates/herdr-gpui/src/window/commands.rs`, with
-    /// the daemon's answer handled in `client_contract/follow.rs`.
-    pub(super) fn mark_focused_pane_unread(&mut self, outcome: &mut ClientShellInput) {
-        let Some(pane_id) = self
-            .snapshot
-            .as_deref()
-            .and_then(|snapshot| snapshot.focused_pane_id.clone())
-        else {
-            outcome.repaint |= self.push_endpoint_notice(
-                ClientEndpointNoticeKind::Rejected,
-                "mark_unread",
-                "Nothing to mark",
-                "No pane is focused.",
-            );
-            return;
-        };
-        self.push_endpoint_method_with_kind(
-            crate::api::schema::Method::AgentMarkUnread(crate::api::schema::PaneTarget { pane_id }),
-            PendingEndpointKind::MarkUnread,
-            outcome,
-        );
     }
 
     #[cfg(test)]

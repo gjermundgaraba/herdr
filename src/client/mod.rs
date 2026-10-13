@@ -2131,6 +2131,7 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
+                            Ok(endpoint::EndpointControlMessage::AgentCompletions(_)) => continue,
                             Ok(endpoint::EndpointControlMessage::Contract(control)) => {
                                 let Some(shell) = state.shell.as_mut() else {
                                     continue;

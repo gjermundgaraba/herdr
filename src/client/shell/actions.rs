@@ -601,19 +601,7 @@ impl ClientShellState {
         }
         match pending.kind {
             PendingEndpointKind::Generic => {}
-            PendingEndpointKind::MarkUnread => {
-                if result.is_ok() {
-                    return (
-                        self.push_endpoint_notice(
-                            ClientEndpointNoticeKind::Rejected,
-                            "mark_unread",
-                            "Marked unread",
-                            "The badge returns and the agent moves back in the queue when you leave this pane.",
-                        ),
-                        Vec::new(),
-                    );
-                }
-            }
+            PendingEndpointKind::MarkUnread => return self.mark_unread_answered(result.is_ok()),
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
                 return match result {
