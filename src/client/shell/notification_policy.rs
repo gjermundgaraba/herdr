@@ -131,7 +131,7 @@ impl ClientShellState {
             }
         }
         // Completion evidence is advisory. A Finished effect is valid only while the
-        // endpoint still reports the pane as Done, even when delivery is immediate.
+        // client-projected pane remains Done, even when delivery is immediate.
         let validate_state = delay > 0 || event.kind == SemanticNotificationKind::Finished;
         self.pending_notifications.push(ClientPendingNotification {
             endpoint_id: endpoint_id.clone(),
@@ -323,7 +323,7 @@ impl ClientShellState {
     ) -> NotificationValidation {
         let Some(pane_id) = event.pane_id.as_deref() else {
             // Finished notifications carry no independently trustworthy completion state. Without
-            // a pane the endpoint reports as Done, do not emit completion chrome or sound.
+            // a projected pane to verify as Done, do not emit completion chrome or sound.
             return if event.kind == SemanticNotificationKind::Finished {
                 NotificationValidation::Stale
             } else {

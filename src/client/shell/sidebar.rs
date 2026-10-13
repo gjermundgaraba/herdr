@@ -219,7 +219,7 @@ pub(crate) fn render_sidebar(
                 .map(|workspace| {
                     workspace_rows(
                         workspace,
-                        workspace_status(
+                        space_groups::workspace_status(
                             snapshot,
                             workspace,
                             matches!(row, SidebarRow::Mirror(_)),
@@ -302,7 +302,8 @@ pub(crate) fn render_sidebar(
         let Some(workspace) = snapshot.workspaces.get(entry.index) else {
             continue;
         };
-        let status = workspace_status(snapshot, workspace, mirror, state.collapsed_groups);
+        let status =
+            space_groups::workspace_status(snapshot, workspace, mirror, state.collapsed_groups);
         let rows = workspace_rows(workspace, status, entry.indented, &config.spaces);
         let row_height = (rows.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
         if y.saturating_add(row_height) > body.bottom() {
@@ -631,21 +632,6 @@ pub(in crate::client::shell) fn render_parent_group_toggle(
         Style::default().fg(palette.accent),
     );
     Some((toggle, key))
-}
-
-/// A pinned mirror shows its own space's state; a regular row may roll up a
-/// collapsed worktree family.
-pub(in crate::client::shell) fn workspace_status(
-    snapshot: &ClientShellSnapshot,
-    workspace: &ClientShellWorkspace,
-    mirror: bool,
-    collapsed_groups: &HashSet<String>,
-) -> crate::api::schema::AgentStatus {
-    if mirror {
-        workspace.agent_status
-    } else {
-        displayed_workspace_status(snapshot, workspace, collapsed_groups)
-    }
 }
 
 pub(in crate::client::shell) fn displayed_workspace_status(

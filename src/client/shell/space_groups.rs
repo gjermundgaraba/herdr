@@ -307,6 +307,21 @@ pub(super) fn workspace_entries(
         .collect()
 }
 
+/// A pinned mirror shows its own space's state; a regular row may roll up a
+/// collapsed worktree family.
+pub(super) fn workspace_status(
+    snapshot: &ClientShellSnapshot,
+    workspace: &ClientShellWorkspace,
+    mirror: bool,
+    collapsed_groups: &HashSet<String>,
+) -> crate::api::schema::AgentStatus {
+    if mirror {
+        workspace.agent_status
+    } else {
+        super::sidebar::displayed_workspace_status(snapshot, workspace, collapsed_groups)
+    }
+}
+
 /// Draws a group header or the divider and records its hit.
 pub(super) fn render_marker(
     buffer: &mut Buffer,
@@ -350,6 +365,44 @@ pub(super) fn render_marker(
             .map(|index| snapshot.workspaces[*index].workspace_id.clone())
             .collect(),
     });
+}
+
+/// Draws a marker in the multi-endpoint sidebar, nested under its
+/// endpoint's row and dimmed while that endpoint is not online.
+pub(super) fn render_endpoint_marker(
+    buffer: &mut Buffer,
+    rect: Rect,
+    marker: &Marker,
+    endpoint: &ClientShellEndpoint,
+    config: &ClientShellConfig,
+    hits: &mut ShellHitMap,
+) {
+    let Some(snapshot) = endpoint.snapshot.as_deref() else {
+        return;
+    };
+    let nested = Rect::new(
+        rect.x.saturating_add(2),
+        rect.y,
+        rect.width.saturating_sub(2),
+        1,
+    );
+    render_marker(
+        buffer,
+        nested,
+        marker,
+        snapshot,
+        &endpoint.endpoint_id,
+        config,
+        hits,
+    );
+    if endpoint.status != ClientEndpointStatus::Online {
+        buffer.set_style(
+            rect,
+            Style::default()
+                .fg(config.palette.overlay0)
+                .add_modifier(Modifier::DIM),
+        );
+    }
 }
 
 fn render_group_header(

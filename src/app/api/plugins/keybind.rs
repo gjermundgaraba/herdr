@@ -47,9 +47,9 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::plugin_keybinding as binding;
+    use super::super::tests::{app_with_plugin, plugin_keybinding as binding};
     use super::*;
-    use crate::api::schema::{CommandInvokeParams, InstalledPluginInfo, SuccessResponse};
+    use crate::api::schema::{CommandInvokeParams, SuccessResponse};
     use crate::popup_size::PopupSize;
 
     struct Fixture {
@@ -86,10 +86,6 @@ command = ["./pane.sh"]
             .unwrap();
             Self { root }
         }
-
-        fn plugin(&self) -> InstalledPluginInfo {
-            super::super::load_plugin_manifest(&self.root.display().to_string(), true).unwrap()
-        }
     }
 
     impl Drop for Fixture {
@@ -99,20 +95,9 @@ command = ["./pane.sh"]
     }
 
     fn test_app(fixture: &Fixture) -> App {
-        let mut app = super::super::tests::test_app();
-        app.state.workspaces = vec![
-            crate::workspace::Workspace::test_new("server-active"),
-            crate::workspace::Workspace::test_new("client-target"),
-        ];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
-        let plugin = fixture.plugin();
-        app.state
-            .installed_plugins
-            .insert(plugin.plugin_id.clone(), plugin);
-        app
+        app_with_plugin(
+            super::super::load_plugin_manifest(&fixture.root.display().to_string(), true).unwrap(),
+        )
     }
 
     fn install(app: &mut App, binding: CustomCommandKeybind) -> String {
@@ -271,14 +256,9 @@ printf '%s' "$HERDR_PLUGIN_CONTEXT_JSON" > context.json
         let mut app = test_app(&fixture);
         let target_pane = app.state.workspaces[1].tabs[0].root_pane;
         let target_id = app.public_pane_id(1, target_pane).unwrap();
-        let mut params = crate::api::schema::PluginInvokeParams {
-            plugin_id: "example.keybound".into(),
-            entry_id: "run".into(),
-            workspace_id: Some(app.public_workspace_id(1)),
-            tab_id: None,
-            pane_id: Some(target_id.clone()),
-            selection: None,
-        };
+        let mut params = super::super::tests::invoke_params("example.keybound", "run");
+        params.workspace_id = Some(app.public_workspace_id(1));
+        params.pane_id = Some(target_id.clone());
         let response = app.handle_plugin_invoke("menu".into(), params.clone());
         let success: SuccessResponse = serde_json::from_str(&response).expect(&response);
         let crate::api::schema::ResponseResult::PluginActionInvoked { context, .. } =

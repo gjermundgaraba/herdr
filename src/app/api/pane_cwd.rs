@@ -1,10 +1,20 @@
 //! `pane.cwd_changed`: emitted when a shell's cwd report changes its pane's cwd.
+//! Also the public tab id that it, `pane.closed` and `pane.exited` carry.
 
 use crate::app::App;
 use crate::events::AppEvent;
 use crate::layout::PaneId;
 
 impl App {
+    pub(super) fn public_tab_id_for_pane(&self, ws_idx: usize, pane_id: PaneId) -> Option<String> {
+        let tab_idx = self
+            .state
+            .workspaces
+            .get(ws_idx)?
+            .find_tab_index_for_pane(pane_id)?;
+        self.public_tab_id(ws_idx, tab_idx)
+    }
+
     /// The reporting pane and its cwd before a cwd report is applied.
     pub(super) fn cwd_before_report(
         &self,

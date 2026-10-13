@@ -42,6 +42,19 @@ pub(crate) struct ControlOrigin {
     pub(crate) generation: u64,
 }
 
+impl ClientEndpointId {
+    /// The endpoint a [`Self::storage_key`] names, as tools and daemons send
+    /// it back.
+    pub(crate) fn from_storage_key(key: &str) -> Option<Self> {
+        if key == "local" {
+            return Some(Self::Local);
+        }
+        crate::client::endpoint::ProfileId::parse(key.strip_prefix("ssh:")?)
+            .ok()
+            .map(Self::Ssh)
+    }
+}
+
 #[derive(Debug)]
 struct PendingClientJump {
     origin: ControlOrigin,

@@ -5,6 +5,50 @@
 
 use super::*;
 
+pub(in crate::app::api::plugins) fn invoke_params(
+    plugin_id: &str,
+    entry_id: &str,
+) -> crate::api::schema::PluginInvokeParams {
+    crate::api::schema::PluginInvokeParams {
+        plugin_id: plugin_id.into(),
+        entry_id: entry_id.into(),
+        workspace_id: None,
+        tab_id: None,
+        pane_id: None,
+        selection: None,
+    }
+}
+
+/// Two spaces, the first active, with `plugin` installed.
+pub(in crate::app::api::plugins) fn app_with_plugin(plugin: InstalledPluginInfo) -> App {
+    let mut app = test_app();
+    app.state.workspaces = vec![
+        crate::workspace::Workspace::test_new("active"),
+        crate::workspace::Workspace::test_new("target"),
+    ];
+    app.state.ensure_test_terminals();
+    app.state.active = Some(0);
+    app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
+    app.state
+        .installed_plugins
+        .insert(plugin.plugin_id.clone(), plugin);
+    app
+}
+
+pub(in crate::app::api::plugins) fn plugin_keybinding(
+    command: &str,
+) -> crate::config::CustomCommandKeybind {
+    crate::config::CustomCommandKeybind {
+        bindings: crate::config::ActionKeybinds::prefix("z"),
+        label: "prefix+z".into(),
+        command: command.into(),
+        action: crate::config::CustomCommandAction::PluginAction,
+        description: None,
+        width: None,
+        height: None,
+    }
+}
+
 #[test]
 fn link_rejects_action_and_pane_sharing_an_id() {
     let root = unique_temp_path("plugin-shared-entrypoint");
@@ -100,15 +144,7 @@ placement = "split"
 command = ["sh", "-c", "exit 0"]
 "#,
     );
-    let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
-    let mut app = test_app();
-    app.state.workspaces = vec![crate::workspace::Workspace::test_new("target")];
-    app.state.ensure_test_terminals();
-    app.state.active = Some(0);
-    app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
-    app.state
-        .installed_plugins
-        .insert(installed.plugin_id.clone(), installed);
+    let mut app = app_with_plugin(load_plugin_manifest(&root.display().to_string(), true).unwrap());
     let mut binding = plugin_keybinding("example.worktree-bootstrap.board");
     binding.width = Some(crate::popup_size::PopupSize::Percent(80));
     binding.height = Some(crate::popup_size::PopupSize::Cells(12));
@@ -147,18 +183,7 @@ placement = "popup"
 command = ["sh", "-c", "exit 0"]
 "#,
     );
-    let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
-    let mut app = test_app();
-    app.state.workspaces = vec![
-        crate::workspace::Workspace::test_new("active"),
-        crate::workspace::Workspace::test_new("target"),
-    ];
-    app.state.ensure_test_terminals();
-    app.state.active = Some(0);
-    app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
-    app.state
-        .installed_plugins
-        .insert(installed.plugin_id.clone(), installed);
+    let mut app = app_with_plugin(load_plugin_manifest(&root.display().to_string(), true).unwrap());
     let target_pane = app.state.workspaces[1].tabs[0].root_pane;
     let target_id = app.public_pane_id(1, target_pane).unwrap();
     let workspace_id = app.public_workspace_id(1);

@@ -671,8 +671,6 @@ pub(super) enum PendingEndpointKind {
     PaneLinkResolve {
         target: super::link_hover::LinkHoverTarget,
     },
-    /// `agent.mark_unread` for the focused pane; success is confirmed to the user.
-    MarkUnread,
     PaneLinkActivate {
         pane_id: String,
         inner_rect: Rect,
@@ -692,6 +690,8 @@ pub(super) enum PendingEndpointKind {
         generation: u64,
         session_generation: u64,
     },
+    /// `agent.mark_unread` for the focused pane; success is confirmed to the user.
+    MarkUnread,
 }
 
 pub(super) struct PendingEndpointRequest {
