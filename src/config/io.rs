@@ -751,6 +751,8 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 mod tests {
     use super::*;
 
+    mod agent_priority_tokens;
+
     #[test]
     fn upsert_top_level_bool_replaces_existing_value() {
         let content = "onboarding = true\n[keys]\nprefix = \"ctrl+b\"\n";
@@ -1021,22 +1023,6 @@ agent_panel_sort = "priority"
             loaded.config.ui.agent_panel_sort,
             super::super::AgentPanelSortConfig::Priority
         );
-    }
-
-    #[test]
-    fn load_live_config_keeps_current_ui_on_invalid_agent_priority_tokens() {
-        let loaded = load_live_config_from_str(
-            r#"
-[ui]
-agent_priority_tokens = ["lift", "lift"]
-"#,
-        )
-        .unwrap();
-
-        assert_eq!(loaded.invalid_sections, vec!["ui"]);
-        assert_eq!(loaded.diagnostics.len(), 1);
-        assert!(loaded.diagnostics[0].contains("duplicate ui.agent_priority_tokens key"));
-        assert!(loaded.diagnostics[0].contains("keeping current ui settings"));
     }
 
     #[test]
