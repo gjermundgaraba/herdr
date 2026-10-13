@@ -158,9 +158,10 @@ lands.
   a customization still works, stop and ask the user. Do not remove, adapt, or
   disable a customization on your own.
 - Push only when asked, and use `git push --force-with-lease origin custom`.
-- Prefer cohesive shared code over minimizing the number of upstream-owned
-  files touched. Keep rebases manageable, but do not add duplicate behavior or
-  compatibility wrappers solely to reduce the diff surface.
+- Keep fork code out of upstream-owned files: fork logic and its tests live in
+  fork-added files or child modules, reached through as few hook lines in
+  upstream files as possible. Do not rewrite or reorder upstream code you do
+  not need to change.
 
 ## Upstream guardrails
 
