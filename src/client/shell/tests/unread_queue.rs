@@ -557,13 +557,13 @@ fn the_restored_queue_is_shared_by_picker_and_keyboard_navigation() {
         })
         .collect::<Vec<_>>();
         assert_eq!(picker, expected);
-        let targets = aggregate_navigation::online_agent_rows(
+        let targets = aggregate_navigation::online_agent_targets(
             &state.endpoints,
             &state.active_endpoint_id,
             AgentPanelSortConfig::Priority,
         )
         .into_iter()
-        .map(|row| (row.endpoint.endpoint_id.clone(), row.agent.pane_id.clone()))
+        .map(|target| (target.endpoint_id, target.pane_id))
         .collect::<Vec<_>>();
         assert_eq!(targets, expected);
         for (action, target) in [
@@ -572,7 +572,7 @@ fn the_restored_queue_is_shared_by_picker_and_keyboard_navigation() {
             (KeybindAction::PreviousAgent, expected.last().unwrap()),
         ] {
             let mut outcome = ClientShellInput::default();
-            assert!(state.handle_endpoint_navigation(action, &mut outcome));
+            state.record_binding(crate::input::KeybindMatch::Action(action), &mut outcome);
             assert_pane_request(&outcome, &target.0, &target.1, federated);
         }
     }
@@ -589,11 +589,19 @@ fn the_restored_queue_is_shared_by_desktop_and_mobile_surfaces() {
         for collapsed in [false, true] {
             state.sidebar_collapsed = collapsed;
             state.compose(146, 40).unwrap();
+            // One machine's list holds only its own panes.
             let rows = state
                 .hits
-                .endpoint_agents
+                .agents
                 .iter()
-                .map(|(_, id, pane)| (id.clone(), pane.clone()))
+                .map(|(_, pane)| (ClientEndpointId::Local, pane.clone()))
+                .chain(
+                    state
+                        .hits
+                        .endpoint_agents
+                        .iter()
+                        .map(|(_, id, pane)| (id.clone(), pane.clone())),
+                )
                 .collect::<Vec<_>>();
             assert_eq!(rows, expected, "collapsed={collapsed}");
         }

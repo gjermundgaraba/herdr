@@ -1,7 +1,6 @@
 use super::*;
 
 mod agent_order;
-mod reconnect_agents;
 #[path = "workspace_navigation.rs"]
 mod workspace_navigation;
 use crate::client::endpoint::{
@@ -532,14 +531,14 @@ fn agent_navigation_reveal_is_cancelled_by_another_selection() {
 fn agent_navigation_keeps_scroll_when_target_is_visible() {
     let (mut state, _) = state_with_scrollable_agents();
     let (_, endpoint_id, pane_id) = state.hits.endpoint_agents[1].clone();
-    let rows = super::super::aggregate_navigation::online_agent_rows(
+    let targets = super::super::aggregate_navigation::online_agent_targets(
         &state.endpoints,
         &state.active_endpoint_id,
         state.config.agent_panel_sort,
     );
-    let index = rows
+    let index = targets
         .iter()
-        .position(|row| row.endpoint.endpoint_id == &endpoint_id && row.agent.pane_id == pane_id)
+        .position(|target| target.endpoint_id == endpoint_id && target.pane_id == pane_id)
         .unwrap();
     let scroll = state.agent_scroll;
     assert!(state.handle_endpoint_navigation(

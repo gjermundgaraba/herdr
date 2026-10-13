@@ -180,25 +180,17 @@ lands.
   upstream files as possible. Do not rewrite or reorder upstream code you do
   not need to change, and never copy or wrap upstream code just to avoid
   touching it: a small edit in place beats a duplicate. An upstream test whose
-  behavior the fork changes is edited in place. The TUI's single-host agent
-  paths (`src/client/shell/sidebar.rs`, `agent_sidebar.rs`, `actions.rs`,
-  `endpoint_navigation.rs`, `endpoint_agents.rs`, `mobile.rs`, and the
-  `online_agent_targets` to `online_agent_rows` rename in
-  `aggregate_navigation.rs`) stay rewritten because the fork's agents list
-  keeps a reconnecting host's cached agents, dimmed and skipped by
-  navigation, which upstream's paths drop. That is a fork feature (fork
-  commit 2c42afce), so do not restore upstream's. `aggregate_navigation.rs`
-  also stays rewritten in two places for other fork features. Its rows carry
-  a `position` instead of upstream's `recency`, because the priority order
-  breaks ties between equal keys by snapshot order, not client-side recency.
-  It drops the recency and presentation fields and the `seen` flag, and
-  `seen()` reads the daemon's status, because the TUI's completion ledger is
-  removed. The helpers that build its rows live in
-  `aggregate_navigation/agent_order.rs`. `src/client/shell/overlay_input.rs`
-  also stays rewritten: upstream's `open_navigator_overlay` becomes a
-  layout-taking `open_navigator(layout)`, which the fork's agent and
-  workspace pickers share, because a fork hook would copy upstream's overlay
-  literal.
+  behavior the fork changes is edited in place.
+  `src/client/shell/aggregate_navigation.rs` stays rewritten in two places
+  for other fork features. Its rows carry a `position` instead of upstream's
+  `recency`, because the priority order breaks ties between equal keys by
+  snapshot order, not client-side recency. It drops the recency and
+  presentation fields and the `seen` flag, and `seen()` reads the daemon's
+  status, because the TUI's completion ledger is removed.
+  `src/client/shell/overlay_input.rs` also stays rewritten: upstream's
+  `open_navigator_overlay` becomes a layout-taking `open_navigator(layout)`,
+  which the fork's agent and workspace pickers share, because a fork hook
+  would copy upstream's overlay literal.
 
 ## Upstream guardrails
 

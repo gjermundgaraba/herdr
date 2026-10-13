@@ -3,9 +3,11 @@
 //!
 //! The report is built only from the retained endpoint projections the
 //! sidebar renders from, so its rows, their order, and their statuses are the
-//! ones on screen. Nothing here draws: this is mirrored client logic, and
-//! Herdr GPUI builds the same report from its own retained snapshots (see
-//! "Sibling fork: Herdr GPUI" in `FORK.md`).
+//! ones on screen. With one machine the sidebar draws the presented
+//! projection, which trails the retained one only while a newer projection
+//! waits for its pane frame, as during a reconnect. Nothing here draws: this
+//! is mirrored client logic, and Herdr GPUI builds the same report from its
+//! own retained snapshots (see "Sibling fork: Herdr GPUI" in `FORK.md`).
 
 use std::hash::{Hash, Hasher};
 

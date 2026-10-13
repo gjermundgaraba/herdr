@@ -97,9 +97,3 @@ that order, after every agent that has a key. Spaces retains the supplied order.
 
 Pinned sections of the Space panel are the TUI's own: it matches its local
 `[[ui.sidebar.spaces.pinned]]` against the spaces of every machine it shows.
-
-During reconnect, agent lists follow the latest endpoint metadata while the
-pane retains its previous frame. Reconnecting entries are dimmed and skipped
-by indexed and next/previous agent navigation. Explicit selections on an
-unavailable remote are rejected. Local selections still reach the runtime so
-they can cancel a pending remote switch.

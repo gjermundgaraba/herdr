@@ -6,8 +6,6 @@ use crate::protocol::ClientShellAgent;
 pub(super) mod agent_order;
 mod agent_picker;
 
-use agent_order::{endpoint_rows, legacy_projected_agents};
-
 #[derive(Clone, Copy)]
 pub(super) struct CachedEndpointSnapshot<'a> {
     pub(super) endpoint_index: usize,
@@ -46,9 +44,14 @@ pub(super) fn cached_endpoint_snapshots(
 pub(super) struct AggregateAgentRow<'a> {
     pub(super) endpoint: CachedEndpointSnapshot<'a>,
     pub(super) agent: &'a ClientShellAgent,
-    /// The agent's place among its endpoint's rows before any sort, which
-    /// breaks ties between equal priority keys.
+    /// The agent's place in its endpoint's own order, which breaks ties
+    /// between equal priority keys.
     pub(super) position: usize,
+}
+
+pub(super) struct AggregateAgentTarget {
+    pub(super) endpoint_id: ClientEndpointId,
+    pub(super) pane_id: String,
 }
 
 pub(super) fn aggregate_agent_rows<'a>(
@@ -80,7 +83,18 @@ pub(super) fn aggregate_agent_rows<'a>(
 
     if let Some(Ok(view)) = active_view {
         let mut rows = cached_endpoint_snapshots(endpoints)
-            .flat_map(|endpoint| endpoint_rows(endpoint, &endpoint.snapshot.agents))
+            .flat_map(|endpoint| {
+                endpoint
+                    .snapshot
+                    .agents
+                    .iter()
+                    .enumerate()
+                    .map(move |(position, agent)| AggregateAgentRow {
+                        position,
+                        endpoint,
+                        agent,
+                    })
+            })
             .collect::<Vec<_>>();
         if let Some(view) = view {
             let context = active_index
@@ -115,7 +129,23 @@ pub(super) fn aggregate_agent_rows<'a>(
     }
 
     let mut rows = cached_endpoint_snapshots(endpoints)
-        .flat_map(|endpoint| endpoint_rows(endpoint, legacy_projected_agents(endpoint.snapshot)))
+        .flat_map(|endpoint| {
+            super::agent_sidebar::ordered_agent_pane_ids(endpoint.snapshot, sort)
+                .into_iter()
+                .enumerate()
+                .filter_map(move |(position, pane_id)| {
+                    let agent = endpoint
+                        .snapshot
+                        .agents
+                        .iter()
+                        .find(|agent| agent.pane_id == pane_id)?;
+                    Some(AggregateAgentRow {
+                        position,
+                        endpoint,
+                        agent,
+                    })
+                })
+        })
         .collect::<Vec<_>>();
     sort_aggregate_rows(&mut rows, sort);
     rows
@@ -219,14 +249,18 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
     }
 }
 
-pub(super) fn online_agent_rows<'a>(
-    endpoints: &'a [ClientShellEndpoint],
+pub(super) fn online_agent_targets(
+    endpoints: &[ClientShellEndpoint],
     active_endpoint_id: &ClientEndpointId,
     sort: crate::config::AgentPanelSortConfig,
-) -> Vec<AggregateAgentRow<'a>> {
+) -> Vec<AggregateAgentTarget> {
     aggregate_agent_rows(endpoints, active_endpoint_id, sort)
         .into_iter()
         .filter(|row| !row.endpoint.stale())
+        .map(|row| AggregateAgentTarget {
+            endpoint_id: row.endpoint.endpoint_id.clone(),
+            pane_id: row.agent.pane_id.clone(),
+        })
         .collect()
 }
 

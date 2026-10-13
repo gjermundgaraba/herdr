@@ -7,6 +7,7 @@ pub(in crate::client::shell) mod sidebar;
 #[path = "../shell/tabs.rs"]
 mod tabs;
 
+pub(super) use super::agent_sidebar::{ordered_agent_pane_ids, render_agent_panel};
 pub(super) use super::aggregate_navigation::navigator_rows as client_navigator_rows;
 // Replaces `sidebar::workspace_entries` with space groups; call it through `render::`.
 pub(super) use super::space_groups::workspace_entries;
@@ -289,7 +290,16 @@ pub(super) fn render_shell(
                 );
             }
         } else if state.sidebar_collapsed {
-            render_collapsed_sidebar(buffer, layout.sidebar, snapshot, config, &state, &mut hits);
+            render_collapsed_sidebar(
+                buffer,
+                layout.sidebar,
+                snapshot,
+                config,
+                state
+                    .selected_workspace_id
+                    .map(|target| target.workspace_id.as_str()),
+                &mut hits,
+            );
         } else {
             render_sidebar(
                 buffer,
@@ -323,6 +333,7 @@ pub(super) fn render_shell(
         hits.machines.clear();
         hits.workspaces.clear();
         hits.markers.clear();
+        hits.agents.clear();
         hits.endpoint_agents.clear();
         hits.tab_scroll_left = Rect::default();
         hits.tab_scroll_right = Rect::default();
