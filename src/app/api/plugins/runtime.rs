@@ -29,13 +29,12 @@ impl App {
             ));
         };
         let args = command.iter().skip(1).cloned().collect::<Vec<_>>();
-        let invoked;
-        let context = if event_json.is_none() {
-            invoked = self.with_invoking_client(context.clone());
-            &invoked
-        } else {
-            context
-        };
+        // Event hooks fire per event, not for a client.
+        let mut invoked = context.clone();
+        if event_json.is_none() {
+            invoked.client_id = self.invoking_client_id;
+        }
+        let context = &invoked;
         let context_json = serde_json::to_string(context)
             .map_err(|err| ("invalid_plugin_context", err.to_string()))?;
         super::env::ensure_plugin_user_dirs(plugin)

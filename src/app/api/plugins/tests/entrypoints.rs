@@ -1,6 +1,7 @@
 //! Plugin entrypoints: actions and panes share one id namespace, a key's
 //! size applies only to a popup pane, and a pane opened by `plugin.invoke`
-//! launches with the invoked target's context.
+//! launches with the invoked target's context. An event hook names no
+//! invoking client.
 
 use super::*;
 
@@ -196,5 +197,39 @@ command = ["sh", "-c", "exit 0"]
     for (_, runtime) in app.terminal_runtimes.drain() {
         runtime.shutdown();
     }
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(unix)]
+#[test]
+fn event_hooks_name_no_invoking_client() {
+    let mut app = test_app();
+    let root = unique_temp_path("plugin-event-client");
+    let capture = root.join("capture");
+    write_manifest(&root);
+    link_manifest(&mut app, &root);
+    let plugin = app.state.installed_plugins["example.worktree-bootstrap"].clone();
+    let context = app.current_plugin_context("event");
+    app.invoking_client_id = Some(7);
+    let command = format!(
+        "printf '%s\\n%s' \"${{HERDR_CLIENT_ID-unset}}\" \"$HERDR_PLUGIN_CONTEXT_JSON\" > {}",
+        capture.display()
+    );
+    app.start_plugin_command(
+        &plugin,
+        None,
+        Some("worktree.created".into()),
+        vec!["sh".into(), "-c".into(), command],
+        &context,
+        Some("{}".into()),
+    )
+    .unwrap();
+    let captured = read_capture_when_ready(&capture, || {
+        app.drain_all_internal_events();
+    });
+    let (client_id, context) = captured.split_once('\n').unwrap();
+    assert_eq!(client_id, "unset");
+    let context: PluginInvocationContext = serde_json::from_str(context).unwrap();
+    assert_eq!(context.client_id, None);
     let _ = std::fs::remove_dir_all(root);
 }

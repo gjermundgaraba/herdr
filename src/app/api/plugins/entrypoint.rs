@@ -251,25 +251,16 @@ impl App {
 
     /// The context a plugin pane launches with: that of the invoked target
     /// while `plugin.invoke` opens it, otherwise the one `plugin.pane.open`
-    /// resolved.
+    /// resolved, naming the TUI client whose request opened it.
     pub(super) fn invoked_pane_context(
         &self,
         context: &PluginInvocationContext,
     ) -> PluginInvocationContext {
-        self.with_invoking_client(
-            self.invoked_plugin_context
-                .clone()
-                .unwrap_or_else(|| context.clone()),
-        )
-    }
-
-    /// Names the TUI client whose request started the plugin. Event hooks
-    /// skip this: they fire per event, not for a client.
-    pub(super) fn with_invoking_client(
-        &self,
-        mut context: PluginInvocationContext,
-    ) -> PluginInvocationContext {
-        context.client_id = self.invoking_client_id.or(context.client_id);
+        let mut context = self
+            .invoked_plugin_context
+            .clone()
+            .unwrap_or_else(|| context.clone());
+        context.client_id = self.invoking_client_id;
         context
     }
 
