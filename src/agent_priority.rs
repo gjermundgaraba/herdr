@@ -6,18 +6,21 @@
 //! sort and merge endpoints without knowing the rule
 //! (`client/shell/aggregate_navigation.rs`).
 //!
-//! `ui.agent_priority_tokens` lists workspace metadata token keys. A space that
-//! carries any of them with a non-empty value is lifted: its blocked and done
-//! agents come before every other agent. Its working, idle, and unknown agents
-//! keep their normal place, and the `spaces` order ignores the tokens. The
-//! value of the first listed token a space carries with a non-empty value
-//! marks its agents in the agent picker.
+//! A space whose [`PRIORITY_TOKEN`] workspace metadata token has a non-empty
+//! value is lifted: its blocked and done agents come before every other agent.
+//! Its working, idle, and unknown agents keep their normal place, and the
+//! `spaces` order ignores the token. The token's value marks the space's
+//! agents in the agent picker.
 
 use crate::api::schema::AgentStatus;
 
+/// Workspace metadata key that lifts a space in the priority order and marks
+/// its agents. The space-priority plugin sets it.
+pub(crate) const PRIORITY_TOKEN: &str = "space_priority";
+
 /// Sort key for an agent in the `priority` order, `(tier, rank, age)`
 /// ascending: tier is `0` for a lifted waiting agent and `1` otherwise.
-/// `lifted` says whether its space carries a priority token, and `recency`
+/// `lifted` says whether its space carries the priority token, and `recency`
 /// grows with each ordering event.
 pub(crate) fn sort_key(lifted: bool, status: AgentStatus, recency: u64) -> (u8, u8, u64) {
     let waiting = matches!(status, AgentStatus::Blocked | AgentStatus::Done);
@@ -67,74 +70,51 @@ fn rank(status: AgentStatus) -> u8 {
     }
 }
 
-/// A space's mark: the value of the first token in `priority_tokens` that
-/// `value` finds with a non-empty value.
-pub(crate) fn mark<'a>(
-    priority_tokens: &[String],
-    value: impl Fn(&str) -> Option<&'a str>,
-) -> Option<&'a str> {
-    priority_tokens
-        .iter()
-        .find_map(|key| value(key).filter(|value| !value.is_empty()))
+/// A space's mark: its [`PRIORITY_TOKEN`] value, unless that is empty.
+pub(crate) fn mark(value: Option<&str>) -> Option<&str> {
+    value.filter(|value| !value.is_empty())
 }
 
-/// Whether a space carries any token in `priority_tokens` with a non-empty
-/// value.
-pub(crate) fn lifted<'a>(
-    priority_tokens: &[String],
-    value: impl Fn(&str) -> Option<&'a str>,
-) -> bool {
-    mark(priority_tokens, value).is_some()
+/// Whether a space whose [`PRIORITY_TOKEN`] is `value` is lifted.
+pub(crate) fn lifted(value: Option<&str>) -> bool {
+    mark(value).is_some()
 }
 
 /// The mark of a space in a client snapshot.
-pub(crate) fn workspace_mark<'a>(
-    priority_tokens: &[String],
-    workspace: &'a crate::protocol::ClientShellWorkspace,
-) -> Option<&'a str> {
-    mark(priority_tokens, |key| {
+pub(crate) fn workspace_mark(workspace: &crate::protocol::ClientShellWorkspace) -> Option<&str> {
+    mark(
         workspace
             .tokens
             .iter()
-            .find(|(token, _)| token == key)
-            .map(|(_, value)| value.as_str())
-    })
+            .find(|(key, _)| key == PRIORITY_TOKEN)
+            .map(|(_, value)| value.as_str()),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn lookup<'a>(tokens: &'a [(&str, &str)]) -> impl Fn(&str) -> Option<&'a str> {
-        move |key| {
-            tokens
-                .iter()
-                .find(|(token, _)| *token == key)
-                .map(|(_, value)| *value)
-        }
+    #[test]
+    fn only_a_non_empty_priority_token_marks_and_lifts() {
+        assert_eq!(mark(Some("★")), Some("★"));
+        assert_eq!(mark(Some("")), None);
+        assert_eq!(mark(None), None);
+        assert!(lifted(Some("!")));
+        assert!(!lifted(Some("")));
+        assert!(!lifted(None));
     }
 
     #[test]
-    fn mark_uses_the_first_configured_token_with_a_value() {
-        let configured = ["lift".to_string(), "urgent".to_string()];
-        assert_eq!(mark(&configured, lookup(&[("urgent", "!")])), Some("!"));
+    fn a_config_that_still_lists_the_retired_token_setting_loads() {
+        let config: crate::config::Config = toml::from_str(
+            "[ui]\nagent_panel_sort = \"priority\"\nagent_priority_tokens = [\"space_priority\"]\n",
+        )
+        .expect("unknown [ui] keys are ignored");
         assert_eq!(
-            mark(&configured, lookup(&[("urgent", "!"), ("lift", "★")])),
-            Some("★")
+            config.ui.agent_panel_sort,
+            crate::config::AgentPanelSortConfig::Priority
         );
-        assert_eq!(
-            mark(&configured, lookup(&[("lift", ""), ("urgent", "!")])),
-            Some("!")
-        );
-        assert_eq!(mark(&configured, lookup(&[("other", "x")])), None);
-        assert!(!lifted(&configured, lookup(&[("lift", "")])));
-    }
-
-    #[test]
-    fn empty_token_list_lifts_and_marks_nothing() {
-        let tokens = [("lift", "★")];
-        assert_eq!(mark(&[], lookup(&tokens)), None);
-        assert!(!lifted(&[], lookup(&tokens)));
     }
 
     #[test]

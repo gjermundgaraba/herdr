@@ -291,7 +291,7 @@ pub(super) fn render_expanded(
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
             rows.extend(
-                space_groups::sidebar_rows(snapshot, collapsed_groups)
+                space_groups::sidebar_rows(snapshot, &config.spaces.pinned, collapsed_groups)
                     .into_iter()
                     .map(|row| match row {
                         SidebarRow::Marker(marker) => Row::Marker {

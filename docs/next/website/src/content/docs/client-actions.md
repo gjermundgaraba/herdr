@@ -43,9 +43,8 @@ runs on `u`, and a direct binding such as `alt+left` does nothing.
 connected machines, in the Priority order described below: by each daemon's
 `priority_key`, with the agents of machines that are not online last. The top
 row is selected: `j`/`k` or `↑`/`↓` move, `/` focuses the search, `Enter` opens
-the selection. Agents whose space carries a token listed in their machine's
-`ui.agent_priority_tokens` show, before their label, the value of the first
-listed token that has a non-empty one. `workspace_list` opens the navigator
+the selection. Agents whose space carries a non-empty `space_priority` token
+show its value before their label. `workspace_list` opens the navigator
 listing only workspaces, with the search focused: type to search, and matching
 panes appear under their workspaces while a search is active. `↑`/`↓` or
 `ctrl+n`/`ctrl+p` move, `Esc` leaves the search and then closes. Both share the
@@ -90,14 +89,14 @@ machine's list. Agents of a machine that is reconnecting follow every agent of
 the machines that are online. A restored completion queues behind the
 completions that were already waiting in its Priority group, and new
 completions queue after it. The sidebar, agent picker, navigation, and mobile
-list share this order. Priority-token lifts and status groups are part of the
-key, so they follow each machine's own `ui.agent_priority_tokens`. Custom sorts
-apply when the endpoint supplies their definitions. Older endpoints supply
+list share this order. The `space_priority` lift and status groups are part of
+the key, which each machine's daemon computes. Custom sorts apply when the
+endpoint supplies their definitions. Older endpoints supply
 view membership and an initial order, and send no keys, so their agents keep
 that order, after every agent that has a key. Spaces retains the supplied order.
 
-Pinned sections of the Space panel are also the machine's: each daemon resolves
-its own `[[ui.sidebar.spaces.pinned]]` and the TUI draws the sections it sends.
+Pinned sections of the Space panel are the TUI's own: it matches its local
+`[[ui.sidebar.spaces.pinned]]` against the spaces of every machine it shows.
 
 During reconnect, agent lists follow the latest endpoint metadata while the
 pane retains its previous frame. Reconnecting entries are dimmed and skipped

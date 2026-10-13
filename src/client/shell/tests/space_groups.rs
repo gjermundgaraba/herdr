@@ -1,23 +1,39 @@
 use super::*;
 use crate::api::schema::{Method, WorkspaceMoveBlockParams, WorkspaceMoveParams};
 
-fn grouped_state(groups: &[Option<&str>]) -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+/// A snapshot of spaces `ws_1`, `ws_2`, ... carrying these tokens; the first
+/// is focused.
+fn spaces_snapshot(spaces: &[&[(&str, &str)]]) -> ClientShellSnapshot {
     let mut projected = snapshot();
     let template = projected.workspaces[0].clone();
     projected.workspaces.clear();
-    for (index, group) in groups.iter().enumerate() {
+    for (index, tokens) in spaces.iter().enumerate() {
         let mut workspace = template.clone();
         workspace.workspace_id = format!("ws_{}", index + 1);
         workspace.number = index + 1;
         workspace.label = format!("space-{}", index + 1);
         workspace.focused = index == 0;
-        workspace.tokens = group
-            .map(|group| vec![("space_group".to_owned(), group.to_owned())])
-            .unwrap_or_default();
+        workspace.tokens = tokens
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect();
         projected.workspaces.push(workspace);
     }
-    state.set_snapshot(Box::new(projected));
+    projected
+}
+
+fn grouped_state(groups: &[Option<&str>]) -> ClientShellState {
+    let tokens = groups
+        .iter()
+        .map(|group| {
+            group
+                .map(|group| vec![("space_group", group)])
+                .unwrap_or_default()
+        })
+        .collect::<Vec<_>>();
+    let spaces = tokens.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
+    state.set_snapshot(Box::new(spaces_snapshot(&spaces)));
     state.set_pane_surface(surface());
     state
 }
@@ -52,16 +68,6 @@ fn header_rect(state: &ClientShellState, key: &str) -> Rect {
         .into_iter()
         .find(|header| header.key.as_deref() == Some(key))
         .expect("visible header")
-        .rect
-}
-
-fn workspace_rect(state: &ClientShellState, workspace_id: &str) -> Rect {
-    state
-        .hits
-        .workspaces
-        .iter()
-        .find(|hit| hit.workspace_id == workspace_id)
-        .expect("visible workspace")
         .rect
 }
 
@@ -109,14 +115,14 @@ fn runs_render_in_server_order_with_a_divider_before_ungrouped_spaces() {
     let work = header_rect(&state, "group:work");
     assert!(rows[work.y as usize].contains("▾ work"));
     assert!(rows[work.y as usize].contains("─ 2"));
-    assert_eq!(workspace_rect(&state, "ws_1").y, work.bottom());
+    assert_eq!(real_rect(&state, "ws_1").y, work.bottom());
 
     let play = header_rect(&state, "group:play");
-    assert_eq!(play.y, workspace_rect(&state, "ws_2").bottom());
+    assert_eq!(play.y, real_rect(&state, "ws_2").bottom());
 
-    let divider = workspace_rect(&state, "ws_4").y - 1;
+    let divider = real_rect(&state, "ws_4").y - 1;
     assert!(rows[divider as usize].starts_with(" ─────"));
-    assert_eq!(divider, workspace_rect(&state, "ws_3").bottom());
+    assert_eq!(divider, real_rect(&state, "ws_3").bottom());
 }
 
 #[test]
@@ -158,7 +164,7 @@ fn clicking_a_header_collapses_the_group_but_keeps_its_focused_member() {
     assert!(frame_rows(&frame)[header.y as usize].contains("▸ work"));
     let (x, y) = cell_symbol_position(&frame, header, "●");
     assert_eq!(
-        frame.cells[usize::from(y) * usize::from(frame.width) + usize::from(x)].fg,
+        cell_fg(&frame, x, y),
         crate::protocol::color_to_u32(state.config.palette.red)
     );
 
@@ -171,7 +177,7 @@ fn clicking_a_header_collapses_the_group_but_keeps_its_focused_member() {
 fn dragging_a_space_to_the_end_of_its_run_moves_it_there() {
     let mut state = grouped_state(&[Some("a"), Some("a"), Some("b")]);
     state.compose(106, 40).expect("grouped sidebar");
-    let first = workspace_rect(&state, "ws_1");
+    let first = real_rect(&state, "ws_1");
     let next_header = header_rect(&state, "group:b");
     assert_eq!(
         drag(&mut state, first, first.x + 3, next_header.y - 1),
@@ -186,8 +192,8 @@ fn dragging_a_space_to_the_end_of_its_run_moves_it_there() {
 fn the_first_space_of_a_later_run_moves_within_that_run() {
     let mut state = grouped_state(&[Some("a"), Some("b"), Some("b")]);
     state.compose(106, 40).expect("grouped sidebar");
-    let head = workspace_rect(&state, "ws_2");
-    let last = workspace_rect(&state, "ws_3");
+    let head = real_rect(&state, "ws_2");
+    let last = real_rect(&state, "ws_3");
     assert_eq!(
         drag(&mut state, head, head.x + 3, last.bottom()),
         Some(Method::WorkspaceMove(WorkspaceMoveParams {
@@ -201,7 +207,7 @@ fn the_first_space_of_a_later_run_moves_within_that_run() {
 fn a_space_moves_into_another_run_like_in_a_flat_sidebar() {
     let mut state = grouped_state(&[Some("a"), Some("a"), Some("b")]);
     state.compose(106, 40).expect("grouped sidebar");
-    let last = workspace_rect(&state, "ws_3");
+    let last = real_rect(&state, "ws_3");
     let first_header = header_rect(&state, "group:a");
     assert_eq!(
         drag(&mut state, last, last.x + 3, first_header.y),
@@ -221,7 +227,7 @@ fn a_small_jiggle_on_a_header_or_space_does_nothing() {
     assert!(!state.collapsed_groups.contains("group:a"));
 
     state.compose(106, 40).expect("grouped sidebar");
-    let space = workspace_rect(&state, "ws_2");
+    let space = real_rect(&state, "ws_2");
     assert_eq!(drag(&mut state, space, space.x + 4, space.y), None);
 }
 
@@ -230,7 +236,7 @@ fn dragging_a_header_moves_the_whole_run() {
     let mut state = grouped_state(&[Some("a"), Some("a"), Some("b"), None]);
     state.compose(106, 40).expect("grouped sidebar");
     let header = header_rect(&state, "group:a");
-    let divider = workspace_rect(&state, "ws_4").y - 1;
+    let divider = real_rect(&state, "ws_4").y - 1;
     assert_eq!(
         drag(&mut state, header, header.x + 3, divider - 1),
         Some(Method::WorkspaceMoveBlock(WorkspaceMoveBlockParams {
@@ -264,8 +270,8 @@ fn an_overflowing_list_still_accepts_a_drop_below_its_last_visible_space() {
     let mut state = grouped_state(&[None; 12]);
     state.compose(106, 24).expect("overflowing sidebar");
     assert_eq!(state.hits.workspaces.len(), 4);
-    let first = workspace_rect(&state, "ws_1");
-    let last = workspace_rect(&state, "ws_4");
+    let first = real_rect(&state, "ws_1");
+    let last = real_rect(&state, "ws_4");
     assert_eq!(
         drag(&mut state, first, first.x + 3, last.bottom()),
         // Before the first hidden space, ws_5.
@@ -305,7 +311,7 @@ fn a_header_drags_above_leading_ungrouped_spaces() {
     let mut state = grouped_state(&[None, None, Some("a")]);
     state.compose(106, 40).expect("grouped sidebar");
     let header = header_rect(&state, "group:a");
-    let first = workspace_rect(&state, "ws_1");
+    let first = real_rect(&state, "ws_1");
     assert_eq!(
         drag(&mut state, header, header.x + 3, first.y - 1),
         Some(Method::WorkspaceMoveBlock(WorkspaceMoveBlockParams {
@@ -320,7 +326,7 @@ fn a_header_dropped_inside_another_group_splits_it() {
     let mut state = grouped_state(&[Some("a"), Some("b"), Some("b"), Some("b")]);
     state.compose(106, 40).expect("grouped sidebar");
     let header = header_rect(&state, "group:a");
-    let middle = workspace_rect(&state, "ws_3");
+    let middle = real_rect(&state, "ws_3");
     assert_eq!(
         drag(&mut state, header, header.x + 3, middle.y - 1),
         Some(Method::WorkspaceMoveBlock(WorkspaceMoveBlockParams {
@@ -339,7 +345,7 @@ fn a_collapsed_last_group_keeps_the_end_slot_below_its_header() {
     state.compose(106, 40).expect("collapsed group");
     let b = header_rect(&state, "group:b");
 
-    let space = workspace_rect(&state, "ws_1");
+    let space = real_rect(&state, "ws_1");
     assert_eq!(
         drag_target(&mut state, space, space.x + 3, b.bottom()),
         Some((None, b.bottom()))
@@ -367,7 +373,7 @@ fn the_drop_line_before_a_run_sits_above_its_header() {
     let mut state = grouped_state(&[Some("a"), Some("b"), Some("b")]);
     state.compose(106, 40).expect("grouped sidebar");
     let b = header_rect(&state, "group:b");
-    let space = workspace_rect(&state, "ws_1");
+    let space = real_rect(&state, "ws_1");
     assert_eq!(
         drag_target(&mut state, space, space.x + 3, b.y),
         Some((Some("ws_2".into()), b.y - 1))
@@ -388,40 +394,11 @@ token = "stage"
 equals = "review"
 "##;
 
-fn pinned_snapshot(spaces: &[&[(&str, &str)]]) -> ClientShellSnapshot {
-    let mut projected = snapshot();
-    let template = projected.workspaces[0].clone();
-    projected.workspaces.clear();
-    for (index, tokens) in spaces.iter().enumerate() {
-        let mut workspace = template.clone();
-        workspace.workspace_id = format!("ws_{}", index + 1);
-        workspace.number = index + 1;
-        workspace.label = format!("space-{}", index + 1);
-        workspace.focused = index == 0;
-        workspace.tokens = tokens
-            .iter()
-            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
-            .collect();
-        projected.workspaces.push(workspace);
-    }
-    resolve_pinned_sections(&mut projected);
-    projected
-}
-
-/// Fills in the sections an endpoint configured with [`PINNED_CONFIG`] sends
-/// for the snapshot's spaces.
-fn resolve_pinned_sections(projected: &mut ClientShellSnapshot) {
-    let config: Config = toml::from_str(PINNED_CONFIG).expect("pinned config");
-    projected.pinned_sections = crate::server::client_shell::pinned_sections(
-        &config.ui.sidebar.spaces.pinned,
-        &projected.workspaces,
-    );
-}
-
-/// The client's own config has no pinned sections: the endpoint sends them.
+/// A client configured with [`PINNED_CONFIG`] showing these spaces.
 fn pinned_state(spaces: &[&[(&str, &str)]]) -> ClientShellState {
-    let mut state = ClientShellState::new(ClientShellConfig::from_config(&Config::default()));
-    state.set_snapshot(Box::new(pinned_snapshot(spaces)));
+    let config: Config = toml::from_str(PINNED_CONFIG).expect("pinned config");
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(spaces_snapshot(spaces)));
     state.set_pane_surface(surface());
     state
 }
@@ -590,7 +567,7 @@ fn pinned_sections_precede_groups_and_keep_group_headers() {
 
 #[test]
 fn linked_worktree_mirrors_render_flat() {
-    let mut projected = pinned_snapshot(&[&[], &[], &[("prio", "1")]]);
+    let mut projected = spaces_snapshot(&[&[], &[], &[("prio", "1")]]);
     for (index, linked) in [(0, false), (2, true)] {
         projected.workspaces[index].worktree = Some(ClientShellWorktree {
             key: "repo".into(),
@@ -907,8 +884,10 @@ fn an_overflowing_pinned_sidebar_scrolls_to_and_reveals_real_rows() {
     assert!(metrics.max_offset_from_bottom > 9);
 }
 
+/// The client's own sections apply to every machine's spaces, each machine
+/// showing those its spaces match.
 #[test]
-fn each_machine_shows_its_own_pinned_sections() {
+fn every_machine_shows_the_client_pinned_sections_it_matches() {
     use crate::client::endpoint::{ClientEndpointStatus, ProfileId, SavedSshEndpoint};
 
     let mut state = pinned_state(&[&[("prio", "1")], &[]]);
@@ -922,7 +901,7 @@ fn each_machine_shows_its_own_pinned_sections() {
     let remote = ClientEndpointId::Ssh(profile.id.clone());
     state.set_endpoint_catalog(&[profile]);
     state.set_endpoint_status(&remote, ClientEndpointStatus::Online);
-    let mut remote_snapshot = pinned_snapshot(&[&[], &[("stage", "review")]]);
+    let mut remote_snapshot = spaces_snapshot(&[&[], &[("stage", "review")]]);
     remote_snapshot.boot_id = "remote-boot".into();
     state.set_endpoint_snapshot(&remote, Box::new(remote_snapshot));
 

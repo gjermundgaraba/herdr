@@ -12,8 +12,7 @@ use super::endpoint::{
 };
 use super::{
     ClientShellAgent, ClientShellCommand, ClientShellCommandAction, ClientShellPane,
-    ClientShellPinnedSection, ClientShellSnapshot, ClientShellTab, ClientShellWorkspace,
-    ServerMessage,
+    ClientShellSnapshot, ClientShellTab, ClientShellWorkspace, ServerMessage,
 };
 use crate::agent_priority::priority_key;
 use crate::api::schema::{
@@ -176,18 +175,6 @@ fn snapshot() -> ClientShellSnapshot {
             action: ClientShellCommandAction::Shell,
             description: None,
         }],
-        pinned_sections: vec![
-            ClientShellPinnedSection {
-                title: "Priority".into(),
-                fg: Some("#ff8800".into()),
-                workspace_ids: vec!["w1".into()],
-            },
-            ClientShellPinnedSection {
-                title: "Platform".into(),
-                fg: None,
-                workspace_ids: vec!["w1".into(), "w2".into()],
-            },
-        ],
     }
 }
 
@@ -240,7 +227,7 @@ fn report() -> ClientReport {
 }
 
 #[test]
-fn snapshot_fixture_carries_pinned_sections_and_agent_priority() {
+fn snapshot_fixture_carries_agent_priority() {
     let expected = snapshot();
     assert_canonical(fixture!("endpoint-snapshot-shared-v1.json"), &expected);
 
@@ -262,13 +249,11 @@ fn snapshot_fixture_carries_pinned_sections_and_agent_priority() {
 fn a_snapshot_without_the_additions_still_decodes() {
     let mut json: serde_json::Value =
         serde_json::from_str(fixture!("endpoint-snapshot-shared-v1.json")).unwrap();
-    json.as_object_mut().unwrap().remove("pinned_sections");
     for agent in json["agents"].as_array_mut().unwrap() {
         agent.as_object_mut().unwrap().remove("priority_key");
         agent.as_object_mut().unwrap().remove("priority_mark");
     }
     let decoded: ClientShellSnapshot = serde_json::from_value(json).unwrap();
-    assert!(decoded.pinned_sections.is_empty());
     assert!(decoded
         .agents
         .iter()

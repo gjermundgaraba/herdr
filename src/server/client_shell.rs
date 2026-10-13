@@ -3,6 +3,7 @@ use ratatui::layout::Rect;
 use crate::app;
 use crate::protocol::{self, FrameData};
 
+#[cfg(test)]
 pub(super) fn snapshot(
     app: &app::App,
     boot_id: &str,
@@ -10,7 +11,29 @@ pub(super) fn snapshot(
     config_diagnostic: Option<&str>,
     location: Option<&crate::server::clients::ClientShellLocation>,
 ) -> protocol::ClientShellSnapshot {
+    snapshot_with_completions(app, boot_id, revision, config_diagnostic, location).0
+}
+
+pub(super) fn snapshot_with_completions(
+    app: &app::App,
+    boot_id: &str,
+    revision: u64,
+    config_diagnostic: Option<&str>,
+    location: Option<&crate::server::clients::ClientShellLocation>,
+) -> (
+    protocol::ClientShellSnapshot,
+    protocol::endpoint::EndpointAgentCompletions,
+) {
     let snapshot = app.session_metadata_snapshot();
+    let completions = protocol::endpoint::EndpointAgentCompletions {
+        boot_id: boot_id.to_owned(),
+        revision,
+        completions: snapshot
+            .agents
+            .iter()
+            .filter_map(|agent| agent.completion_seq.map(|seq| (agent.pane_id.clone(), seq)))
+            .collect(),
+    };
     let focused_workspace_id = location
         .and_then(|location| location.focused_workspace_id.clone())
         .or_else(|| snapshot.focused_workspace_id.clone());
@@ -75,13 +98,12 @@ pub(super) fn snapshot(
             }
         })
         .collect::<Vec<protocol::ClientShellWorkspace>>();
-    let pinned_sections = pinned_sections(&app.state.sidebar_spaces.pinned, &workspaces);
     let priority_marks = workspaces
         .iter()
         .map(|workspace| {
             (
                 workspace.workspace_id.as_str(),
-                crate::agent_priority::workspace_mark(&app.state.agent_priority_tokens, workspace),
+                crate::agent_priority::workspace_mark(workspace),
             )
         })
         .collect::<std::collections::HashMap<_, _>>();
@@ -243,7 +265,7 @@ pub(super) fn snapshot(
                 preview: notes.preview,
             });
 
-    protocol::ClientShellSnapshot {
+    let shell = protocol::ClientShellSnapshot {
         boot_id: boot_id.to_owned(),
         revision,
         config_diagnostic: config_diagnostic.map(str::to_owned),
@@ -267,38 +289,8 @@ pub(super) fn snapshot(
         panes,
         agents,
         commands: app.client_shell_command_manifest(),
-        pinned_sections,
-    }
-}
-
-/// The configured pinned sections that at least one space matches, each with
-/// its members in `workspaces` order.
-pub(crate) fn pinned_sections(
-    configured: &[crate::config::PinnedSpaceSection],
-    workspaces: &[protocol::ClientShellWorkspace],
-) -> Vec<protocol::ClientShellPinnedSection> {
-    configured
-        .iter()
-        .filter_map(|section| {
-            let workspace_ids = workspaces
-                .iter()
-                .filter(|workspace| {
-                    section.matches(
-                        workspace
-                            .tokens
-                            .iter()
-                            .map(|(key, value)| (key.as_str(), value.as_str())),
-                    )
-                })
-                .map(|workspace| workspace.workspace_id.clone())
-                .collect::<Vec<_>>();
-            (!workspace_ids.is_empty()).then(|| protocol::ClientShellPinnedSection {
-                title: section.title.clone(),
-                fg: section.fg.map(|color| color.hex()),
-                workspace_ids,
-            })
-        })
-        .collect()
+    };
+    (shell, completions)
 }
 
 pub(super) struct RenderedPaneSurface {
@@ -663,7 +655,6 @@ fn split_hit_rect(
 mod tests {
     use super::*;
 
-    mod pinned_sections;
     mod priority_keys;
 
     #[tokio::test(flavor = "current_thread")]

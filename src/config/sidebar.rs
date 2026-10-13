@@ -53,11 +53,6 @@ impl SidebarTokenColor {
     pub(crate) fn ratatui(self) -> ratatui::style::Color {
         ratatui::style::Color::Rgb(self.r, self.g, self.b)
     }
-
-    /// The color as `#rrggbb`, the form config and client snapshots use.
-    pub(crate) fn hex(self) -> String {
-        format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
-    }
 }
 
 impl Serialize for SidebarTokenColor {
@@ -65,18 +60,26 @@ impl Serialize for SidebarTokenColor {
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.hex())
+        serializer.serialize_str(&format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b))
     }
 }
 
-impl SidebarTokenColor {
-    /// Parses `#RGB` or `#RRGGBB`, the forms config and client snapshots use.
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+impl<'de> Deserialize<'de> for SidebarTokenColor {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
         let hex = value.strip_prefix('#').filter(|hex| {
             hex.is_ascii()
                 && matches!(hex.len(), 3 | 6)
                 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })?;
+        });
+        let Some(hex) = hex else {
+            return Err(serde::de::Error::custom(
+                "sidebar token fg must be #RGB or #RRGGBB",
+            ));
+        };
         let (r, g, b) = if hex.len() == 3 {
             let mut digits = hex
                 .bytes()
@@ -93,18 +96,7 @@ impl SidebarTokenColor {
                 u8::from_str_radix(&hex[4..6], 16).expect("validated hex digits"),
             )
         };
-        Some(Self { r, g, b })
-    }
-}
-
-impl<'de> Deserialize<'de> for SidebarTokenColor {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Self::parse(&value)
-            .ok_or_else(|| serde::de::Error::custom("sidebar token fg must be #RGB or #RRGGBB"))
+        Ok(Self { r, g, b })
     }
 }
 

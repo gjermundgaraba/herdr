@@ -29,6 +29,16 @@ pub const HEALTH_PING_KIND: &str = "endpoint.health.ping.v1";
 pub const HEALTH_PONG_KIND: &str = "endpoint.health.pong.v1";
 pub const AGENT_VIEW_PROJECTION_CAPABILITY: &str = "agent_view_projection";
 pub const AGENT_VIEW_PROJECTION_KIND: &str = "endpoint.agent-view.v1";
+pub const AGENT_COMPLETIONS_CAPABILITY: &str = "agent_completions";
+pub const AGENT_COMPLETIONS_KIND: &str = "endpoint.agent-completions.v1";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndpointAgentCompletions {
+    pub boot_id: String,
+    pub revision: u64,
+    pub completions: std::collections::BTreeMap<String, u64>,
+}
+
 /// Server to client: show a `ui.pick` picker; the client answers with the
 /// `ui.pick.resolve` method on the same connection.
 pub const PICK_OPEN_KIND: &str = "endpoint.pick.open.v1";
@@ -105,6 +115,22 @@ pub struct EndpointServerWelcome {
     pub error: Option<EndpointHandshakeError>,
 }
 
+pub fn snapshot_message(snapshot: &ClientShellSnapshot) -> serde_json::Result<ServerMessage> {
+    Ok(ServerMessage::EndpointControl {
+        kind: ENDPOINT_SNAPSHOT_KIND.into(),
+        data: serde_json::to_string(snapshot)?,
+    })
+}
+
+pub fn agent_completions_message(
+    projection: &EndpointAgentCompletions,
+) -> serde_json::Result<ServerMessage> {
+    Ok(ServerMessage::EndpointControl {
+        kind: AGENT_COMPLETIONS_KIND.into(),
+        data: serde_json::to_string(projection)?,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndpointPickOpen {
     pub pick_id: String,
@@ -151,13 +177,6 @@ pub fn pick_close_message(pick_id: &str) -> serde_json::Result<ServerMessage> {
         data: serde_json::to_string(&EndpointPickClose {
             pick_id: pick_id.to_owned(),
         })?,
-    })
-}
-
-pub fn snapshot_message(snapshot: &ClientShellSnapshot) -> serde_json::Result<ServerMessage> {
-    Ok(ServerMessage::EndpointControl {
-        kind: ENDPOINT_SNAPSHOT_KIND.into(),
-        data: serde_json::to_string(snapshot)?,
     })
 }
 
@@ -212,6 +231,7 @@ impl EndpointServerWelcome {
                 PRESENTATION_EFFECTS_FENCE_CAPABILITY.into(),
                 HEALTH_CHECK_CAPABILITY.into(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.into(),
+                AGENT_COMPLETIONS_CAPABILITY.into(),
             ],
             error: None,
         }
@@ -285,7 +305,6 @@ mod tests {
             panes: Vec::new(),
             agents: Vec::new(),
             commands: Vec::new(),
-            pinned_sections: Vec::new(),
         }
     }
 
@@ -423,6 +442,7 @@ mod tests {
                 PRESENTATION_EFFECTS_FENCE_CAPABILITY.to_string(),
                 HEALTH_CHECK_CAPABILITY.to_string(),
                 AGENT_VIEW_PROJECTION_CAPABILITY.to_string(),
+                AGENT_COMPLETIONS_CAPABILITY.to_string(),
             ]
         );
     }

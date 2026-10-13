@@ -263,11 +263,25 @@ fn profile_snapshot_encoding(
             }
         }
         let started = Instant::now();
-        let template = super::client_shell::snapshot(&pipeline.app, "bench-boot", 1, None, None);
+        let (template, completions) = super::client_shell::snapshot_with_completions(
+            &pipeline.app,
+            "bench-boot",
+            1,
+            None,
+            None,
+        );
         let construction_elapsed = started.elapsed();
         for client_index in 0..client_count {
             let mut snapshot = template.clone();
             snapshot.revision = client_index as u64 + 1;
+            let mut completions = completions.clone();
+            completions.revision = snapshot.revision;
+            let companion = crate::protocol::endpoint::agent_completions_message(&completions)
+                .expect("benchmark completion projection should serialize");
+            black_box(
+                bincode::serde::encode_to_vec(companion, bincode::config::standard())
+                    .expect("benchmark completion projection should frame"),
+            );
             let message = crate::protocol::endpoint::snapshot_message(&snapshot)
                 .expect("benchmark snapshot should serialize");
             black_box(

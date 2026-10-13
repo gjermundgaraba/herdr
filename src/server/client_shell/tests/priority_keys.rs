@@ -86,13 +86,11 @@ fn snapshot_priority_keys_reproduce_the_priority_order_with_the_lift() {
         .iter()
         .all(|agent| agent.priority_mark.is_none() && agent.priority_key.starts_with("1.")));
 
-    // The second listed token marks nothing while the first has a value.
-    app.state.agent_priority_tokens = vec!["lift".into(), "urgent".into()];
-    set_token(&mut app, 4, "urgent", "!");
-    set_token(&mut app, 4, "lift", "★");
-    set_token(&mut app, 2, "lift", "now");
-    set_token(&mut app, 0, "lift", "");
-    set_token(&mut app, 3, "unlisted", "x");
+    // Only a non-empty `space_priority` token lifts and marks.
+    set_token(&mut app, 4, "space_priority", "★");
+    set_token(&mut app, 2, "space_priority", "now");
+    set_token(&mut app, 0, "space_priority", "");
+    set_token(&mut app, 3, "lift", "x");
     let lifted = snapshot(&app, "boot", 2, None, None);
     // The lifted done agent passes the blocked one; the lifted working
     // agent keeps its place, and so does the space with an empty token.

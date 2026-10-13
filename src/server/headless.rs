@@ -51,7 +51,8 @@ use crate::server::client_accept::{
     accept_pending_client_connections, reject_pending_client_connections,
 };
 use crate::server::client_shell::{
-    render_pane_surface as render_client_shell_pane_surface, snapshot as client_shell_snapshot,
+    render_pane_surface as render_client_shell_pane_surface,
+    snapshot_with_completions as client_shell_snapshot,
 };
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
@@ -1990,7 +1991,7 @@ impl HeadlessServer {
                 } else {
                     self.server_config_diagnostic_without_keybindings.as_deref()
                 };
-                let seed_snapshot = client_shell_snapshot(
+                let (seed_snapshot, completion_projection) = client_shell_snapshot(
                     &self.app,
                     &self.client_shell_boot_id,
                     connection.shell_projection_revision,
@@ -2022,8 +2023,18 @@ impl HeadlessServer {
                             return false;
                         }
                     };
+                let completion_message = match crate::protocol::endpoint::agent_completions_message(
+                    &completion_projection,
+                ) {
+                    Ok(message) => message,
+                    Err(err) => {
+                        warn!(client_id, err = %err, "failed to encode agent completions");
+                        return false;
+                    }
+                };
                 connection.shell_location = Some(location);
                 connection.shell_snapshot = Some(seed_snapshot);
+                connection.shell_agent_completions = Some(completion_projection);
                 connection.shell_agent_view = agent_view;
                 self.clients.insert(client_id, connection);
                 self.emit_client_changed(client_id);
@@ -2033,6 +2044,7 @@ impl HeadlessServer {
                 if let Some(message) = projection_message {
                     self.send_to_client(client_id, message);
                 }
+                self.send_to_client(client_id, completion_message);
                 self.send_to_client(client_id, snapshot_message);
                 if surface_active {
                     self.foreground_client_id = Some(client_id);

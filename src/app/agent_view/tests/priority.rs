@@ -1,5 +1,5 @@
-//! The fork's `priority` order: token-marked spaces lift their waiting
-//! agents, and waiting agents queue oldest change first.
+//! The fork's `priority` order: spaces with a `space_priority` token lift
+//! their waiting agents, and waiting agents queue oldest change first.
 
 use super::*;
 
@@ -7,7 +7,6 @@ use super::*;
 fn priority_token_lifts_done_agent_above_blocked_elsewhere() {
     let mut state = state_with_agents();
     state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-    state.agent_priority_tokens = vec!["other".to_string(), "lift".to_string()];
     let set_state = |state: &mut AppState, ws_idx: usize, agent_state, seen| {
         let pane_id = state.workspaces[ws_idx].tabs[0].root_pane;
         let pane = state.workspaces[ws_idx].tabs[0]
@@ -29,21 +28,21 @@ fn priority_token_lifts_done_agent_above_blocked_elsewhere() {
     set_state(&mut state, 1, AgentState::Blocked, false);
     assert_eq!(projected_entries(&state)[0].ws_idx, 1);
 
-    // Unlisted tokens and empty values lift nothing.
-    set_token(&mut state, "unlisted", "★");
-    set_token(&mut state, "lift", "");
+    // Other tokens and an empty value lift nothing.
+    set_token(&mut state, "lift", "★");
+    set_token(&mut state, "space_priority", "");
     assert_eq!(projected_entries(&state)[0].ws_idx, 1);
 
-    set_token(&mut state, "lift", "★");
+    set_token(&mut state, "space_priority", "★");
     assert_eq!(projected_entries(&state)[0].ws_idx, 0);
 
     set_state(&mut state, 0, AgentState::Working, false);
     assert_eq!(projected_entries(&state)[0].ws_idx, 1);
 
-    // Without configured tokens, nothing is lifted.
+    // Clearing the token drops the lift.
     set_state(&mut state, 0, AgentState::Idle, false);
     assert_eq!(projected_entries(&state)[0].ws_idx, 0);
-    state.agent_priority_tokens.clear();
+    set_token(&mut state, "space_priority", "");
     assert_eq!(projected_entries(&state)[0].ws_idx, 1);
 }
 
