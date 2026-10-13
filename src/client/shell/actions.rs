@@ -206,7 +206,7 @@ impl ClientShellState {
                         .is_none()
                         .then(|| (candidate.command_id.clone(), candidate.action))
                 });
-                let Some((command_id, action)) = command_id else {
+                let Some((command_id, advertised)) = command_id else {
                     self.set_endpoint_error(
                         "custom command is not available on this endpoint; reload configuration",
                     );
@@ -216,12 +216,7 @@ impl ClientShellState {
                 let Some(snapshot) = self.snapshot.as_deref() else {
                     return;
                 };
-                let plugin = matches!(
-                    action,
-                    crate::protocol::ClientShellCommandAction::PluginAction
-                        | crate::protocol::ClientShellCommandAction::Popup
-                );
-                let selection = plugin
+                let selection = (action == crate::protocol::ClientShellCommandAction::PluginAction)
                     .then(|| {
                         let selection = self.selection.as_ref()?;
                         if !selection.is_visible() {
@@ -259,7 +254,7 @@ impl ClientShellState {
                     pane_id: snapshot.focused_pane_id.clone(),
                     selection,
                 };
-                if action == crate::protocol::ClientShellCommandAction::Popup {
+                if advertised == crate::protocol::ClientShellCommandAction::Popup {
                     self.popup_pending = true;
                     self.popup_pending_deadline = None;
                     if !self.push_endpoint_method_with_kind(
