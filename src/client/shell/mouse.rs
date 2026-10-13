@@ -513,7 +513,10 @@ impl ClientShellState {
     /// line above a run sits above its header instead of on it. Pinned
     /// sections take no drops: the pointer over them, or anywhere above the
     /// regular list's first row, has no target.
-    fn workspace_drop_target_at(&self, point: (u16, u16)) -> Option<(Option<String>, u16)> {
+    pub(super) fn workspace_drop_target_at(
+        &self,
+        point: (u16, u16),
+    ) -> Option<(Option<String>, u16)> {
         let pinned_bottom = self
             .hits
             .markers
@@ -581,7 +584,7 @@ impl ClientShellState {
         let collapsed_groups = self
             .collapsed_groups_for_endpoint(&self.active_endpoint_id)
             .unwrap_or(&empty_collapsed_groups);
-        let entries = space_groups::workspace_entries(snapshot, collapsed_groups);
+        let entries = render::workspace_entries(snapshot, collapsed_groups);
         let last_hit = self
             .hits
             .workspaces
@@ -1286,20 +1289,7 @@ impl ClientShellState {
                 }
                 return;
             }
-            if let Some(press) = self.group_press.as_ref() {
-                let delta = mouse
-                    .column
-                    .abs_diff(press.start_column)
-                    .max(mouse.row.abs_diff(press.start_row));
-                if delta >= 1 && !press.pinned && press.endpoint_id == self.active_endpoint_id {
-                    if let Some(target) = self.workspace_drop_target_at(point) {
-                        self.chrome_drag = Some(ClientChromeDrag::SpaceGroup {
-                            member_ids: press.member_ids.clone(),
-                            target: Some(target),
-                        });
-                        outcome.repaint = true;
-                    }
-                }
+            if self.drag_group_press(mouse, point, outcome) {
                 return;
             }
             if let Some(press) = self.tab_press.as_ref() {
@@ -1374,24 +1364,7 @@ impl ClientShellState {
                         outcome.repaint = true;
                     }
                     ClientChromeDrag::SpaceGroup { member_ids, target } => {
-                        if let Some((before_workspace_id, _)) = target {
-                            // Dropping a run onto itself changes nothing.
-                            if !before_workspace_id
-                                .as_ref()
-                                .is_some_and(|before| member_ids.contains(before))
-                            {
-                                self.push_endpoint_method(
-                                    crate::api::schema::Method::WorkspaceMoveBlock(
-                                        crate::api::schema::WorkspaceMoveBlockParams {
-                                            workspace_ids: member_ids,
-                                            before_workspace_id,
-                                        },
-                                    ),
-                                    outcome,
-                                );
-                            }
-                        }
-                        outcome.repaint = true;
+                        self.drop_space_group(member_ids, target, outcome);
                     }
                     ClientChromeDrag::PaneScrollbar {
                         hit,
@@ -1459,10 +1432,7 @@ impl ClientShellState {
                 self.finish_endpoint_workspace_press(press, outcome);
                 return;
             }
-            if let Some(press) = self.group_press.take() {
-                self.toggle_collapsed_group(&press.endpoint_id, press.key);
-                outcome.repaint = true;
-                self.persist_chrome_preferences(outcome);
+            if self.release_group_press(outcome) {
                 return;
             }
             if let Some(press) = self.tab_press.take() {
@@ -1534,41 +1504,7 @@ impl ClientShellState {
             }
             return;
         }
-        if matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
-            match mouse.kind {
-                MouseEventKind::ScrollUp => {
-                    self.move_pick_selection(-1);
-                    outcome.repaint = true;
-                }
-                MouseEventKind::ScrollDown => {
-                    self.move_pick_selection(1);
-                    outcome.repaint = true;
-                }
-                MouseEventKind::Down(MouseButton::Left) => {
-                    let row = self
-                        .hits
-                        .list_rows
-                        .iter()
-                        .find(|(rect, _)| super::contains(*rect, point))
-                        .map(|(_, index)| *index);
-                    if super::contains(self.hits.overlay_cancel, point) {
-                        self.resolve_pick(
-                            Some(crate::api::schema::UiPickOutcome::Cancelled),
-                            outcome,
-                        );
-                    } else if let Some(index) = row {
-                        if let Some(ClientShellOverlay::Pick(pick)) = self.overlay.as_mut() {
-                            pick.selected = index;
-                        }
-                        self.resolve_pick(None, outcome);
-                    } else if super::contains(self.hits.overlay_primary, point)
-                        && matches!(&self.overlay, Some(ClientShellOverlay::Pick(pick)) if pick.outcome().is_some())
-                    {
-                        self.resolve_pick(None, outcome);
-                    }
-                }
-                _ => {}
-            }
+        if self.pick_mouse(mouse, point, outcome) {
             return;
         }
         if matches!(
@@ -1611,7 +1547,7 @@ impl ClientShellState {
                             self.overlay = None;
                             outcome.repaint = true;
                         }
-                    } else if super::contains(self.hits.list_search, point) {
+                    } else if super::contains(self.hits.worktree_search, point) {
                         if let Some(ClientShellOverlay::WorktreeOpen(open)) = self.overlay.as_mut()
                         {
                             open.search_focused = true;
@@ -1619,7 +1555,7 @@ impl ClientShellState {
                         }
                     } else if let Some((_, index)) = self
                         .hits
-                        .list_rows
+                        .worktree_rows
                         .iter()
                         .find(|(rect, _)| super::contains(*rect, point))
                         .copied()
@@ -2244,23 +2180,7 @@ impl ClientShellState {
                     self.workspace_press = Some(workspace_press);
                     return;
                 }
-                let group_press = self
-                    .hits
-                    .markers
-                    .iter()
-                    .find(|hit| super::contains(hit.rect, point))
-                    .and_then(|hit| {
-                        Some(ClientGroupPress {
-                            endpoint_id: hit.endpoint_id.clone(),
-                            key: hit.key.clone()?,
-                            member_ids: hit.member_ids.clone(),
-                            pinned: hit.pinned,
-                            start_column: mouse.column,
-                            start_row: mouse.row,
-                        })
-                    });
-                if let Some(group_press) = group_press {
-                    self.group_press = Some(group_press);
+                if self.press_group_marker(mouse, point) {
                     return;
                 }
                 let tab_press = self

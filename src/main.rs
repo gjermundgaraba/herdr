@@ -153,11 +153,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # open_notification_target = "prefix+o"
 # workspace_picker = "prefix+w"
 # goto = "prefix+g"
-# agent_picker = ""      # optional, unset by default; flat agent list
-# workspace_list = ""    # optional, unset by default; collapsed navigator
-# history_back = ""      # optional, unset by default
-# history_forward = ""   # optional, unset by default
-# mark_unread = ""       # optional, unset by default
 # new_workspace = "prefix+shift+n"
 # new_worktree = "prefix+shift+g"
 # open_worktree = ""    # optional, unset by default
@@ -371,14 +366,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Blank rows between space entries. Set to 1 to restore the previous spacing.
 # row_gap = 0
 # rows = [["state_icon", "workspace"], ["branch", "git_status"]]
-
-# Pinned sections list every space carrying a workspace metadata token above
-# the regular spaces. Spaces keep their own rows too. Optional: at most one of
-# equals, contains, or starts_with, and fg for the header.
-# [[ui.sidebar.spaces.pinned]]
-# title = "Priority"
-# token = "priority"
-# fg = "#e5c07b"
 
 # Background notification popup delivery
 [ui.toast]

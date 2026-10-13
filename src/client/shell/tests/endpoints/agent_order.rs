@@ -44,10 +44,7 @@ fn mixed_legacy_fallback_priority_merges_agents_across_endpoints() {
     let remote = remote_profile();
     let remote_id = ClientEndpointId::Ssh(remote.id.clone());
     state.config.agent_panel_sort = AgentPanelSortConfig::Priority;
-    state.config.agents.rows = vec![vec![
-        AgentSidebarToken::Machine.into(),
-        AgentSidebarToken::Agent.into(),
-    ]];
+    state.config.agents.rows = vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
     let mut third = remote_profile();
     third.id = ProfileId::parse("fedcba9876543210fedcba9876543210").unwrap();
     third.label = "Other".into();

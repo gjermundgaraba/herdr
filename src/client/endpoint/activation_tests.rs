@@ -1317,7 +1317,7 @@ fn local_selection_waits_for_fresh_metadata_without_abandoning_remote() {
             .shell
             .as_mut()
             .unwrap()
-            .cache_endpoint_snapshot_for_generation(
+            .cache_endpoint_snapshot_inactive_for_generation(
                 &ClientEndpointId::Local,
                 2,
                 Box::new(test_snapshot("local-boot", 1)),

@@ -16,22 +16,26 @@ fn a_forwarded_jump_decodes_from_the_daemons_control() {
         panic!("expected a control");
     };
 
-    let EndpointControlMessage::ClientJump(decoded) =
-        decode_endpoint_control(&kind, &data).unwrap()
+    let EndpointControlMessage::Contract(crate::client::client_contract::Control::ClientJump(
+        decoded,
+    )) = decode_endpoint_control(&kind, &data).unwrap()
     else {
         panic!("expected a jump");
     };
 
     assert_eq!(decoded, jump);
     // The contract fixture is the same payload.
-    let EndpointControlMessage::ClientJump(fixture) = decode_endpoint_control(
+    let EndpointControlMessage::Contract(crate::client::client_contract::Control::ClientJump(
+        fixture,
+    )) = decode_endpoint_control(
         &kind,
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/fixtures/endpoint-client-jump-v1.json"
         )),
     )
-    .unwrap() else {
+    .unwrap()
+    else {
         panic!("expected a jump");
     };
     assert_eq!(fixture, jump);

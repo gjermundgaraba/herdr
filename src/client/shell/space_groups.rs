@@ -27,6 +27,9 @@
 use super::*;
 use crate::config::PinnedSpaceSection;
 
+mod press;
+pub(super) use press::ClientGroupPress;
+
 /// Collapse state key of a group, namespaced apart from worktree repo keys.
 fn collapse_key(name: &str) -> String {
     format!("group:{name}")
@@ -134,7 +137,7 @@ struct Run<'a> {
 fn runs(snapshot: &ClientShellSnapshot) -> Vec<Run<'_>> {
     let spaces = order_spaces(snapshot);
     let mut runs = Vec::<Run<'_>>::new();
-    for unit in units(sidebar::worktree_entries(snapshot, &HashSet::new())) {
+    for unit in units(sidebar::workspace_entries(snapshot, &HashSet::new())) {
         let name = crate::space_order::group(&spaces, unit[0].index);
         let members = unit.iter().map(|entry| entry.index);
         match runs.last_mut() {
@@ -225,7 +228,7 @@ pub(super) fn sidebar_rows(
         }
     }
     let mut shown = runs.iter().map(|_| Vec::new()).collect::<Vec<_>>();
-    for entry in sidebar::worktree_entries(snapshot, collapsed_groups) {
+    for entry in sidebar::workspace_entries(snapshot, collapsed_groups) {
         shown[run_of[entry.index]].push(entry);
     }
 

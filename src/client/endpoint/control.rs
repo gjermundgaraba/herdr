@@ -10,9 +10,7 @@ pub(crate) enum EndpointControlMessage {
     HealthPong,
     AgentViewProjection(DecodedAgentViewProjection),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
-    PickOpen(crate::protocol::endpoint::EndpointPickOpen),
-    PickClose(crate::protocol::endpoint::EndpointPickClose),
-    ClientJump(crate::protocol::endpoint::EndpointClientJump),
+    Contract(crate::client::client_contract::Control),
     Ignored,
 }
 
@@ -23,20 +21,8 @@ pub(crate) fn decode_endpoint_control(
     if kind == crate::protocol::endpoint::HEALTH_PONG_KIND {
         return Ok(EndpointControlMessage::HealthPong);
     }
-    if kind == crate::protocol::endpoint::PICK_OPEN_KIND {
-        return Ok(serde_json::from_str(data)
-            .map(EndpointControlMessage::PickOpen)
-            .unwrap_or(EndpointControlMessage::Ignored));
-    }
-    if kind == crate::protocol::endpoint::PICK_CLOSE_KIND {
-        return Ok(serde_json::from_str(data)
-            .map(EndpointControlMessage::PickClose)
-            .unwrap_or(EndpointControlMessage::Ignored));
-    }
-    if kind == crate::protocol::endpoint::CLIENT_JUMP_KIND {
-        return Ok(serde_json::from_str(data)
-            .map(EndpointControlMessage::ClientJump)
-            .unwrap_or(EndpointControlMessage::Ignored));
+    if let Some(control) = crate::client::client_contract::decode_control(kind, data) {
+        return Ok(control);
     }
     if kind == crate::protocol::endpoint::AGENT_VIEW_PROJECTION_KIND {
         let Ok(projection): Result<crate::protocol::endpoint::EndpointAgentViewProjection, _> =

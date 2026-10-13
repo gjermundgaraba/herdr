@@ -458,7 +458,7 @@ pub(crate) fn render_sidebar(
     );
 }
 
-pub(crate) fn worktree_entries(
+pub(crate) fn workspace_entries(
     snapshot: &ClientShellSnapshot,
     collapsed_groups: &HashSet<String>,
 ) -> Vec<WorkspaceEntry> {

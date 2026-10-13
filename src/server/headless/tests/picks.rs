@@ -127,7 +127,7 @@ async fn only_the_showing_client_resolves_a_pick() {
         resolve("pick-1", picked.clone()),
     );
     assert_eq!(outcome(&waiting.try_recv().unwrap()), picked);
-    assert!(server.pending_picks.is_empty());
+    assert!(server.fork.pending_picks.is_empty());
     shutdown_test_runtimes(&mut server);
 }
 

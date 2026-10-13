@@ -97,16 +97,7 @@ pub(super) fn snapshot_with_completions(
                 agent_status: workspace.agent_status,
             }
         })
-        .collect::<Vec<protocol::ClientShellWorkspace>>();
-    let priority_marks = workspaces
-        .iter()
-        .map(|workspace| {
-            (
-                workspace.workspace_id.as_str(),
-                crate::agent_priority::workspace_mark(workspace),
-            )
-        })
-        .collect::<std::collections::HashMap<_, _>>();
+        .collect::<Vec<_>>();
     let tabs = snapshot
         .tabs
         .into_iter()
@@ -157,31 +148,16 @@ pub(super) fn snapshot_with_completions(
             }
         })
         .collect();
-    let agents = snapshot
+    let mut agents = snapshot
         .agents
         .into_iter()
         .map(|agent| {
             let pane_id = agent.pane_id;
             let focused = focused_pane_id.as_deref() == Some(pane_id.as_str());
-            let order_stamp = app
-                .state
-                .terminals
-                .get(agent.terminal_id.as_str())
-                .and_then(|terminal| terminal.agent_order_stamp)
-                .unwrap_or(0);
             let mut state_labels = agent.state_labels.into_iter().collect::<Vec<_>>();
             state_labels.sort_by(|left, right| left.0.cmp(&right.0));
             let mut tokens = agent.tokens.into_iter().collect::<Vec<_>>();
             tokens.sort_by(|left, right| left.0.cmp(&right.0));
-            let priority_mark = priority_marks
-                .get(agent.workspace_id.as_str())
-                .copied()
-                .flatten();
-            let priority_key = crate::agent_priority::priority_key(
-                priority_mark.is_some(),
-                agent.agent_status,
-                order_stamp,
-            );
             protocol::ClientShellAgent {
                 pane_id,
                 workspace_id: agent.workspace_id,
@@ -197,11 +173,12 @@ pub(super) fn snapshot_with_completions(
                 state_labels,
                 tokens,
                 focused,
-                priority_key,
-                priority_mark: priority_mark.map(str::to_owned),
+                priority_key: String::new(),
+                priority_mark: None,
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
+    crate::agent_priority::annotate(app, &workspaces, &mut agents);
 
     let agent_view_label = app
         .state

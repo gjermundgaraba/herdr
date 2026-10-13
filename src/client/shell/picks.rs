@@ -40,6 +40,68 @@ pub(crate) struct ClientPicks {
     resolved: Vec<ResolvedPick>,
 }
 
+/// A `ui.pick` picker the server asked this client to show.
+#[derive(Debug)]
+pub(super) struct ClientPickOverlay {
+    pub(super) pick_id: String,
+    pub(super) title: String,
+    pub(super) items: Vec<crate::api::schema::UiPickItem>,
+    pub(super) create: Option<crate::api::schema::UiPickCreate>,
+    pub(super) query: TextEditor,
+    /// Index into [`ClientPickOverlay::rows`].
+    pub(super) selected: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClientPickRow {
+    Item(usize),
+    Create,
+}
+
+impl ClientPickOverlay {
+    /// Items matching the query, then a create row when the query names no item.
+    pub(super) fn rows(&self) -> Vec<ClientPickRow> {
+        let query = self.query.trim().to_lowercase();
+        let mut rows = self
+            .items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                query.is_empty()
+                    || format!(
+                        "{} {}",
+                        item.label,
+                        item.detail.as_deref().unwrap_or_default()
+                    )
+                    .to_lowercase()
+                    .contains(&query)
+            })
+            .map(|(index, _)| ClientPickRow::Item(index))
+            .collect::<Vec<_>>();
+        if self.create.is_some()
+            && !query.is_empty()
+            && !self
+                .items
+                .iter()
+                .any(|item| item.label.trim().to_lowercase() == query)
+        {
+            rows.push(ClientPickRow::Create);
+        }
+        rows
+    }
+
+    pub(super) fn outcome(&self) -> Option<crate::api::schema::UiPickOutcome> {
+        Some(match *self.rows().get(self.selected)? {
+            ClientPickRow::Item(index) => crate::api::schema::UiPickOutcome::Picked {
+                id: self.items[index].id.clone(),
+            },
+            ClientPickRow::Create => crate::api::schema::UiPickOutcome::Created {
+                text: self.query.trim().to_owned(),
+            },
+        })
+    }
+}
+
 impl ClientShellState {
     /// Shows a picker from the presented endpoint. Returns whether to repaint.
     pub(crate) fn receive_pick_open(
@@ -48,7 +110,7 @@ impl ClientShellState {
         open: EndpointPickOpen,
     ) -> bool {
         if origin.endpoint_id != self.active_endpoint_id {
-            self.picks.resolved.push(ResolvedPick {
+            self.fork.picks.resolved.push(ResolvedPick {
                 origin,
                 pick_id: open.pick_id,
                 outcome: UiPickOutcome::Cancelled,
@@ -69,7 +131,7 @@ impl ClientShellState {
                 |row| matches!(row, ClientPickRow::Item(index) if pick.items[*index].id == id),
             )
         });
-        self.picks.open = Some(OpenPick {
+        self.fork.picks.open = Some(OpenPick {
             origin,
             pick_id: pick.pick_id.clone(),
         });
@@ -88,6 +150,7 @@ impl ClientShellState {
         close: EndpointPickClose,
     ) -> bool {
         if self
+            .fork
             .picks
             .open
             .take_if(|open| &open.origin == origin && open.pick_id == close.pick_id)
@@ -107,7 +170,7 @@ impl ClientShellState {
 
     /// Dismisses the open picker, if any, and answers it `cancelled`.
     pub(super) fn cancel_pick(&mut self) {
-        let Some(open) = self.picks.open.take() else {
+        let Some(open) = self.fork.picks.open.take() else {
             return;
         };
         if matches!(
@@ -116,7 +179,7 @@ impl ClientShellState {
         ) {
             self.overlay = None;
         }
-        self.picks.resolved.push(ResolvedPick {
+        self.fork.picks.resolved.push(ResolvedPick {
             origin: open.origin,
             pick_id: open.pick_id,
             outcome: UiPickOutcome::Cancelled,
@@ -127,7 +190,7 @@ impl ClientShellState {
     /// for an open picker whose overlay something else removed. Called once
     /// per client-loop turn.
     pub(crate) fn settle_picks(&mut self) -> Vec<ResolvedPick> {
-        let showing = self.picks.open.as_ref().is_some_and(|open| {
+        let showing = self.fork.picks.open.as_ref().is_some_and(|open| {
             matches!(
                 &self.overlay,
                 Some(ClientShellOverlay::Pick(pick)) if pick.pick_id == open.pick_id
@@ -136,7 +199,7 @@ impl ClientShellState {
         if !showing {
             self.cancel_pick();
         }
-        std::mem::take(&mut self.picks.resolved)
+        std::mem::take(&mut self.fork.picks.resolved)
     }
 
     pub(super) fn insert_pick_text(&mut self, text: &str) -> bool {
@@ -181,6 +244,53 @@ impl ClientShellState {
         true
     }
 
+    /// Handles the mouse while a picker is open: the wheel moves the
+    /// selection, and a click picks a row or answers the buttons. Returns
+    /// whether a picker took the event.
+    pub(super) fn pick_mouse(
+        &mut self,
+        mouse: crossterm::event::MouseEvent,
+        point: (u16, u16),
+        outcome: &mut ClientShellInput,
+    ) -> bool {
+        use crossterm::event::{MouseButton, MouseEventKind};
+        if !matches!(self.overlay, Some(ClientShellOverlay::Pick(_))) {
+            return false;
+        }
+        match mouse.kind {
+            MouseEventKind::ScrollUp => {
+                self.move_pick_selection(-1);
+                outcome.repaint = true;
+            }
+            MouseEventKind::ScrollDown => {
+                self.move_pick_selection(1);
+                outcome.repaint = true;
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                let row = self
+                    .hits
+                    .worktree_rows
+                    .iter()
+                    .find(|(rect, _)| super::contains(*rect, point))
+                    .map(|(_, index)| *index);
+                if super::contains(self.hits.overlay_cancel, point) {
+                    self.resolve_pick(Some(crate::api::schema::UiPickOutcome::Cancelled), outcome);
+                } else if let Some(index) = row {
+                    if let Some(ClientShellOverlay::Pick(pick)) = self.overlay.as_mut() {
+                        pick.selected = index;
+                    }
+                    self.resolve_pick(None, outcome);
+                } else if super::contains(self.hits.overlay_primary, point)
+                    && matches!(&self.overlay, Some(ClientShellOverlay::Pick(pick)) if pick.outcome().is_some())
+                {
+                    self.resolve_pick(None, outcome);
+                }
+            }
+            _ => {}
+        }
+        true
+    }
+
     pub(super) fn move_pick_selection(&mut self, delta: isize) {
         let Some(ClientShellOverlay::Pick(pick)) = self.overlay.as_mut() else {
             return;
@@ -199,7 +309,12 @@ impl ClientShellState {
             return;
         };
         outcome.repaint = true;
-        let Some(open) = self.picks.open.take_if(|open| open.pick_id == pick.pick_id) else {
+        let Some(open) = self
+            .fork
+            .picks
+            .open
+            .take_if(|open| open.pick_id == pick.pick_id)
+        else {
             return;
         };
         let choice = outcome_choice
@@ -219,7 +334,7 @@ impl ClientShellState {
             );
             UiPickOutcome::Cancelled
         };
-        self.picks.resolved.push(ResolvedPick {
+        self.fork.picks.resolved.push(ResolvedPick {
             origin: open.origin,
             pick_id: open.pick_id,
             outcome: choice,

@@ -6,8 +6,8 @@ use super::*;
 use crate::api::schema::{
     AgentStatus, EventData, Method, PaneTarget, Request, ResponseResult, WorkspaceTarget,
 };
+use crate::app::unread_hold::UnreadHold;
 use crate::detect::AgentState;
-use crate::pane::UnreadHold;
 
 struct Fixture {
     server: HeadlessServer,

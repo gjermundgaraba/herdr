@@ -653,7 +653,11 @@ pub(super) fn install_client_shell_snapshot(
         if project_snapshot {
             shell.set_endpoint_snapshot_for_generation(endpoint_id, generation, snapshot);
         } else {
-            shell.cache_endpoint_snapshot_for_generation(endpoint_id, generation, snapshot);
+            shell.cache_endpoint_snapshot_inactive_for_generation(
+                endpoint_id,
+                generation,
+                snapshot,
+            );
         }
         let graphics_cleanup = shell.take_pending_graphics_cleanup();
         let next_size = shell.surface_size(state.reported_size.0, state.reported_size.1);

@@ -1,4 +1,4 @@
-//! `type = "plugin"` key commands, and command types this build does not know.
+//! `type = "plugin"` key commands.
 
 use super::*;
 
@@ -22,31 +22,4 @@ height = "80%"
     assert_eq!(binding.command, "gjermundgaraba.clankersnip.palette");
     assert_eq!(binding.width, Some(PopupSize::Cells(90)));
     assert_eq!(binding.height, Some(PopupSize::Percent(80)));
-}
-
-#[test]
-fn unknown_custom_command_type_disables_only_that_binding() {
-    let config: Config = toml::from_str(
-        r#"
-[update]
-version_check = false
-
-[[keys.command]]
-key = "prefix+s"
-command = "example.plugin.palette"
-type = "plugin_pane"
-
-[[keys.command]]
-key = "prefix+s"
-command = "echo valid"
-"#,
-    )
-    .unwrap();
-    assert!(!config.update.version_check);
-    let diagnostics = config.collect_diagnostics();
-    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-    assert!(diagnostics[0].contains("unknown custom command type: keys.command[0].type"));
-    let bindings = config.keybinds();
-    assert_eq!(bindings.custom_commands.len(), 1);
-    assert_eq!(bindings.custom_commands[0].command, "echo valid");
 }

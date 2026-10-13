@@ -95,6 +95,29 @@ pub(crate) fn workspace_mark(workspace: &crate::protocol::ClientShellWorkspace) 
     )
 }
 
+/// Fills each agent's `priority_key` and `priority_mark` in a client snapshot.
+pub(crate) fn annotate(
+    app: &crate::app::App,
+    workspaces: &[crate::protocol::ClientShellWorkspace],
+    agents: &mut [crate::protocol::ClientShellAgent],
+) {
+    let marks = workspaces
+        .iter()
+        .map(|workspace| (workspace.workspace_id.as_str(), workspace_mark(workspace)))
+        .collect::<std::collections::HashMap<_, _>>();
+    for agent in agents {
+        let mark = marks.get(agent.workspace_id.as_str()).copied().flatten();
+        let stamp = app
+            .parse_pane_id(&agent.pane_id)
+            .and_then(|(ws_idx, pane_id)| app.state.terminal_id_for_pane(ws_idx, pane_id))
+            .and_then(|terminal_id| app.state.terminals.get(&terminal_id))
+            .and_then(|terminal| terminal.agent_order_stamp)
+            .unwrap_or(0);
+        agent.priority_key = priority_key(mark.is_some(), agent.agent_status, stamp);
+        agent.priority_mark = mark.map(str::to_owned);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

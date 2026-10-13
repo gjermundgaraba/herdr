@@ -121,7 +121,7 @@ impl ClientShellState {
                         .snapshot
                         .as_deref()
                         .map_or_else(Vec::new, |snapshot| {
-                            space_groups::workspace_entries(snapshot, &HashSet::new())
+                            render::workspace_entries(snapshot, &HashSet::new())
                                 .into_iter()
                                 .filter_map(|entry| {
                                     snapshot.workspaces.get(entry.index).map(|workspace| {

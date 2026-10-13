@@ -18,11 +18,15 @@ use std::time::Instant;
 
 use tracing::{debug, warn};
 
-use super::endpoint::{ClientEndpointId, EndpointRegistry};
-use super::shell::{ClientShellState, ControlOrigin, ResolvedClientJump, ResolvedPick};
+use super::endpoint::{ClientEndpointId, EndpointControlMessage, EndpointRegistry};
+use super::frame_output::ComposedFrame;
+use super::shell::{
+    ClientShellInput, ClientShellState, ControlOrigin, ResolvedClientJump, ResolvedPick,
+};
 use crate::api::schema::{
     ClientJumpResolveParams, ClientReport, Method, Request, UiPickOutcome, UiPickResolveParams,
 };
+use crate::protocol::endpoint::{self, EndpointClientJump, EndpointPickClose, EndpointPickOpen};
 use crate::protocol::ClientMessage;
 use crate::server::client_commands::MAX_ENDPOINT_COMMAND_BYTES;
 
@@ -226,6 +230,62 @@ impl ClientContract {
             method,
         }
     }
+}
+
+/// The controls a daemon sends this client under the client contract.
+#[derive(Debug)]
+pub(crate) enum Control {
+    PickOpen(EndpointPickOpen),
+    PickClose(EndpointPickClose),
+    ClientJump(EndpointClientJump),
+}
+
+/// Decodes a contract control. `None` means the kind is not one; a control
+/// whose data does not decode is ignored, as unknown controls are.
+pub(super) fn decode_control(kind: &str, data: &str) -> Option<EndpointControlMessage> {
+    let control = match kind {
+        endpoint::PICK_OPEN_KIND => serde_json::from_str(data).map(Control::PickOpen),
+        endpoint::PICK_CLOSE_KIND => serde_json::from_str(data).map(Control::PickClose),
+        endpoint::CLIENT_JUMP_KIND => serde_json::from_str(data).map(Control::ClientJump),
+        _ => return None,
+    };
+    Some(control.map_or(
+        EndpointControlMessage::Ignored,
+        EndpointControlMessage::Contract,
+    ))
+}
+
+/// Shows or closes a picker, or starts a jump, for the endpoint connection
+/// that sent the control. Returns the input outcome and, when it repaints,
+/// the frame.
+pub(super) fn handle_control(
+    shell: &mut ClientShellState,
+    endpoint_id: &ClientEndpointId,
+    generation: u64,
+    control: Control,
+    now: Instant,
+    (width, height): (u16, u16),
+) -> (ClientShellInput, Option<ComposedFrame>) {
+    let origin = ControlOrigin {
+        endpoint_id: endpoint_id.clone(),
+        generation,
+    };
+    let outcome = match control {
+        Control::PickOpen(open) => ClientShellInput {
+            repaint: shell.receive_pick_open(origin, open),
+            ..Default::default()
+        },
+        Control::PickClose(close) => ClientShellInput {
+            repaint: shell.receive_pick_close(&origin, close),
+            ..Default::default()
+        },
+        Control::ClientJump(jump) => shell.receive_client_jump(origin, jump, now),
+    };
+    let frame = outcome
+        .repaint
+        .then(|| shell.compose(width, height))
+        .flatten();
+    (outcome, frame)
 }
 
 /// Whether a rejection only says that this client's answer crossed the

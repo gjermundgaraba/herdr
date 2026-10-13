@@ -116,9 +116,6 @@ pub enum CommandKeybindType {
     Pane,
     Popup,
     Plugin,
-    /// An unrecognized type disables only its own binding.
-    #[serde(other)]
-    Unknown,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -848,21 +845,6 @@ fn append_custom_command_bindings(
             diagnostics.push(diag);
             continue;
         }
-        let action = match command.action_type {
-            CommandKeybindType::Shell => CustomCommandAction::Shell,
-            CommandKeybindType::Pane => CustomCommandAction::Pane,
-            CommandKeybindType::Popup => CustomCommandAction::Popup,
-            CommandKeybindType::Plugin => CustomCommandAction::Plugin,
-            CommandKeybindType::Unknown => {
-                let diag = format!(
-                    "unknown custom command type: keys.command[{index}].type; disabling custom command"
-                );
-                warn!(message = %diag, "config diagnostic");
-                diagnostics.push(diag);
-                continue;
-            }
-        };
-
         let bindings = parse_action_bindings(
             &key_field,
             &command.key,
@@ -874,6 +856,12 @@ fn append_custom_command_bindings(
             continue;
         }
 
+        let action = match command.action_type {
+            CommandKeybindType::Shell => CustomCommandAction::Shell,
+            CommandKeybindType::Pane => CustomCommandAction::Pane,
+            CommandKeybindType::Popup => CustomCommandAction::Popup,
+            CommandKeybindType::Plugin => CustomCommandAction::Plugin,
+        };
         let (width, height) = if matches!(
             action,
             CustomCommandAction::Popup | CustomCommandAction::Plugin

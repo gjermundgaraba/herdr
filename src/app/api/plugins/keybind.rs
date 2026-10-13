@@ -2,6 +2,7 @@
 //! `plugin_id.entrypoint`, invoked with the originating pane and selection as
 //! context; command dispatch has already focused that pane.
 
+use crate::api::schema::ErrorResponse;
 use crate::app::App;
 use crate::config::CustomCommandKeybind;
 
@@ -13,23 +14,27 @@ impl App {
     ) -> Result<(), String> {
         self.refresh_installed_plugins()
             .map_err(|err| format!("plugin_registry_load_failed: {err}"))?;
-        let result = self
+        let (plugin, entrypoint) = self
             .resolve_qualified_plugin_entrypoint(&binding.command)
-            .and_then(|(plugin, entrypoint)| {
-                let mut context = self.current_plugin_context("keybinding");
-                context.invocation_source = Some("keybinding".to_owned());
-                context.selected_text = selected_text;
-                self.invoke_plugin_entrypoint(
-                    plugin,
-                    entrypoint,
-                    context,
-                    binding.width,
-                    binding.height,
-                )
-            });
-        result
-            .map(|_| ())
-            .map_err(|error| format!("{}: {}", error.code, error.message))
+            .map_err(|error| format!("{}: {}", error.code, error.message))?;
+        let mut context = self.current_plugin_context("keybinding");
+        context.invocation_source = Some("keybinding".to_owned());
+        context.selected_text = selected_text;
+        let response = self.invoke_plugin_entrypoint(
+            "keybinding".to_owned(),
+            plugin,
+            entrypoint,
+            context,
+            binding.width,
+            binding.height,
+        );
+        match serde_json::from_str::<ErrorResponse>(&response) {
+            Ok(response) => Err(format!(
+                "{}: {}",
+                response.error.code, response.error.message
+            )),
+            Err(_) => Ok(()),
+        }
     }
 }
 
@@ -37,9 +42,7 @@ impl App {
 mod tests {
     use super::super::tests::plugin_keybinding as binding;
     use super::*;
-    use crate::api::schema::{
-        CommandInvokeParams, ErrorResponse, InstalledPluginInfo, SuccessResponse,
-    };
+    use crate::api::schema::{CommandInvokeParams, InstalledPluginInfo, SuccessResponse};
     use crate::popup_size::PopupSize;
 
     struct Fixture {

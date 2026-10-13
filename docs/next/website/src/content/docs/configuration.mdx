@@ -249,8 +249,7 @@ entrypoint opens with its manifest placement, command, and dimensions; optional
 strings, and are ignored for actions and non-popup placements.
 
 Herdr resolves the target when the binding runs and reports a malformed,
-unqualified, or missing target as an error then. An unknown `type` produces a
-config diagnostic and disables only that binding.
+unqualified, or missing target as an error then.
 
 Custom commands receive `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ACTIVE_WORKSPACE_ID`, `HERDR_ACTIVE_TAB_ID`, `HERDR_ACTIVE_PANE_ID`, and `HERDR_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Herdr can detect it.
 
