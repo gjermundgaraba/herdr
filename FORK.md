@@ -93,7 +93,14 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   (`src/server/headless/picks.rs`, `src/client/shell/picks.rs`)
 - Agent state from OSC 7501 program status reports, applied to the session a
   state-reporting integration recorded; the bundled Pi integration (v10)
-  reports only the session (`src/pane/osc.rs`, `src/terminal/state.rs`)
+  reports only the session. Herdr does not answer the protocol's support
+  query, so Pi reports only with `PI_PROGRAM_STATUS=1`, which the user's
+  shell config sets inside Herdr panes, on every machine that runs Pi under
+  Herdr. In fish: `if test "$HERDR_ENV" = 1; set -gx PI_PROGRAM_STATUS 1; end`;
+  in bash or zsh: `if [ "$HERDR_ENV" = 1 ]; then export PI_PROGRAM_STATUS=1; fi`.
+  Without it Herdr falls back to reading Pi's screen and never sees it
+  blocked. See "Pi" in `docs/next/website/src/content/docs/integrations.mdx`
+  (`src/pane/program_status.rs`, `src/terminal/state/in_band.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
 The main consumers are the plugins in the `herdr-plugins` repository. Its
