@@ -181,6 +181,54 @@ fn a_jump_to_the_pane_already_presented_is_answered_at_once() {
 }
 
 #[test]
+fn a_first_jump_to_the_pane_shown_waits_for_a_switch_under_way() {
+    // The user picked an agent on Build, so the loop is switching while
+    // Local, with pane_1 focused, is still presented.
+    let (mut state, _) = federated();
+    let start = Instant::now();
+
+    let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_1"), start);
+
+    assert!(input.actions.is_empty(), "{:?}", input.actions);
+    for turn in 0..3 {
+        let now = start + Duration::from_millis(100 * turn);
+        assert!(
+            state.settle_client_jumps(now, true).is_empty(),
+            "turn {turn}"
+        );
+    }
+    // The switch gave way and Local still shows the pane.
+    let later = start + Duration::from_secs(1);
+    assert_eq!(
+        state.settle_client_jumps(later, false),
+        answer(ClientJumpOutcome::Focused)
+    );
+    assert!(
+        state.settle_client_jumps(later, false).is_empty(),
+        "answered once"
+    );
+}
+
+#[test]
+fn a_first_jump_to_the_pane_shown_times_out_when_the_switch_leaves_it() {
+    let (mut state, remote) = federated();
+    let start = Instant::now();
+    let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_1"), start);
+    assert!(input.actions.is_empty(), "{:?}", input.actions);
+    assert!(state.settle_client_jumps(start, true).is_empty());
+
+    // The switch lands on Build, so the pane is no longer shown.
+    assert!(state.activate_endpoint_projection(&remote));
+    assert!(state
+        .settle_client_jumps(start + Duration::from_secs(1), false)
+        .is_empty());
+    assert_eq!(
+        state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE, false),
+        answer(ClientJumpOutcome::Timeout)
+    );
+}
+
+#[test]
 fn a_jump_to_another_endpoint_activates_it_with_the_pane_as_target() {
     let (mut state, remote) = federated();
     let start = Instant::now();
@@ -417,24 +465,21 @@ fn each_answer_keeps_the_connection_its_jump_arrived_on() {
     let mut second = jump("local", "boot-0", "pane_1");
     second.jump_id = "jump-2".into();
 
-    // Two daemons forward a jump in the same turn; Build's names a Local pane.
+    // Two daemons forward a jump in turn; Build's names a Local pane.
     state.receive_client_jump(origin(), jump("local", "boot-1", "pane_1"), now);
+    assert_eq!(
+        state.settle_client_jumps(now, false),
+        answer(ClientJumpOutcome::Focused)
+    );
     state.receive_client_jump(from_build.clone(), second, now);
 
     assert_eq!(
         state.settle_client_jumps(now, false),
-        [
-            ResolvedClientJump {
-                origin: origin(),
-                jump_id: "jump-1".into(),
-                outcome: ClientJumpOutcome::Focused,
-            },
-            ResolvedClientJump {
-                origin: from_build,
-                jump_id: "jump-2".into(),
-                outcome: ClientJumpOutcome::StaleBoot,
-            },
-        ]
+        [ResolvedClientJump {
+            origin: from_build,
+            jump_id: "jump-2".into(),
+            outcome: ClientJumpOutcome::StaleBoot,
+        }]
     );
 }
 

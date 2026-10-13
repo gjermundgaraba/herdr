@@ -314,8 +314,9 @@ The earlier jump's navigation may still be under way when the newer jump
 arrives. The client therefore always performs the newer navigation, even when
 it already presents the pane the newer jump names, so that navigation is the
 last one it starts and the one it ends on. Only a client that is performing no
-jump skips the navigation for a pane it already presents, and answers
-`focused` at once.
+jump skips the navigation for a pane it already presents. It answers `focused`
+at once, unless it is still switching machine; then it answers once the switch
+is over, `focused` if it still presents the pane.
 
 ### Choosing the outcome
 
@@ -338,11 +339,11 @@ the client withdraws, or another selection replaces therefore ends the jump as
 answers `failed`.
 
 A client that navigated does not answer `focused` on the turn it started the
-navigation, when the pane it shows predates it, nor while it is still
-switching machine. The TUI takes no request while it switches, and presents
-the machine it switches to shortly before the switch is done, so a jump that
-arrives during a switch and names another pane on the machine shown can end
-as `timeout`.
+navigation, when the pane it shows predates it. No client answers `focused`
+while it is still switching machine, even for a pane it already presents. The
+TUI takes no request while it switches, and presents the machine it switches
+to shortly before the switch is done, so a jump that arrives during a switch
+and names another pane on the machine shown can end as `timeout`.
 
 ## Pickers
 
