@@ -2,8 +2,7 @@
 //! step it in this client.
 
 use super::*;
-use crate::api::schema::AgentStatus;
-use crate::client::shell::tests::fleet::{agent, fleet, machine};
+use crate::client::shell::tests::fleet::{fleet, profiles};
 use crate::input::KeybindAction;
 use crate::protocol::ClientShellPane;
 
@@ -193,17 +192,18 @@ fn the_trail_is_bounded() {
 
 /// One machine with `pane_1` to `pane_3`, `focused` focused, at `revision`.
 fn host(boot: &str, focused: &str, revision: u64) -> Box<ClientShellSnapshot> {
-    let mut snapshot = machine(
-        boot,
-        ["pane_1", "pane_2", "pane_3"]
-            .iter()
-            .enumerate()
-            .map(|(stamp, pane)| agent(pane, AgentStatus::Idle, stamp as u64))
-            .collect(),
-    );
+    let mut snapshot = at(boot, &["pane_1", "pane_2", "pane_3"], Some(focused));
     snapshot.revision = revision;
-    snapshot.focused_pane_id = Some(focused.into());
     Box::new(snapshot)
+}
+
+/// The Local machine after visiting `pane_1`, `pane_2`, then `pane_3`.
+fn walked() -> ClientShellState {
+    let (mut state, _) = fleet(&[]);
+    for (revision, pane) in ["pane_1", "pane_2", "pane_3"].iter().enumerate() {
+        state.set_snapshot(host("boot-1", pane, revision as u64 + 1));
+    }
+    state
 }
 
 /// Presses a history key. Returns the request, as `(request id, pane id)`,
@@ -237,10 +237,7 @@ fn press(state: &mut ClientShellState, step: Step) -> Option<(ClientEndpointId, 
 
 #[test]
 fn the_keys_focus_the_presented_endpoints_trail_and_land_on_it() {
-    let (mut state, _) = fleet(&[]);
-    for (revision, pane) in ["pane_1", "pane_2", "pane_3"].iter().enumerate() {
-        state.set_snapshot(host("boot-1", pane, revision as u64 + 1));
-    }
+    let mut state = walked();
     assert_eq!(press(&mut state, Step::Forward), None);
 
     let (endpoint, request_id, pane) = press(&mut state, Step::Back).unwrap();
@@ -261,10 +258,7 @@ fn the_keys_focus_the_presented_endpoints_trail_and_land_on_it() {
 
 #[test]
 fn a_refused_step_leaves_the_user_where_they_are() {
-    let (mut state, _) = fleet(&[]);
-    for (revision, pane) in ["pane_1", "pane_2", "pane_3"].iter().enumerate() {
-        state.set_snapshot(host("boot-1", pane, revision as u64 + 1));
-    }
+    let mut state = walked();
     let (_, request_id, pane) = press(&mut state, Step::Back).unwrap();
     assert_eq!(pane, "pane_2");
 
@@ -286,10 +280,7 @@ fn a_refused_step_leaves_the_user_where_they_are() {
 #[test]
 fn a_step_whose_request_is_gone_does_not_wait_for_a_snapshot_to_end() {
     for withdrawn in [false, true] {
-        let (mut state, _) = fleet(&[]);
-        for (revision, pane) in ["pane_1", "pane_2", "pane_3"].iter().enumerate() {
-            state.set_snapshot(host("boot-1", pane, revision as u64 + 1));
-        }
+        let mut state = walked();
         let (_, request_id, pane) = press(&mut state, Step::Back).unwrap();
         assert_eq!(pane, "pane_2");
 
@@ -339,4 +330,31 @@ fn each_endpoint_keeps_its_own_trail_and_back_never_crosses_to_another() {
     state.set_endpoint_snapshot(&build, host("build-boot", "pane_1", 1));
     assert!(state.activate_endpoint_projection(&build));
     assert_eq!(press(&mut state, Step::Back), None);
+}
+
+#[test]
+fn a_removed_profile_loses_its_trail_and_a_reconnecting_one_keeps_it() {
+    let (mut state, remotes) = fleet(&["Build", "Deploy"]);
+    let (build, deploy) = (remotes[0].clone(), remotes[1].clone());
+    let profiles = profiles(&["Build", "Deploy"]);
+    state.set_snapshot(host("local-boot", "pane_1", 1));
+    for remote in &remotes {
+        state.set_endpoint_snapshot(remote, host("remote-boot", "pane_1", 1));
+        state.set_endpoint_snapshot(remote, host("remote-boot", "pane_2", 2));
+    }
+
+    // Build drops and comes back to the same daemon while the catalog is
+    // read again: its trail is kept.
+    state.mark_endpoint_disconnected(&build);
+    state.set_endpoint_catalog(&profiles);
+    state.set_endpoint_status(&build, ClientEndpointStatus::Online);
+    state.set_endpoint_snapshot(&build, host("remote-boot", "pane_2", 3));
+    assert!(state.activate_endpoint_projection(&build));
+    assert_eq!(press(&mut state, Step::Back).unwrap().2, "pane_1");
+
+    // Deploy leaves the catalog: its trail goes, Build's and Local's stay.
+    state.set_endpoint_catalog(&profiles[..1]);
+    assert!(!state.fork.history.contains_key(&deploy));
+    assert!(state.fork.history.contains_key(&build));
+    assert!(state.fork.history.contains_key(&ClientEndpointId::Local));
 }

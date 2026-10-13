@@ -108,6 +108,7 @@ impl ClientShellState {
                 .any(|endpoint| &endpoint.endpoint_id == endpoint_id)
         });
         self.endpoints = next;
+        self.prune_history();
     }
 
     pub(crate) fn select_unavailable_local(&mut self) {
