@@ -377,7 +377,7 @@ pub(super) fn render_expanded(
                     endpoint: next_endpoint,
                     ..
                 }),
-            ) if endpoint == next_endpoint => config.spaces.row_gap,
+            ) if endpoint == next_endpoint => space_groups::gap_above_marker(config.spaces.row_gap),
             _ => 0,
         })
         .collect::<Vec<_>>();

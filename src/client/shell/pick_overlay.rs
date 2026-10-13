@@ -1,6 +1,5 @@
-//! Draws the `ui.pick` picker that `picks.rs` opens, and the agent picker's
-//! priority marks. Herdr GPUI draws its picker in
-//! `crates/herdr-gpui/src/picker/render.rs`.
+//! Draws the `ui.pick` picker that `picks.rs` opens. Herdr GPUI draws its
+//! picker in `crates/herdr-gpui/src/picker/render.rs`.
 
 use super::*;
 
@@ -147,26 +146,4 @@ pub(super) fn render_pick_overlay(
         cursor,
         ..OverlayRender::default()
     })
-}
-
-/// Paints an agent picker row's priority mark, which its label holds right
-/// after `prefix`, in `style`, short of the `columns` at the row's end.
-pub(super) fn paint_mark(
-    b: &mut Buffer,
-    rect: Rect,
-    prefix: &str,
-    columns: u16,
-    mark: &str,
-    style: Style,
-) {
-    let x = rect.x.saturating_add(display_width(prefix));
-    let end = rect.right().saturating_sub(columns);
-    put_text(
-        b,
-        x,
-        rect.y,
-        display_width(mark).min(end.saturating_sub(x)),
-        mark,
-        style,
-    );
 }
