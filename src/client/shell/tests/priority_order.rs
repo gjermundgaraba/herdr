@@ -1,6 +1,6 @@
 //! The `priority` order of the Agents list: daemons send each agent's
 //! `priority_key`, and the client only compares keys and merges machines
-//! (`aggregate_navigation::priority_order`).
+//! (`aggregate_navigation::agent_order::priority_order`).
 
 use super::fleet::{agent, fleet, keyed_agent, lifted_agent, listed, machine};
 use super::*;
