@@ -166,7 +166,10 @@ lands.
   upstream files as possible. Do not rewrite or reorder upstream code you do
   not need to change, and never copy or wrap upstream code just to avoid
   touching it: a small edit in place beats a duplicate. An upstream test whose
-  behavior the fork changes is edited in place.
+  behavior the fork changes is edited in place. The TUI's single-host agent
+  paths (`src/client/shell/sidebar.rs`, `agent_sidebar.rs`, `actions.rs`,
+  `endpoint_navigation.rs`) stay rewritten for the documented reconnect
+  behavior, which shows cached agents dimmed, so do not restore upstream's.
 
 ## Upstream guardrails
 

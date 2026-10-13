@@ -1,6 +1,6 @@
 //! Plugin entrypoints: actions and panes share one id namespace, a key's
-//! size applies only to a popup pane, and a plugin pane takes its context
-//! from an explicit target.
+//! size applies only to a popup pane, and a pane opened by `plugin.invoke`
+//! launches with the invoked target's context.
 
 use super::*;
 
@@ -31,22 +31,6 @@ command = ["echo", "b"]
     let result = load_plugin_manifest(&root.display().to_string(), true);
     assert!(matches!(result, Err(("duplicate_plugin_entrypoint_id", _))));
     let _ = std::fs::remove_dir_all(root);
-}
-
-fn pane_open_params() -> PluginPaneOpenParams {
-    PluginPaneOpenParams {
-        plugin_id: "example.worktree-bootstrap".into(),
-        entrypoint: "board".into(),
-        placement: None,
-        width: None,
-        height: None,
-        workspace_id: None,
-        target_pane_id: None,
-        direction: None,
-        cwd: None,
-        focus: false,
-        env: Default::default(),
-    }
 }
 
 #[test]
@@ -138,60 +122,79 @@ command = ["sh", "-c", "exit 0"]
 
 #[cfg(unix)]
 #[tokio::test]
-async fn plugin_pane_api_context_follows_explicit_split_and_workspace_targets() {
-    let root = unique_temp_path("plugin-pane-explicit-target");
-    write_manifest(&root);
+async fn invoked_pane_launches_with_the_invoked_context() {
+    let root = unique_temp_path("plugin-invoke-pane-context");
+    write_manifest_content(
+        &root,
+        r#"
+id = "example.invoked"
+name = "Invoked"
+version = "0.1.0"
+min_herdr_version = "0.6.10"
+platforms = ["linux", "macos", "windows"]
+
+[[panes]]
+id = "board"
+title = "Board"
+placement = "split"
+command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > context.json; : > ready"]
+
+[[panes]]
+id = "palette"
+title = "Palette"
+placement = "popup"
+command = ["sh", "-c", "exit 0"]
+"#,
+    );
     let installed = load_plugin_manifest(&root.display().to_string(), true).unwrap();
-    for placement in [PluginPanePlacement::Split, PluginPanePlacement::Tab] {
-        let mut app = test_app();
-        app.state.workspaces = vec![
-            crate::workspace::Workspace::test_new("active"),
-            crate::workspace::Workspace::test_new("explicit-target"),
-        ];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        let target_pane = app.state.workspaces[1].tabs[0].root_pane;
-        let target_id = app.public_pane_id(1, target_pane).unwrap();
-        let workspace_id = app.public_workspace_id(1);
-        let mut params = pane_open_params();
-        params.placement = Some(placement);
-        if placement == PluginPanePlacement::Split {
-            params.target_pane_id = Some(target_id.clone());
-        } else {
-            params.workspace_id = Some(workspace_id.clone());
+    let mut app = test_app();
+    app.state.workspaces = vec![
+        crate::workspace::Workspace::test_new("active"),
+        crate::workspace::Workspace::test_new("target"),
+    ];
+    app.state.ensure_test_terminals();
+    app.state.active = Some(0);
+    app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 40);
+    app.state
+        .installed_plugins
+        .insert(installed.plugin_id.clone(), installed);
+    let target_pane = app.state.workspaces[1].tabs[0].root_pane;
+    let target_id = app.public_pane_id(1, target_pane).unwrap();
+    let workspace_id = app.public_workspace_id(1);
+
+    let mut params = invoke_params("example.invoked", "board");
+    params.pane_id = Some(target_id.clone());
+    let response = app.handle_plugin_invoke("invoke-split".into(), params);
+    let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&response) else {
+        panic!("expected opened pane: {response}");
+    };
+    assert_eq!(plugin_pane.pane.workspace_id, workspace_id);
+    assert!(app.invoked_plugin_context.is_none());
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !root.join("ready").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
-        let mut plugin = installed.clone();
-        plugin.panes[0].command = vec![
-            "sh".into(),
-            "-c".into(),
-            "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > context.json; : > ready".into(),
-        ];
-        app.state
-            .installed_plugins
-            .insert(plugin.plugin_id.clone(), plugin);
-        let response = app.handle_plugin_pane_open("explicit-target".into(), params);
-        let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&response) else {
-            panic!("expected opened pane: {response}");
-        };
-        assert_eq!(plugin_pane.pane.workspace_id, workspace_id);
-        assert_eq!(app.state.active, Some(0));
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            while !root.join("ready").exists() {
-                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .expect("pane did not finish writing context");
-        let context: PluginInvocationContext =
-            serde_json::from_str(&std::fs::read_to_string(root.join("context.json")).unwrap())
-                .unwrap();
-        assert_eq!(context.workspace_id.as_deref(), Some(workspace_id.as_str()));
-        assert_eq!(context.focused_pane_id.as_deref(), Some(target_id.as_str()));
-        assert_eq!(context.invocation_source.as_deref(), Some("api"));
-        for (_, runtime) in app.terminal_runtimes.drain() {
-            runtime.shutdown();
-        }
-        std::fs::remove_file(root.join("ready")).unwrap();
+    })
+    .await
+    .expect("pane did not finish writing context");
+    let context: PluginInvocationContext =
+        serde_json::from_str(&std::fs::read_to_string(root.join("context.json")).unwrap()).unwrap();
+    assert_eq!(context.workspace_id.as_deref(), Some(workspace_id.as_str()));
+    assert_eq!(context.focused_pane_id.as_deref(), Some(target_id.as_str()));
+    assert_eq!(context.correlation_id.as_deref(), Some("invoke-split"));
+
+    // An open that fails after the context is set clears it as well.
+    let palette = invoke_params("example.invoked", "palette");
+    let response = app.handle_plugin_invoke("first-popup".into(), palette.clone());
+    assert_eq!(response_result(&response), ResponseResult::Ok {});
+    assert!(app.state.popup_pane.is_some());
+    let response = app.handle_plugin_invoke("busy-popup".into(), palette);
+    let error: crate::api::schema::ErrorResponse =
+        serde_json::from_str(&response).expect(&response);
+    assert_eq!(error.error.code, "ui_busy");
+    assert!(app.invoked_plugin_context.is_none());
+    for (_, runtime) in app.terminal_runtimes.drain() {
+        runtime.shutdown();
     }
     let _ = std::fs::remove_dir_all(root);
 }

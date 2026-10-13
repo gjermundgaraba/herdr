@@ -95,24 +95,37 @@ pub(crate) fn workspace_mark(workspace: &crate::protocol::ClientShellWorkspace) 
     )
 }
 
-/// Fills each agent's `priority_key` and `priority_mark` in a client snapshot.
-pub(crate) fn annotate(
+/// Each agent's ordering stamp, in `agents` order, looked up by terminal id.
+/// Read before the agents become client agents, which carry no terminal id.
+pub(crate) fn order_stamps(
     app: &crate::app::App,
+    agents: &[crate::api::schema::AgentInfo],
+) -> Vec<u64> {
+    agents
+        .iter()
+        .map(|agent| {
+            app.state
+                .terminals
+                .get(agent.terminal_id.as_str())
+                .and_then(|terminal| terminal.agent_order_stamp)
+                .unwrap_or(0)
+        })
+        .collect()
+}
+
+/// Fills each agent's `priority_key` and `priority_mark` in a client snapshot,
+/// given the agents' [`order_stamps`].
+pub(crate) fn annotate(
     workspaces: &[crate::protocol::ClientShellWorkspace],
     agents: &mut [crate::protocol::ClientShellAgent],
+    stamps: &[u64],
 ) {
     let marks = workspaces
         .iter()
         .map(|workspace| (workspace.workspace_id.as_str(), workspace_mark(workspace)))
         .collect::<std::collections::HashMap<_, _>>();
-    for agent in agents {
+    for (agent, &stamp) in agents.iter_mut().zip(stamps) {
         let mark = marks.get(agent.workspace_id.as_str()).copied().flatten();
-        let stamp = app
-            .parse_pane_id(&agent.pane_id)
-            .and_then(|(ws_idx, pane_id)| app.state.terminal_id_for_pane(ws_idx, pane_id))
-            .and_then(|terminal_id| app.state.terminals.get(&terminal_id))
-            .and_then(|terminal| terminal.agent_order_stamp)
-            .unwrap_or(0);
         agent.priority_key = priority_key(mark.is_some(), agent.agent_status, stamp);
         agent.priority_mark = mark.map(str::to_owned);
     }

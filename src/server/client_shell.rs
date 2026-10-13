@@ -148,6 +148,7 @@ pub(super) fn snapshot_with_completions(
             }
         })
         .collect();
+    let stamps = crate::agent_priority::order_stamps(app, &snapshot.agents);
     let mut agents = snapshot
         .agents
         .into_iter()
@@ -178,7 +179,7 @@ pub(super) fn snapshot_with_completions(
             }
         })
         .collect::<Vec<_>>();
-    crate::agent_priority::annotate(app, &workspaces, &mut agents);
+    crate::agent_priority::annotate(&workspaces, &mut agents, &stamps);
 
     let agent_view_label = app
         .state

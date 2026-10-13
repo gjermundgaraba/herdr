@@ -5,36 +5,15 @@
 //! The hold is daemon state, so every client shows the same status. This
 //! module owns the transitions; the server decides when a pane is presented,
 //! because that depends on its attached clients
-//! (`server/headless/unread_holds.rs`).
+//! (`server/headless/unread_holds.rs`). The hold a pane carries is pane
+//! data (`pane/unread_hold.rs`).
 
 use crate::detect::AgentState;
 use crate::layout::PaneId;
-use crate::pane::PaneState;
+use crate::pane::unread_hold::UnreadHold;
 
 use super::api::responses::{encode_error, encode_success};
 use super::{App, AppState};
-
-/// A completion the user asked to see again (`agent.mark_unread`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum UnreadHold {
-    /// Marked while the pane is presented. The completion comes back once
-    /// `client_id` stops presenting the pane.
-    Armed { client_id: Option<u64> },
-    /// The completion is back: the pane stays unseen until a client presents
-    /// it again, so marks that cover a whole tab pass over it.
-    Restored,
-}
-
-impl PaneState {
-    /// Marks the pane seen, unless a restored completion is held on it.
-    pub(crate) fn mark_seen(&mut self) -> bool {
-        if self.seen || self.unread_hold == Some(UnreadHold::Restored) {
-            return false;
-        }
-        self.seen = true;
-        true
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MarkUnreadError {

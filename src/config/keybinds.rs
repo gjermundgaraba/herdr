@@ -845,6 +845,7 @@ fn append_custom_command_bindings(
             diagnostics.push(diag);
             continue;
         }
+
         let bindings = parse_action_bindings(
             &key_field,
             &command.key,

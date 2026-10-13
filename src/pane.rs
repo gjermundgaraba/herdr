@@ -32,6 +32,7 @@ mod kitty_keyboard;
 mod osc;
 mod state;
 mod terminal;
+pub(crate) mod unread_hold;
 mod xtgettcap;
 
 use self::agent_detection::{

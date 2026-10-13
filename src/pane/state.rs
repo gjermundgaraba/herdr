@@ -11,7 +11,7 @@ pub struct PaneState {
     /// Whether unmodified right-click gestures should be forwarded to the pane application.
     pub right_click_passthrough: bool,
     /// Set by `agent.mark_unread` until the pane is presented again.
-    pub unread_hold: Option<crate::app::unread_hold::UnreadHold>,
+    pub unread_hold: Option<super::unread_hold::UnreadHold>,
 }
 
 impl PaneState {

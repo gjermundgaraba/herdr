@@ -8,4 +8,6 @@ pub(super) struct ForkState {
     pub(super) client_jumps: super::client_jump::ClientJumps,
     /// The `ui.pick` picker this client shows.
     pub(super) picks: super::picks::ClientPicks,
+    /// A press on a space group header, until it drags or toggles.
+    pub(super) group_press: Option<super::space_groups::ClientGroupPress>,
 }

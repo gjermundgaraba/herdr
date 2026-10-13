@@ -8,6 +8,7 @@ pub(in crate::client::shell) mod sidebar;
 mod tabs;
 
 pub(super) use super::aggregate_navigation::navigator_rows as client_navigator_rows;
+// Replaces `sidebar::workspace_entries` with space groups; call it through `render::`.
 pub(super) use super::space_groups::workspace_entries;
 pub(super) use overlays::{render_client_overlay, render_context_menu, render_global_menu};
 pub(super) use sidebar::{render_collapsed_sidebar, render_sidebar};

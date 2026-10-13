@@ -28,7 +28,9 @@ rows = [["branch", { token = "$git_dirty", separator_before = "\t |\u001b\n" }]]
     );
     let encoded = toml::to_string(&config).unwrap();
     assert_eq!(toml::from_str::<SidebarConfig>(&encoded).unwrap(), config);
-    assert!(!toml::to_string(&SidebarConfig::default())
+    let unseparated: SidebarConfig =
+        toml::from_str(r##"agents.rows = [[{ token = "agent", fg = "#abc" }]]"##).unwrap();
+    assert!(!toml::to_string(&unseparated)
         .unwrap()
         .contains("separator_before"));
 }

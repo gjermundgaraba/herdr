@@ -15,7 +15,89 @@ pub(in crate::client::shell) struct ClientGroupPress {
     start_row: u16,
 }
 
+/// What group headers change in a drop target
+/// (`ClientShellState::workspace_drop_target_at`). A header stands for the
+/// first space of its run, so the drop line above a run sits above its header
+/// instead of on it. Pinned sections take no drops: their headers are left
+/// out here, and [`ClientShellState::pinned_drop_floor`] makes the rows above
+/// the regular list's first row take none.
+pub(in crate::client::shell) struct DropGroups<'a> {
+    /// The active endpoint's regular group headers and dividers.
+    markers: Vec<&'a MarkerHit>,
+}
+
+impl DropGroups<'_> {
+    /// Whether a space row has no slot of its own: a pinned mirror, or the
+    /// first space under a header, whose slot the header's replaces.
+    pub(in crate::client::shell) fn covers(&self, hit: &WorkspaceHit) -> bool {
+        hit.mirror
+            || self
+                .markers
+                .iter()
+                .any(|marker| marker.rect.y == hit.rect.y.saturating_sub(1))
+    }
+
+    /// One slot above each header, before the first space of its run.
+    pub(in crate::client::shell) fn slots(
+        &self,
+    ) -> impl Iterator<Item = (Option<String>, u16)> + '_ {
+        self.markers.iter().filter_map(|hit| {
+            Some((
+                Some(hit.member_ids.first()?.clone()),
+                hit.rect.y.saturating_sub(1),
+            ))
+        })
+    }
+
+    /// The row below the last drawn row, which may be a collapsed group's
+    /// header rather than the last space.
+    pub(in crate::client::shell) fn bottom(&self, last_space_bottom: u16) -> u16 {
+        self.markers
+            .iter()
+            .map(|hit| hit.rect.bottom())
+            .fold(last_space_bottom, u16::max)
+    }
+
+    /// Orders slots top to bottom, keeping one where a space would get two in
+    /// a row.
+    pub(in crate::client::shell) fn order(slots: &mut Vec<(Option<String>, u16)>) {
+        slots.sort_by_key(|(_, row)| *row);
+        slots.dedup_by(|later, earlier| later.0 == earlier.0);
+    }
+}
+
 impl ClientShellState {
+    /// The row above which a drop has no target: the bottom of the active
+    /// endpoint's pinned sections, or 0 without any.
+    pub(in crate::client::shell) fn pinned_drop_floor(&self) -> u16 {
+        self.hits
+            .markers
+            .iter()
+            .filter(|hit| hit.endpoint_id == self.active_endpoint_id && hit.pinned)
+            .map(|hit| hit.rect.bottom())
+            .chain(
+                self.hits
+                    .workspaces
+                    .iter()
+                    .filter(|hit| hit.endpoint_id == self.active_endpoint_id && hit.mirror)
+                    .map(|hit| hit.rect.bottom()),
+            )
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The active endpoint's regular group headers, for a drop target.
+    pub(in crate::client::shell) fn drop_groups(&self) -> DropGroups<'_> {
+        DropGroups {
+            markers: self
+                .hits
+                .markers
+                .iter()
+                .filter(|hit| hit.endpoint_id == self.active_endpoint_id && !hit.pinned)
+                .collect(),
+        }
+    }
+
     /// Starts a press on the group header under the pointer, if any.
     pub(in crate::client::shell) fn press_group_marker(
         &mut self,
@@ -37,11 +119,8 @@ impl ClientShellState {
                     start_row: mouse.row,
                 })
             });
-        let pressed = group_press.is_some();
-        if pressed {
-            self.group_press = group_press;
-        }
-        pressed
+        self.fork.group_press = group_press;
+        self.fork.group_press.is_some()
     }
 
     /// Turns a pressed header into a drag of its run once the pointer moves.
@@ -52,7 +131,7 @@ impl ClientShellState {
         point: (u16, u16),
         outcome: &mut ClientShellInput,
     ) -> bool {
-        let Some(press) = self.group_press.as_ref() else {
+        let Some(press) = self.fork.group_press.as_ref() else {
             return false;
         };
         let delta = mouse
@@ -103,7 +182,7 @@ impl ClientShellState {
         &mut self,
         outcome: &mut ClientShellInput,
     ) -> bool {
-        let Some(press) = self.group_press.take() else {
+        let Some(press) = self.fork.group_press.take() else {
             return false;
         };
         self.toggle_collapsed_group(&press.endpoint_id, press.key);

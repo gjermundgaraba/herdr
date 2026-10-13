@@ -200,17 +200,7 @@ enum RawSidebarToken {
 }
 
 impl RawSidebarToken {
-    fn parts(
-        self,
-    ) -> Result<
-        (
-            String,
-            Option<SidebarTokenStyle>,
-            Vec<SidebarTokenRule>,
-            Separator,
-        ),
-        String,
-    > {
+    fn parts(self) -> Result<separator::RawParts, String> {
         match self {
             Self::Plain(token) => Ok((token, None, Vec::new(), None)),
             Self::Styled(token) => {

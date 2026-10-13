@@ -12,13 +12,7 @@
 use std::collections::HashMap;
 
 use super::HeadlessServer;
-use crate::app::unread_hold::UnreadHold;
-use crate::layout::PaneId;
-
-/// The pane each client presented, with its window not known to be
-/// unfocused, when the holds were last settled. Kept only while holds exist.
-#[derive(Default)]
-pub(super) struct UnreadPresence(HashMap<u64, PaneId>);
+use crate::pane::unread_hold::UnreadHold;
 
 impl HeadlessServer {
     /// Restores and ends unread holds according to what clients now present.
@@ -30,7 +24,7 @@ impl HeadlessServer {
         let holds = self.app.state.unread_holds();
         if holds.is_empty() {
             self.app.state.unread_holds_pending = false;
-            self.fork.unread_presence.0.clear();
+            self.fork.unread_presence.clear();
             return false;
         }
         let presenting = self
@@ -63,7 +57,7 @@ impl HeadlessServer {
                 UnreadHold::Restored => {
                     let arrived = attentive.iter().any(|(client_id, presented)| {
                         *presented == pane_id
-                            && self.fork.unread_presence.0.get(client_id) != Some(&pane_id)
+                            && self.fork.unread_presence.get(client_id) != Some(&pane_id)
                     });
                     if arrived {
                         changed |= self.app.state.clear_unread_hold(ws_idx, pane_id);
@@ -73,9 +67,9 @@ impl HeadlessServer {
         }
         if self.app.state.unread_holds().is_empty() {
             self.app.state.unread_holds_pending = false;
-            self.fork.unread_presence.0.clear();
+            self.fork.unread_presence.clear();
         } else {
-            self.fork.unread_presence.0 = attentive;
+            self.fork.unread_presence = attentive;
         }
         changed
     }

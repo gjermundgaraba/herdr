@@ -3,18 +3,20 @@
 
 use std::collections::HashMap;
 
-use super::{client_reports, jumps, picks, unread_holds, ClientConnection, HeadlessServer};
+use super::{jumps, picks, ClientConnection, HeadlessServer};
 
 #[derive(Default)]
 pub(super) struct ForkState {
     /// Open `ui.pick` pickers by pick id, each waiting on its API caller.
     pub(super) pending_picks: HashMap<String, picks::PendingPick>,
     /// Latest `client.report` per client.
-    pub(super) client_reports: client_reports::ClientReports,
+    pub(super) client_reports: HashMap<u64, crate::api::schema::ClientReport>,
     /// Open `client.jump` requests, each waiting on its client's answer.
     pub(super) client_jumps: jumps::ClientJumps,
-    /// Client presence the unread holds were last settled against.
-    pub(super) unread_presence: unread_holds::UnreadPresence,
+    /// The pane each client presented, with its window not known to be
+    /// unfocused, when the unread holds were last settled. Kept only while
+    /// holds exist.
+    pub(super) unread_presence: HashMap<u64, crate::layout::PaneId>,
 }
 
 impl HeadlessServer {
