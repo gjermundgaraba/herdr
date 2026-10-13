@@ -198,29 +198,23 @@ impl ClientContract {
 
     /// The report as one request the daemon will read. A daemon closes a
     /// connection that sends a larger command than it allows, so a report
-    /// that is still too large after its text was cut loses rows from the
-    /// end of the list until it fits.
+    /// that is still too large after its text was cut keeps only the longest
+    /// head of its list that fits.
     fn encode_report(&mut self, report: &ClientReport) -> Option<String> {
         let mut request = self.request(REPORT_REQUEST_PREFIX, Method::ClientReport(report.clone()));
-        loop {
-            let encoded = encode(&request)?;
-            if fits(&encoded) {
-                return Some(encoded);
+        let (keep, encoded) = longest_fitting_head(report.agents.len(), |rows| {
+            if let Method::ClientReport(head) = &mut request.method {
+                head.agents = report.agents[..rows].to_vec();
             }
-            let Method::ClientReport(report) = &mut request.method else {
-                return None;
-            };
-            if report.agents.is_empty() {
-                return None;
-            }
-            let keep = (report.agents.len() * MAX_ENDPOINT_COMMAND_BYTES / encoded.len())
-                .min(report.agents.len() - 1);
+            encode(&request)
+        })?;
+        if keep < report.agents.len() {
             warn!(
                 rows = report.agents.len(),
                 keep, "client report exceeds the endpoint command size; dropping trailing rows"
             );
-            report.agents.truncate(keep);
         }
+        Some(encoded)
     }
 
     fn request(&mut self, prefix: &str, method: Method) -> Request {
@@ -314,6 +308,33 @@ pub(super) fn pick_answer_fits(pick_id: &str, outcome: &UiPickOutcome) -> bool {
         }),
     };
     encode(&request).is_some_and(|request| fits(&request))
+}
+
+/// The longest head of a list of `rows` rows whose request fits, with its
+/// encoding; `encode_head(n)` encodes the request with the first `n` rows.
+/// A request grows with every row it keeps, so after the whole list and the
+/// empty one a binary search finds the head in at most `log2(rows) + 1` more
+/// encodes. `None` when even the empty list does not fit.
+fn longest_fitting_head(
+    rows: usize,
+    mut encode_head: impl FnMut(usize) -> Option<String>,
+) -> Option<(usize, String)> {
+    let all = encode_head(rows)?;
+    if fits(&all) {
+        return Some((rows, all));
+    }
+    let mut fitting = (0, encode_head(0).filter(|encoded| fits(encoded))?);
+    let mut too_large = rows;
+    while too_large - fitting.0 > 1 {
+        let middle = fitting.0 + (too_large - fitting.0) / 2;
+        let encoded = encode_head(middle)?;
+        if fits(&encoded) {
+            fitting = (middle, encoded);
+        } else {
+            too_large = middle;
+        }
+    }
+    Some(fitting)
 }
 
 fn encode(request: &Request) -> Option<String> {
