@@ -353,11 +353,12 @@ the client withdraws, or another selection replaces therefore ends the jump as
 `timeout`, unless one of the checks above ends it first. Neither client
 answers `failed`.
 
-The answer reflects what the client presents, not whether its navigation is
-finished. The TUI presents the machine it switches to shortly before the
-switch is done, and takes no request for that machine until then, so a caller
-that jumps again at once to another pane there can see that jump end as
-`timeout`.
+A client that navigated does not answer `focused` on the turn it started the
+navigation, when the pane it shows predates it, nor while it is still
+switching machine. The TUI takes no request while it switches, and presents
+the machine it switches to shortly before the switch is done, so a jump that
+arrives during a switch and names another pane on the machine shown can end
+as `timeout`.
 
 ## Pickers
 

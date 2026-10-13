@@ -283,6 +283,39 @@ fn a_refused_step_leaves_the_user_where_they_are() {
 }
 
 #[test]
+fn a_step_whose_request_is_gone_does_not_wait_for_a_snapshot_to_end() {
+    for withdrawn in [false, true] {
+        let (mut state, _) = fleet(&[]);
+        for (revision, pane) in ["pane_1", "pane_2", "pane_3"].iter().enumerate() {
+            state.set_snapshot(host("boot-1", pane, revision as u64 + 1));
+        }
+        let (_, request_id, pane) = press(&mut state, Step::Back).unwrap();
+        assert_eq!(pane, "pane_2");
+
+        if withdrawn {
+            state.cancel_endpoint_request(&request_id);
+        } else {
+            state.handle_endpoint_result(
+                "boot-1",
+                &request_id,
+                Err(ClientShellEndpointError {
+                    code: Some("pane_not_found".into()),
+                    message: "pane pane_2 not found".into(),
+                }),
+            );
+        }
+
+        // No snapshot follows: pane_3 is still where the user is, so Back
+        // starts from it rather than from the step that never landed.
+        assert_eq!(
+            press(&mut state, Step::Back).unwrap().2,
+            "pane_2",
+            "withdrawn: {withdrawn}"
+        );
+    }
+}
+
+#[test]
 fn each_endpoint_keeps_its_own_trail_and_back_never_crosses_to_another() {
     let (mut state, remotes) = fleet(&["Build"]);
     let build = remotes[0].clone();

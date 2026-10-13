@@ -77,18 +77,21 @@ impl ClientContract {
     }
 
     /// Runs once per client-loop turn: answers settled jumps and pickers,
-    /// and sends the report when it changed.
+    /// and sends the report when it changed. `switching` says whether the
+    /// loop is still switching endpoint, so no jump is answered `focused`
+    /// before the switch is over.
     pub(super) fn sync(
         &mut self,
         shell: &mut ClientShellState,
         endpoints: &mut EndpointRegistry,
         now: Instant,
+        switching: bool,
     ) {
         for ResolvedClientJump {
             origin,
             jump_id,
             outcome,
-        } in shell.settle_client_jumps(now)
+        } in shell.settle_client_jumps(now, switching)
         {
             let method = Method::ClientJumpResolve(ClientJumpResolveParams { jump_id, outcome });
             self.answer(shell, endpoints, &origin, JUMP_REQUEST_PREFIX, method);

@@ -121,7 +121,7 @@ impl Client {
     /// One client-loop turn.
     fn turn(&mut self) {
         self.contract
-            .sync(&mut self.shell, &mut self.endpoints, self.now);
+            .sync(&mut self.shell, &mut self.endpoints, self.now, false);
     }
 
     /// The client loop presents `endpoint_id`.
@@ -354,11 +354,11 @@ fn nothing_is_reported_before_local_has_sent_a_snapshot() {
     let mut endpoints = EndpointRegistry::new(Recorder(sent.clone()), 1, negotiation());
     let mut contract = ClientContract::default();
 
-    contract.sync(&mut shell, &mut endpoints, Instant::now());
+    contract.sync(&mut shell, &mut endpoints, Instant::now(), false);
     assert!(sent.lock().unwrap().is_empty(), "no boot id to name yet");
 
     shell.set_snapshot(Box::new(machine("boot-1", Vec::new())));
-    contract.sync(&mut shell, &mut endpoints, Instant::now());
+    contract.sync(&mut shell, &mut endpoints, Instant::now(), false);
     assert_eq!(requests(&sent).len(), 1);
 }
 
@@ -794,6 +794,9 @@ fn a_jump_to_another_endpoint_cancels_the_open_picker_on_its_own_connection() {
         )]
     );
     assert!(pick_answers(&client.remote_sent).is_empty());
+    // The jump waits a turn past the one that dispatched its navigation.
+    assert!(answers(&client.local_sent).is_empty());
+    client.turn();
     assert_eq!(
         answers(&client.local_sent),
         [(
@@ -802,6 +805,5 @@ fn a_jump_to_another_endpoint_cancels_the_open_picker_on_its_own_connection() {
             ClientJumpOutcome::Focused
         )]
     );
-    client.turn();
     assert_eq!(pick_answers(&client.local_sent).len(), 1, "answered once");
 }
