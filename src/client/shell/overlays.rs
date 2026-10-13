@@ -1,5 +1,6 @@
 use super::*;
 
+mod agent_picker_marks;
 mod pick_overlay;
 mod settings_overlay;
 mod worktree_overlays;
@@ -981,7 +982,7 @@ fn render_navigator_overlay(
             } else {
                 st.fg(p.yellow)
             };
-            pick_overlay::paint_mark(b, rect, &prefix, columns, mark, style);
+            agent_picker_marks::paint_mark(b, rect, &prefix, columns, mark, style);
         }
         let machine_status = match &r.target {
             ClientNavigatorTarget::Machine { endpoint_id } if !endpoint_id.is_local() => endpoints

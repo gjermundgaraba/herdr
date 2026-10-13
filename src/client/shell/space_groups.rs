@@ -92,9 +92,17 @@ pub(super) struct MarkerHit {
 pub(super) fn gap_between(previous: &SidebarRow, next: &SidebarRow, row_gap: u16) -> u16 {
     match (previous, next) {
         (SidebarRow::Marker(_), _) => 0,
+        (_, SidebarRow::Marker(_)) => gap_above_marker(row_gap),
         (_, SidebarRow::Workspace(entry)) if entry.indented => 0,
         _ => row_gap,
     }
+}
+
+/// Blank rows between a space and the marker below it, which starts a new
+/// run. The machine sidebar's gap match in `endpoint_sidebar.rs` holds its
+/// own spaces and markers rather than [`SidebarRow`]s, so it calls this too.
+pub(super) fn gap_above_marker(row_gap: u16) -> u16 {
+    row_gap
 }
 
 /// The snapshot's spaces as `crate::space_order` sees them.

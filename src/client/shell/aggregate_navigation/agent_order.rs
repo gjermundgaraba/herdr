@@ -1,12 +1,47 @@
 //! The order of the cross-host Agents list, which the agent picker and
-//! keyboard agent navigation share: the active endpoint's plugin view, or
-//! else under the `priority` sort the daemons' `priority_key`s.
+//! keyboard agent navigation share: each endpoint's rows numbered in its
+//! snapshot's order, or its legacy view's, then the active endpoint's plugin
+//! view, or else under the `priority` sort the daemons' `priority_key`s.
 //!
 //! Mirrored client logic: Herdr GPUI's counterpart is
 //! `crates/herdr-gpui/src/sidebar/agents/priority.rs` (see "Sibling fork:
 //! Herdr GPUI" in `FORK.md`).
 
 use super::*;
+
+/// One endpoint's rows in their unsorted order.
+pub(super) fn endpoint_rows<'a>(
+    endpoint: CachedEndpointSnapshot<'a>,
+    agents: impl IntoIterator<Item = &'a ClientShellAgent>,
+) -> impl Iterator<Item = AggregateAgentRow<'a>> {
+    agents
+        .into_iter()
+        .enumerate()
+        .map(move |(position, agent)| AggregateAgentRow {
+            endpoint,
+            agent,
+            position,
+        })
+}
+
+/// A legacy view supplies membership and an initial order. Without its
+/// definition, the selected built-in sort determines the combined order.
+pub(super) fn legacy_projected_agents(snapshot: &ClientShellSnapshot) -> Vec<&ClientShellAgent> {
+    if snapshot.agent_view_label.is_some() {
+        snapshot
+            .agent_order
+            .iter()
+            .filter_map(|pane_id| {
+                snapshot
+                    .agents
+                    .iter()
+                    .find(|agent| &agent.pane_id == pane_id)
+            })
+            .collect()
+    } else {
+        snapshot.agents.iter().collect()
+    }
+}
 
 /// The label of the plugin agent view the active endpoint applies, which
 /// orders the Agents list across endpoints.

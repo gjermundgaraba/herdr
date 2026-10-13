@@ -6,6 +6,8 @@ use crate::protocol::ClientShellAgent;
 pub(super) mod agent_order;
 mod agent_picker;
 
+use agent_order::{endpoint_rows, legacy_projected_agents};
+
 #[derive(Clone, Copy)]
 pub(super) struct CachedEndpointSnapshot<'a> {
     pub(super) endpoint_index: usize,
@@ -47,40 +49,6 @@ pub(super) struct AggregateAgentRow<'a> {
     /// The agent's place among its endpoint's rows before any sort, which
     /// breaks ties between equal priority keys.
     pub(super) position: usize,
-}
-
-/// One endpoint's rows in their unsorted order.
-fn endpoint_rows<'a>(
-    endpoint: CachedEndpointSnapshot<'a>,
-    agents: impl IntoIterator<Item = &'a ClientShellAgent>,
-) -> impl Iterator<Item = AggregateAgentRow<'a>> {
-    agents
-        .into_iter()
-        .enumerate()
-        .map(move |(position, agent)| AggregateAgentRow {
-            endpoint,
-            agent,
-            position,
-        })
-}
-
-/// A legacy view supplies membership and an initial order. Without its
-/// definition, the selected built-in sort determines the combined order.
-fn legacy_projected_agents(snapshot: &ClientShellSnapshot) -> Vec<&ClientShellAgent> {
-    if snapshot.agent_view_label.is_some() {
-        snapshot
-            .agent_order
-            .iter()
-            .filter_map(|pane_id| {
-                snapshot
-                    .agents
-                    .iter()
-                    .find(|agent| &agent.pane_id == pane_id)
-            })
-            .collect()
-    } else {
-        snapshot.agents.iter().collect()
-    }
 }
 
 pub(super) fn aggregate_agent_rows<'a>(
