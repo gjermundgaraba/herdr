@@ -1,5 +1,3 @@
-//! `separator_before` in sidebar token tables.
-
 use super::*;
 
 #[test]

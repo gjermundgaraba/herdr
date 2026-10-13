@@ -1,5 +1,3 @@
-//! Persisted metadata tokens.
-
 use super::*;
 
 #[test]

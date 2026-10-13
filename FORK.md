@@ -161,7 +161,9 @@ lands.
 - Keep fork code out of upstream-owned files: fork logic and its tests live in
   fork-added files or child modules, reached through as few hook lines in
   upstream files as possible. Do not rewrite or reorder upstream code you do
-  not need to change.
+  not need to change, and never copy or wrap upstream code just to avoid
+  touching it: a small edit in place beats a duplicate. An upstream test whose
+  behavior the fork changes is edited in place.
 
 ## Upstream guardrails
 

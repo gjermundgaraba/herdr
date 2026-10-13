@@ -1,5 +1,3 @@
-//! `ui.agent_priority_tokens` parsing and validation.
-
 use super::*;
 
 #[test]
