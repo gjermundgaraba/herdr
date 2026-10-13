@@ -10,22 +10,12 @@
 //! "Sibling fork: Herdr GPUI" in `FORK.md`).
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::LazyLock;
 
 use super::*;
 use crate::input::KeybindAction;
 
 /// How many panes the trail remembers; older ones fall off the back.
 const LIMIT: usize = 100;
-
-/// The method name a pending pane focus request carries.
-static PANE_FOCUS: LazyLock<&str> = LazyLock::new(|| {
-    crate::api::api_method_name(&crate::api::schema::Method::PaneFocus(
-        crate::api::schema::PaneTarget {
-            pane_id: String::new(),
-        },
-    ))
-});
 
 /// Which way along the trail.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,9 +151,14 @@ impl ClientShellState {
     /// Whether a pane focus request awaits its answer, which is how long a
     /// travel lasts. Requests go only to the presented endpoint.
     fn focus_request_in_flight(&self) -> bool {
+        let pane_focus = crate::api::api_method_name(&crate::api::schema::Method::PaneFocus(
+            crate::api::schema::PaneTarget {
+                pane_id: String::new(),
+            },
+        ));
         self.pending_requests
             .values()
-            .any(|request| request.method_name == *PANE_FOCUS)
+            .any(|request| request.method_name == pane_focus)
     }
 
     /// Runs `history_back` and `history_forward`; false for any other action.

@@ -9,7 +9,6 @@ pub(crate) struct DecodedAgentViewProjection {
 pub(crate) enum EndpointControlMessage {
     HealthPong,
     AgentViewProjection(DecodedAgentViewProjection),
-    #[cfg_attr(not(test), allow(dead_code))] // the fork's clients ignore it; tests read it
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
     Contract(crate::client::client_contract::Control),
