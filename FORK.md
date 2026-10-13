@@ -24,14 +24,17 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
 ## What the fork adds
 
 - Client-side `[keys]` actions: agent and workspace lists, Back/Forward
-  history, and `mark_unread`, which asks the daemon for the unread hold,
-  documented in `docs/next/website/src/content/docs/client-actions.md`
+  through each machine's own trail of focused panes (a port of Herdr GPUI's
+  per-endpoint trail, `src/client/shell/history.rs`), and `mark_unread`, which
+  asks the daemon for the unread hold, documented in
+  `docs/next/website/src/content/docs/client-actions.md`
 - The client contract, documented in
   `docs/next/website/src/content/docs/client-contract.md`: a client sends
   `client.report` with its cross-host Agents list, its endpoints, and whether
-  its window is focused, and handles `endpoint.client-jump.v1`. Tools read
-  `client.list`, follow `client.changed`, and call `client.jump`; a newer jump
-  to the same client replaces a pending one, whose caller gets
+  its window is focused, and handles `endpoint.client-jump.v1` by navigating
+  as a click on the agent does and answering from what it then presents.
+  Tools read `client.list`, follow `client.changed`, and call `client.jump`; a
+  newer jump to the same client replaces a pending one, whose caller gets
   `jump_superseded`
   (`src/api/schema/clients.rs`, `src/server/headless/client_reports.rs`,
   `src/server/headless/jumps.rs`, `src/client/client_contract.rs`)
@@ -123,9 +126,9 @@ first two kinds below.
 | Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/group_row.rs` | no: group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
 | Mark unread | `src/client/shell/endpoints.rs`, `src/client/shell/actions.rs` | `crates/herdr-gpui/src/window/commands.rs`, `crates/herdr-gpui/src/client_contract/follow.rs` | yes |
 | Client report | `src/client/shell/client_report.rs`, `src/client/client_contract.rs` | `crates/herdr-gpui/src/client_contract.rs`, `crates/herdr-gpui/src/client_contract/report.rs` | yes, except Herdr GPUI sends a report, and a jump or picker answer, only after the request its connection holds is answered |
-| Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes, except under an open menu (Herdr GPUI leaves it open, so the jump waits for it and can time out) and for a refused cross-host jump (Herdr GPUI answers from the refusal of its `pane.focus`, the TUI's activation ends as `timeout`), and when the user leaves the jump's host before the pane shows (Herdr GPUI keeps the jump open until its 12 seconds are up, the TUI withdraws the request and answers `unavailable`) |
+| Client jump | `src/client/shell/client_jump.rs` | `crates/herdr-gpui/src/client_contract/jump.rs` | yes, except under an open menu (Herdr GPUI leaves it open, so the jump waits for it and can time out) |
 | Agent and workspace pickers | `src/client/shell/aggregate_navigation.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
-| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/history.rs`, `crates/herdr-gpui/src/history/sync.rs` | yes, except the TUI clears all history when Local becomes unavailable and Herdr GPUI keeps it, and between a step's request being accepted and its pane showing, the TUI records a pane off the traversed path as a visit at once, where Herdr GPUI records nothing and takes the step back if the pane has not shown after 5 seconds |
+| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's) | yes |
 | Client-side keys stay local | `src/config/keybinds.rs` | `crates/herdr-gpui/src/keymap/daemon.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
 
 Add a row, in both `FORK.md` files, when a mirrored feature lands in either

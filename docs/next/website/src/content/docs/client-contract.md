@@ -301,15 +301,13 @@ an error:
 | `client_departed` | The client detached before it answered, or the daemon could not send it the jump. |
 | `stale_boot` | The client reports that the endpoint now runs another boot. |
 | `jump_target_not_found` | The client knows no such endpoint or pane. |
-| `jump_endpoint_unavailable` | The endpoint is not online, or the client's navigation did not reach it or was withdrawn. |
+| `jump_endpoint_unavailable` | The endpoint is not online, or the client has no snapshot of it. |
 | `jump_timeout` | The client did not see the pane focused in time, or did not answer within 20 seconds. |
 | `jump_failed` | The client could not perform the jump. The message is the client's, trimmed and cut to 512 bytes, or the daemon's own when the client sent none. |
 | `invalid_params` | An id is empty or longer than 128 bytes. |
 
 After `client_departed`, `jump_timeout`, and `jump_superseded` the jump may
-still have happened. So it may after a `jump_endpoint_unavailable` that a TUI
-answered for a request it withdrew in flight; see
-[Choosing the outcome](#choosing-the-outcome).
+still have happened; see [Choosing the outcome](#choosing-the-outcome).
 
 The daemon does not notice a caller that disconnects while it waits. The jump
 stays pending until the client answers it, a newer jump replaces it, the
@@ -332,21 +330,13 @@ The earlier jump's navigation may still be under way when the newer jump
 arrives. The client therefore always performs the newer navigation, even when
 it already presents the pane the newer jump names, so that navigation is the
 last one it starts and the one it ends on. Only a client that is performing no
-jump skips the navigation for a pane it already presents, and the TUI only
-while it is not switching machines: a switch under way may still leave the
-pane. A client that skips the navigation answers `focused` at once.
+jump skips the navigation for a pane it already presents, and answers
+`focused` at once.
 
 ### Choosing the outcome
 
-A client answers `focused` only once it presents the endpoint with the pane
-focused, and `timeout` when that has not happened 12 seconds after the jump
-arrived. The TUI also waits for a switch of machine to complete. It shows the
-machine it switches to shortly before the switch is done, and until then it
-sends that machine no request and may still go back, so a caller could not
-jump again on an answer given any earlier. A switch that is still under way
-at the 12 second mark ends the jump as `timeout`, though the pane may show.
-Before navigating, and again on every turn while it waits, the client checks
-what it holds, and the first of these that applies is the outcome:
+When a jump arrives, and again on every turn while it waits, the client checks
+what it holds. The first of these that applies is the outcome, sent at once:
 
 1. it knows no such endpoint: `not_found`;
 2. the endpoint has sent no snapshot yet: `unavailable`;
@@ -354,48 +344,20 @@ what it holds, and the first of these that applies is the outcome:
 4. the endpoint is not online: `unavailable`;
 5. the endpoint's snapshot has no such pane: `not_found`.
 
-On the endpoint the client already presents, the navigation is a `pane.focus`
-request. The TUI makes two exceptions and activates the endpoint instead: for
-a pane on its local machine while it is attached to more than one machine,
-and while a switch of machine is under way, whatever started it. Such an
-activation takes the place of that switch, or follows it when the switch
-already shows the jump's endpoint. When no switch is under way and the
-endpoint's surface is active, there is nothing to activate, and the TUI sends
-the `pane.focus` request after all. When the endpoint rejects the request,
-the client maps the error code:
+Otherwise the client navigates to the pane the way a click on that agent does,
+switching machine when the pane is on another one. Nothing follows that
+navigation's own request or switch: the client answers `focused` once it
+presents the endpoint with the pane focused, and `timeout` when that has not
+happened 12 seconds after the jump arrived. A navigation the endpoint refuses,
+the client withdraws, or another selection replaces therefore ends the jump as
+`timeout`, unless one of the checks above ends it first. Neither client
+answers `failed`.
 
-| `pane.focus` error | Outcome |
-| --- | --- |
-| `pane_not_found` | `not_found` |
-| `stale_boot` | `stale_boot` |
-| anything else | `failed`, with the error's message |
-
-A request the endpoint never answers is not in the table: the jump ends as
-`timeout` at the 12 second mark, long before a client gives up on the request
-itself.
-
-On another endpoint, the two clients navigate differently:
-
-- The TUI activates that endpoint with the pane as the activation's target,
-  as it does in its two exceptions above. The table does not apply to an
-  activation: one that fails, is cancelled, or is replaced reports nothing to
-  the jump, which therefore ends as `timeout` at the 12 second mark unless
-  one of the checks above ends it first.
-- Herdr GPUI switches to that endpoint and, once the endpoint's surface is
-  ready, sends it the same `pane.focus` request as on the endpoint it already
-  presents. A rejection of that request ends the jump by the table, and a
-  request it could not send ends it as `unavailable`. A surface that is not
-  ready in time leaves the jump to end as `timeout`.
-
-A client answers `unavailable` when its navigation did not reach the endpoint
-or was withdrawn:
-
-- it could dispatch neither the request nor an activation;
-- it could not hand the request to the endpoint's connection;
-- in the TUI, the endpoint it presents disconnected with the request in
-  flight, or the user activated another machine before the request was
-  answered. The TUI withdraws the request in both cases and does not learn
-  whether the endpoint carried it out.
+The answer reflects what the client presents, not whether its navigation is
+finished. The TUI presents the machine it switches to shortly before the
+switch is done, and takes no request for that machine until then, so a caller
+that jumps again at once to another pane there can see that jump end as
+`timeout`.
 
 ## Pickers
 

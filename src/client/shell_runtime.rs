@@ -338,8 +338,10 @@ pub(super) fn begin_endpoint_activation(
         ),
         Err(endpoint::ActivationBeginError::Preflight(error)) => {
             if let Some(shell) = state.shell.as_mut() {
-                let message = format!("{}: {error}", shell.endpoint_label(&endpoint_id));
-                shell.receive_endpoint_unavailable(message);
+                shell.receive_endpoint_unavailable(format!(
+                    "{}: {error}",
+                    shell.endpoint_label(&endpoint_id)
+                ));
             }
         }
         Err(endpoint::ActivationBeginError::Partial { activation, error }) => {
@@ -425,35 +427,27 @@ pub(super) fn complete_endpoint_activation(
         return Ok(None);
     }
 
-    let Some(mut activation) = pending.take() else {
-        return Ok(None);
-    };
+    let _ = pending.take();
     endpoints.unfreeze_input();
-    // The latest selection made while this activation was pending. With one, the attempt is not
-    // over: the loop starts it next.
-    let successor = activation.take_successor();
-    let restored = match completion {
-        endpoint::ActivationCompletion::RestoredSource { error } => {
-            if successor.is_none() {
+    let successor = match completion {
+        endpoint::ActivationCompletion::RestoredSource {
+            error,
+            successor: next,
+            ..
+        } => {
+            if next.is_none() {
                 if let Some(shell) = state.shell.as_mut() {
                     shell.receive_endpoint_unavailable(error);
                 }
             }
-            true
+            next
         }
-        endpoint::ActivationCompletion::Activated => {
-            if let Some(shell) = state.shell.as_mut() {
-                shell.receive_endpoint_activated(activation.target(), activation.focus());
-            }
-            false
-        }
+        endpoint::ActivationCompletion::Activated => None,
         endpoint::ActivationCompletion::AwaitingPresentationSync { .. }
         | endpoint::ActivationCompletion::AwaitingPresentationEffects => unreachable!(),
     };
     state.unfreeze_presentation();
-    // A restored source is about to be left for the successor. A successor on the endpoint just
-    // activated needs no handoff, so that endpoint's lane resumes ahead of it.
-    if successor.is_none() || !restored {
+    if successor.is_none() {
         let active_endpoint = endpoints.active_id().clone();
         let cancelled = endpoint_commands.send_next(&active_endpoint, endpoints);
         if let Some(shell) = state.shell.as_mut() {
@@ -478,29 +472,10 @@ pub(super) fn complete_endpoint_activation(
         return Ok(Some(ClientLoopEvent::ActivateEndpoint {
             endpoint_id: intent.endpoint_id,
             target: intent.target,
-            // The restored source takes a fresh activation epoch even when the successor
-            // returns to it. On the endpoint just activated, the successor is routed back to
-            // the shell as a focus request.
-            force: restored,
+            force: true,
         }));
     }
     Ok(None)
-}
-
-/// Tells the shell, once per loop turn, whether the loop holds an endpoint activation: one
-/// under way, one scheduled to begin on this turn, or a Local selection put off until Local is
-/// ready. Nothing the shell presents says so: a handoff shows its target rounds before it
-/// completes, and a reversed one shows its source again ahead of the successor.
-pub(super) fn report_held_activations(
-    state: &mut ClientState,
-    pending: Option<&endpoint::PendingEndpointActivation>,
-    scheduled: Option<&ClientLoopEvent>,
-) {
-    let held =
-        pending.is_some() || scheduled.is_some() || state.deferred_local_activation.is_some();
-    if let Some(shell) = state.shell.as_mut() {
-        shell.receive_endpoint_activations_held(held);
-    }
 }
 
 pub(super) fn present_handoff_unavailable(state: &mut ClientState, message: String) {

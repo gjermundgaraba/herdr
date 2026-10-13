@@ -563,7 +563,7 @@
           "key": "keys.history_back",
           "type": "keybinding",
           "default": "\"\"",
-          "description": "Return to the previously focused pane, across machines."
+          "description": "Return to the pane the presented machine focused before."
         },
         {
           "key": "keys.history_forward",

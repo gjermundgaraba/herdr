@@ -1,5 +1,6 @@
 //! `endpoint.client-jump.v1` as the shell performs it: where a jump leads,
-//! which navigation it starts, and how it is answered (`client_jump.rs`).
+//! which navigation it starts, and how what the client presents answers it
+//! (`client_jump.rs`).
 
 use std::time::{Duration, Instant};
 
@@ -192,44 +193,10 @@ fn a_jump_to_another_endpoint_activates_it_with_the_pane_as_target() {
     assert!(state.activate_endpoint_projection(&remote));
     assert!(state.settle_client_jumps(start).is_empty());
 
-    // Showing the pane is not enough either. The client loop still holds the
-    // activation: it takes no request for Build yet, so a tool told
-    // `focused` now could not jump on.
+    // Presenting Build with the pane focused is the answer.
     focus(&mut state, "pane_7");
-    state.receive_endpoint_activations_held(true);
-    assert!(state.settle_client_jumps(start).is_empty());
-
-    state.receive_endpoint_activations_held(false);
     assert_eq!(
         state.settle_client_jumps(start + Duration::from_secs(1)),
-        answer(ClientJumpOutcome::Focused)
-    );
-}
-
-#[test]
-fn a_jump_to_the_pane_presented_navigates_while_the_client_loop_holds_an_activation() {
-    let (mut state, remote) = federated();
-    assert!(state.activate_endpoint_projection(&remote));
-    let start = Instant::now();
-
-    // The user selects Local, and the handoff is under way: Build is still
-    // shown with `pane_1` focused, which the jump names. Answering `focused`
-    // would let the handoff leave the pane, and a focus request would be
-    // cancelled, so the jump goes through the loop, which puts it in the
-    // handoff's place.
-    let mut selection = ClientShellInput::default();
-    assert!(state.activate_endpoint(ClientEndpointId::Local, &mut selection));
-    let input = state.receive_client_jump(
-        origin(),
-        jump(&remote.storage_key(), "build-boot", "pane_1"),
-        start,
-    );
-
-    assert_activates(&input, &remote, "pane_1");
-    assert!(state.settle_client_jumps(start).is_empty());
-    state.receive_endpoint_activations_held(false);
-    assert_eq!(
-        state.settle_client_jumps(start),
         answer(ClientJumpOutcome::Focused)
     );
 }
@@ -246,7 +213,6 @@ fn a_jump_back_to_local_from_a_federated_client_goes_through_activation() {
     assert!(state.activate_endpoint_projection(&ClientEndpointId::Local));
     assert!(state.settle_client_jumps(start).is_empty());
     focus(&mut state, "pane_2");
-    state.receive_endpoint_activations_held(false);
     assert_eq!(
         state.settle_client_jumps(start),
         answer(ClientJumpOutcome::Focused)
@@ -372,92 +338,33 @@ fn a_jump_that_never_shows_its_pane_times_out_before_the_daemon_does() {
 }
 
 #[test]
-fn the_endpoints_rejection_of_the_focus_request_answers_the_jump() {
-    for (code, message, expected) in [
-        (
-            Some("pane_not_found"),
-            "pane pane_2 not found",
-            ClientJumpOutcome::NotFound,
-        ),
-        (
-            Some("stale_boot"),
-            "endpoint restarted",
-            ClientJumpOutcome::StaleBoot,
-        ),
-        (
-            Some("pane_focus_failed"),
-            "the pane cannot take focus",
-            ClientJumpOutcome::Failed {
-                message: "the pane cannot take focus".into(),
-            },
-        ),
-        (
-            None,
-            "malformed response",
-            ClientJumpOutcome::Failed {
-                message: "malformed response".into(),
-            },
-        ),
-    ] {
+fn a_refused_or_withdrawn_navigation_is_not_followed_and_the_jump_times_out() {
+    for withdrawn in [false, true] {
         let mut state = single();
         let start = Instant::now();
         let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
         let (boot_id, request_id) = focus_request(&input, &ClientEndpointId::Local, "pane_2");
 
-        let (_, actions) = state.handle_endpoint_result(
-            &boot_id,
-            &request_id,
-            Err(ClientShellEndpointError {
-                code: code.map(str::to_owned),
-                message: message.into(),
-            }),
-        );
+        if withdrawn {
+            state.cancel_endpoint_request(&request_id);
+        } else {
+            state.handle_endpoint_result(
+                &boot_id,
+                &request_id,
+                Err(ClientShellEndpointError {
+                    code: Some("pane_focus_failed".into()),
+                    message: "the pane cannot take focus".into(),
+                }),
+            );
+        }
 
-        assert!(actions.is_empty());
-        assert_eq!(state.settle_client_jumps(start), answer(expected));
-        assert!(
-            state.visible_endpoint_notice.is_none(),
-            "a tool asked, not the user"
+        // Only what the client presents answers the jump.
+        assert!(state.settle_client_jumps(start).is_empty());
+        assert_eq!(
+            state.settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE),
+            answer(ClientJumpOutcome::Timeout)
         );
     }
-}
-
-#[test]
-fn a_focus_request_the_client_withdrew_answers_the_jump_unavailable() {
-    // The client loop could not hand the request to the connection, or the
-    // user activated another machine with it in flight.
-    let mut state = single();
-    let start = Instant::now();
-    let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
-    let (_, request_id) = focus_request(&input, &ClientEndpointId::Local, "pane_2");
-
-    state.cancel_endpoint_request(&request_id);
-
-    assert_eq!(
-        state.settle_client_jumps(start),
-        answer(ClientJumpOutcome::Unavailable)
-    );
-    assert!(
-        state.visible_endpoint_notice.is_none(),
-        "a tool asked, not the user"
-    );
-
-    // The presented endpoint disconnects with the request in flight.
-    let (mut state, remote) = federated();
-    assert!(state.activate_endpoint_projection(&remote));
-    let input = state.receive_client_jump(
-        origin(),
-        jump(&remote.storage_key(), "build-boot", "pane_7"),
-        start,
-    );
-    focus_request(&input, &remote, "pane_7");
-
-    state.mark_endpoint_disconnected(&remote);
-
-    assert_eq!(
-        state.settle_client_jumps(start),
-        answer(ClientJumpOutcome::Unavailable)
-    );
 }
 
 #[test]
@@ -560,7 +467,6 @@ fn a_newer_jump_replaces_the_pending_one_which_is_never_answered() {
     assert!(state.settle_client_jumps(start).is_empty());
 
     focus(&mut state, "pane_2");
-    state.receive_endpoint_activations_held(false);
     assert_eq!(state.settle_client_jumps(start), focused(2));
     // The replaced jump has no answer, not even a timeout: its daemon
     // answered its caller when it forwarded the second one.
@@ -596,7 +502,7 @@ fn a_jump_that_replaces_a_pending_one_navigates_even_to_the_pane_already_present
 }
 
 #[test]
-fn a_jump_to_the_pane_still_shown_cancels_the_replaced_jumps_activation() {
+fn a_jump_to_the_pane_still_shown_navigates_in_place_of_the_replaced_jumps_activation() {
     let (mut state, remote) = federated();
     let start = Instant::now();
     let first = state.receive_client_jump(
@@ -607,18 +513,17 @@ fn a_jump_to_the_pane_still_shown_cancels_the_replaced_jumps_activation() {
     assert_activates(&first, &remote, "pane_7");
 
     // Build's activation is in flight and Local is still shown. Answering
-    // `focused` without navigating would let that activation complete.
+    // without navigating would let that activation complete, so the jump
+    // selects Local as a click would, which the client loop puts in the
+    // activation's place.
     let second = state.receive_client_jump(
         origin(),
         numbered(jump("local", "boot-1", "pane_1"), 2),
         start,
     );
 
-    // The client loop abandons a remote activation for one of Local, and
-    // the jump is answered once that one completed.
     assert_activates(&second, &ClientEndpointId::Local, "pane_1");
-    assert!(state.settle_client_jumps(start).is_empty());
-    state.receive_endpoint_activations_held(false);
+    // The pane is presented, so the jump is answered on the next turn.
     assert_eq!(state.settle_client_jumps(start), focused(2));
     assert!(state
         .settle_client_jumps(start + NAVIGATION_SETTLE_DEADLINE * 2)
@@ -626,25 +531,22 @@ fn a_jump_to_the_pane_still_shown_cancels_the_replaced_jumps_activation() {
 }
 
 #[test]
-fn a_jump_to_the_remote_pane_still_shown_cancels_the_replaced_jumps_activation() {
+fn a_jump_to_the_remote_pane_still_shown_navigates_after_the_replaced_jump() {
     let (mut state, remote) = federated();
     assert!(state.activate_endpoint_projection(&remote));
     let start = Instant::now();
     let first = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
     assert_activates(&first, &ClientEndpointId::Local, "pane_2");
 
-    // Build is still shown with `pane_1` focused. A focus request to Build
-    // would not stop Local's activation, so this jump is an activation too:
-    // the client loop replaces the one in flight with it.
+    // Build is still shown with `pane_1` focused. The jump navigates there
+    // as a click on the agent would: a focus request to the endpoint shown.
     let second = state.receive_client_jump(
         origin(),
         numbered(jump(&remote.storage_key(), "build-boot", "pane_1"), 2),
         start,
     );
 
-    assert_activates(&second, &remote, "pane_1");
-    assert!(state.settle_client_jumps(start).is_empty());
-    state.receive_endpoint_activations_held(false);
+    focus_request(&second, &remote, "pane_1");
     assert_eq!(state.settle_client_jumps(start), focused(2));
 }
 
@@ -667,134 +569,4 @@ fn a_replacing_jump_on_the_presented_remote_is_a_focus_request_without_an_activa
 
     focus_request(&second, &remote, "pane_1");
     assert_eq!(state.settle_client_jumps(start), focused(2));
-}
-
-#[test]
-fn a_replaced_jumps_focus_rejection_answers_nothing_and_raises_no_notice() {
-    let mut state = single();
-    let start = Instant::now();
-    let first = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
-    let (boot_id, first_request) = focus_request(&first, &ClientEndpointId::Local, "pane_2");
-    // The same pane again, under the id of a newer jump.
-    let second = state.receive_client_jump(
-        origin(),
-        numbered(jump("local", "boot-1", "pane_2"), 2),
-        start,
-    );
-    let (_, second_request) = focus_request(&second, &ClientEndpointId::Local, "pane_2");
-    assert_ne!(first_request, second_request);
-
-    let (_, actions) = state.handle_endpoint_result(
-        &boot_id,
-        &first_request,
-        Err(ClientShellEndpointError {
-            code: Some("pane_focus_failed".into()),
-            message: "the pane cannot take focus".into(),
-        }),
-    );
-
-    assert!(actions.is_empty());
-    assert!(state.visible_endpoint_notice.is_none());
-    // The newer jump is still open and settles on its own.
-    assert!(state.settle_client_jumps(start).is_empty());
-    focus(&mut state, "pane_2");
-    assert_eq!(state.settle_client_jumps(start), focused(2));
-}
-
-/// The focus request the client loop makes of a jump's activation of the
-/// endpoint it already presents, as `(boot id, request id)`.
-fn routed_focus_request(
-    state: &mut ClientShellState,
-    input: &ClientShellInput,
-    endpoint: &ClientEndpointId,
-    pane: &str,
-) -> (String, String) {
-    assert_activates(input, endpoint, pane);
-    let routed = ClientShellInput {
-        actions: state.focus_endpoint_target(ClientEndpointFocusTarget::Pane(pane.into())),
-        ..ClientShellInput::default()
-    };
-    focus_request(&routed, endpoint, pane)
-}
-
-#[test]
-fn a_jumps_focus_request_routed_by_the_client_loop_answers_the_jump_like_a_direct_one() {
-    for (code, expected) in [
-        ("pane_not_found", ClientJumpOutcome::NotFound),
-        (
-            "pane_focus_failed",
-            ClientJumpOutcome::Failed {
-                message: "refused".into(),
-            },
-        ),
-        ("endpoint_cancelled", ClientJumpOutcome::Unavailable),
-    ] {
-        // Local is presented among several machines, so the jump leaves as
-        // an activation, which the loop routes back as a focus request.
-        let (mut state, _) = federated();
-        let start = Instant::now();
-        let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
-        let (boot_id, request_id) =
-            routed_focus_request(&mut state, &input, &ClientEndpointId::Local, "pane_2");
-
-        let (_, actions) = state.handle_endpoint_result(
-            &boot_id,
-            &request_id,
-            Err(ClientShellEndpointError {
-                code: Some(code.into()),
-                message: "refused".into(),
-            }),
-        );
-
-        assert!(actions.is_empty());
-        assert_eq!(state.settle_client_jumps(start), answer(expected));
-        assert!(
-            state.visible_endpoint_notice.is_none(),
-            "a tool asked, not the user"
-        );
-    }
-}
-
-#[test]
-fn a_routed_focus_request_the_endpoint_cannot_take_answers_the_jump_unavailable() {
-    let (mut state, _) = federated();
-    let start = Instant::now();
-    let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
-    assert_activates(&input, &ClientEndpointId::Local, "pane_2");
-
-    state.set_endpoint_methods(Some(Vec::new()));
-    let actions = state.focus_endpoint_target(ClientEndpointFocusTarget::Pane("pane_2".into()));
-
-    assert!(actions.is_empty(), "{actions:?}");
-    assert_eq!(
-        state.settle_client_jumps(start),
-        answer(ClientJumpOutcome::Unavailable)
-    );
-}
-
-#[test]
-fn a_routed_focus_on_another_pane_than_the_open_jumps_is_the_users_own() {
-    let (mut state, _) = federated();
-    let start = Instant::now();
-    let input = state.receive_client_jump(origin(), jump("local", "boot-1", "pane_2"), start);
-    routed_focus_request(&mut state, &input, &ClientEndpointId::Local, "pane_2");
-
-    // The user clicks another agent meanwhile. Its rejection is theirs to
-    // see, and the jump stays open.
-    let routed = ClientShellInput {
-        actions: state.focus_endpoint_target(ClientEndpointFocusTarget::Pane("pane_1".into())),
-        ..ClientShellInput::default()
-    };
-    let (boot_id, request_id) = focus_request(&routed, &ClientEndpointId::Local, "pane_1");
-    state.handle_endpoint_result(
-        &boot_id,
-        &request_id,
-        Err(ClientShellEndpointError {
-            code: Some("pane_focus_failed".into()),
-            message: "refused".into(),
-        }),
-    );
-
-    assert!(state.visible_endpoint_notice.is_some());
-    assert!(state.settle_client_jumps(start).is_empty());
 }

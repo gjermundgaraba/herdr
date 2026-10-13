@@ -232,9 +232,7 @@ pub enum ClientJumpOutcome {
     StaleBoot,
     /// The client knows no such endpoint, or the endpoint no such pane.
     NotFound,
-    /// The endpoint is not online, or the client's navigation did not reach
-    /// it or was withdrawn. After a request the client withdrew in flight
-    /// the jump may still have happened.
+    /// The endpoint is not online, or has sent the client no snapshot yet.
     Unavailable,
     /// The client did not see the pane focused in time; it may still happen.
     Timeout,

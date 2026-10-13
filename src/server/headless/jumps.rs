@@ -210,7 +210,7 @@ impl HeadlessServer {
             ),
             Ok(ClientJumpOutcome::Unavailable) => failure(
                 "jump_endpoint_unavailable",
-                "the endpoint is not online, or the client's navigation did not reach it or was withdrawn",
+                "the endpoint is not online, or the client has no snapshot of it",
             ),
             Ok(ClientJumpOutcome::Timeout) => failure(
                 "jump_timeout",

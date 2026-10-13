@@ -719,11 +719,6 @@ impl ClientShellOverlay {
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
     Generic,
-    /// A Back/Forward focus request. Its result ends the wait for the step:
-    /// failure rewinds the history cursor.
-    HistoryStep {
-        step: super::history::Step,
-    },
     ProductAnnouncementDismiss {
         version: String,
         id: String,
@@ -759,11 +754,6 @@ pub(super) enum PendingEndpointKind {
     },
     PaneLinkResolve {
         target: super::link_hover::LinkHoverTarget,
-    },
-    /// The focus request of a daemon's jump; a failure answers the jump.
-    ClientJump {
-        origin: super::ControlOrigin,
-        jump_id: String,
     },
     /// `agent.mark_unread` for the focused pane; success is confirmed to the user.
     MarkUnread,
@@ -1010,25 +1000,12 @@ pub(crate) struct ClientShellState {
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
     pub(super) endpoints: Vec<ClientShellEndpoint>,
-    /// Bounded Back/Forward visit history across endpoints.
-    pub(crate) history: super::history::History,
-    /// Whether the client loop holds an endpoint activation it has not
-    /// finished: one this shell asked for since the loop last said, or one
-    /// the loop said it holds. Only the loop knows. A handoff shows its
-    /// target rounds before it completes and takes no request until then,
-    /// and a reversed one shows its source again ahead of the activation
-    /// that replaced it. See `receive_endpoint_activations_held`.
-    pub(super) endpoint_activation_held: bool,
-    /// The Back/Forward step that left the shell as an endpoint activation
-    /// and has not been settled. An activation sends no request the shell
-    /// tracks, so the step is settled by what the client loop says of its
-    /// activations: see `receive_endpoint_activated` and
-    /// `receive_endpoint_activations_held`.
-    pub(super) history_handoff: Option<super::history::Step>,
+    /// Each endpoint's Back/Forward trail of focused panes.
+    pub(super) history: super::history::Trails,
     /// Jumps daemons asked this client to perform.
     pub(super) client_jumps: super::client_jump::ClientJumps,
     pub(super) picks: super::picks::ClientPicks,
-    pub(crate) active_endpoint_id: ClientEndpointId,
+    pub(super) active_endpoint_id: ClientEndpointId,
     pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
     pub(super) mode: ClientShellMode,
     pub(super) navigate_workspace_id: Option<WorkspaceNavigationTarget>,
@@ -1249,8 +1226,6 @@ impl ClientShellState {
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
             history: Default::default(),
-            endpoint_activation_held: false,
-            history_handoff: None,
             client_jumps: Default::default(),
             picks: Default::default(),
             outer_focused: None,
@@ -1477,11 +1452,6 @@ impl ClientShellState {
             self.pending_pane_surface = None;
         }
         self.active_snapshot_generation = generation;
-        self.history.observe(
-            &self.active_endpoint_id,
-            &snapshot.boot_id,
-            snapshot.focused_pane_id.as_deref(),
-        );
         self.graphics.set_scope(&graphics_scope);
         let command_bindings_changed = self.snapshot.as_ref().is_none_or(|current| {
             current.commands.len() != snapshot.commands.len()

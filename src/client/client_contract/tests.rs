@@ -124,11 +124,9 @@ impl Client {
             .sync(&mut self.shell, &mut self.endpoints, self.now);
     }
 
-    /// The client loop completes the handoff that shows `endpoint_id` and
-    /// holds no activation on its next turn.
+    /// The client loop presents `endpoint_id`.
     fn hand_off_to(&mut self, endpoint_id: &ClientEndpointId) {
         assert!(self.shell.activate_endpoint_projection(endpoint_id));
-        self.shell.receive_endpoint_activations_held(false);
     }
 
     /// The terminal reports that its window gained or lost focus.
@@ -637,7 +635,6 @@ fn only_the_newest_jump_is_answered() {
     client.update(&ClientEndpointId::Local, |snapshot| {
         snapshot.focused_pane_id = Some("pane_2".into());
     });
-    client.shell.receive_endpoint_activations_held(false);
     client.turn();
     // Long past the first jump's deadline.
     client.now += NAVIGATION_SETTLE_DEADLINE * 2;

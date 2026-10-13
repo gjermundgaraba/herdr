@@ -89,11 +89,10 @@ impl ClientShellState {
                 outcome,
             );
         } else if self.endpoint_is_online(&notification.endpoint_id) {
-            self.ask_for_endpoint_activation(
-                notification.endpoint_id,
-                Some(ClientEndpointFocusTarget::Pane(pane_id)),
-                outcome,
-            );
+            outcome.actions.push(ClientShellAction::ActivateEndpoint {
+                endpoint_id: notification.endpoint_id,
+                target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
+            });
         }
     }
 
