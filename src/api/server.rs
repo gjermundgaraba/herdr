@@ -15,8 +15,7 @@ use crate::api::schema::{
 };
 use crate::api::subscriptions::ActiveSubscription;
 use crate::api::wait::{
-    prompt_agent, wait_for_agent, wait_for_agent_start, wait_for_event, wait_for_output,
-    wait_for_pick,
+    prompt_agent, wait_for_agent, wait_for_event, wait_for_output, wait_for_pick,
 };
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
@@ -481,11 +480,6 @@ fn handle_connection_with_stop(
                 event_hub,
                 running,
             )?;
-            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
-        }
-        Method::AgentStart(params) => {
-            let response =
-                wait_for_agent_start(request_id.clone(), params, &mut stream, api_tx, running)?;
             finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
         }
         Method::UiPick(params) => {

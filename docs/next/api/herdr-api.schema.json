@@ -9769,23 +9769,7 @@
                 "null"
               ]
             },
-            "focused_pane_agent_session": {
-              "anyOf": [
-                {
-                  "$ref": "#/schemas/success_response/$defs/AgentSessionInfo"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
             "focused_pane_cwd": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "focused_pane_foreground_cwd": {
               "type": [
                 "string",
                 "null"
@@ -9837,13 +9821,6 @@
                 "null"
               ]
             },
-            "tabs": {
-              "description": "Tabs of the context workspace in order. Omitted for event hooks.",
-              "items": {
-                "$ref": "#/schemas/success_response/$defs/TabInfo"
-              },
-              "type": "array"
-            },
             "workspace_cwd": {
               "type": [
                 "string",
@@ -9861,13 +9838,6 @@
                 "string",
                 "null"
               ]
-            },
-            "workspaces": {
-              "description": "Every workspace in server order. Omitted for event hooks.",
-              "items": {
-                "$ref": "#/schemas/success_response/$defs/WorkspaceInfo"
-              },
-              "type": "array"
             },
             "worktree": {
               "anyOf": [

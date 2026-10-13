@@ -6,8 +6,8 @@ use super::{terminal_targets::TerminalTargetError, App};
 use crate::api::schema::AgentStartParams;
 
 const DEFAULT_AGENT_START_TIMEOUT: Duration = Duration::from_secs(30);
-const MAX_AGENT_START_TIMEOUT: Duration = Duration::from_secs(300);
-const AGENT_START_SETTLE_DELAY: Duration = Duration::from_secs(3);
+pub(crate) const MAX_AGENT_START_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const AGENT_START_SETTLE_DELAY: Duration = Duration::from_secs(3);
 const INVALID_AGENT_TIMEOUT_MESSAGE: &str =
     "agent start timeout must be greater than 3000ms and at most 300000ms";
 const INVALID_AGENT_NAME_MESSAGE: &str = "agent name must start with a lowercase letter and contain only lowercase letters, digits, '-' or '_' (1-32 characters)";
@@ -192,7 +192,7 @@ impl App {
             .get(&terminal_id)
             .ok_or_else(|| AgentStartError::TargetUnavailable(params.pane_id.clone()))?;
         let shell_name = available_shell_name(runtime)
-            .ok_or_else(|| shell_unavailable_error(runtime, params.pane_id.clone()))?;
+            .ok_or_else(|| AgentStartError::TargetBusy(params.pane_id.clone()))?;
 
         let mut argv = vec![crate::detect::interactive_agent_executable(kind).to_string()];
         argv.extend(params.args);
@@ -263,10 +263,6 @@ impl App {
             AgentStartError::TargetBusy(target) => crate::api::schema::ErrorBody {
                 code: "agent_pane_busy".into(),
                 message: format!("agent target pane {target} is not an available shell"),
-            },
-            AgentStartError::ShellNotReady(target) => crate::api::schema::ErrorBody {
-                code: "shell_not_ready".into(),
-                message: format!("agent target pane {target} shell is still starting"),
             },
             AgentStartError::TargetUnavailable(target) => crate::api::schema::ErrorBody {
                 code: "agent_pane_unavailable".into(),
@@ -432,38 +428,6 @@ fn available_shell_name(runtime: &crate::terminal::TerminalRuntime) -> Option<St
     crate::platform::available_pane_shell(runtime.child_pid()?)
 }
 
-/// Why a pane's shell cannot take an agent: still starting, or busy.
-/// Platforms without foreground jobs report it busy.
-fn shell_unavailable_error(
-    runtime: &crate::terminal::TerminalRuntime,
-    pane_id: String,
-) -> AgentStartError {
-    let starting = runtime.child_pid().is_some_and(|shell_pid| {
-        crate::detect::foreground_job(shell_pid)
-            .is_some_and(|job| shell_is_starting(shell_pid, &job))
-    });
-    if starting {
-        AgentStartError::ShellNotReady(pane_id)
-    } else {
-        AgentStartError::TargetBusy(pane_id)
-    }
-}
-
-/// The shell itself leads the foreground job, so the other processes in it are
-/// helpers its startup files run. A command, or a shell that exec'd one, would
-/// lead the job instead.
-fn shell_is_starting(shell_pid: u32, job: &crate::platform::ForegroundJob) -> bool {
-    job.process_group_id == shell_pid
-        && job.processes.iter().any(|process| {
-            process.pid == shell_pid
-                && (crate::platform::is_pane_shell_process_name(&process.name)
-                    || process
-                        .argv0
-                        .as_deref()
-                        .is_some_and(crate::platform::is_pane_shell_process_name))
-        })
-}
-
 pub(super) fn runtime_hosts_agent(
     runtime: &crate::terminal::TerminalRuntime,
     expected: crate::detect::Agent,
@@ -493,8 +457,6 @@ pub(super) enum AgentStartError {
     InvalidTimeout,
     TargetNotFound(String),
     TargetBusy(String),
-    /// The shell holds the terminal but is still running its startup files.
-    ShellNotReady(String),
     TargetUnavailable(String),
     InputFailed(String),
     DuplicateName {
@@ -517,8 +479,6 @@ pub(super) enum AgentRenameError {
 #[cfg(test)]
 mod tests {
     use super::valid_agent_name;
-
-    mod shell_start;
 
     #[test]
     fn agent_names_use_a_small_cli_safe_grammar() {
