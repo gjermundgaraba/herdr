@@ -94,12 +94,13 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
 - Agent state from OSC 7501 program status reports, applied to the session a
   state-reporting integration recorded; the bundled Pi integration (v10)
   reports only the session. Herdr does not answer the protocol's support
-  query, so Pi reports only with `PI_PROGRAM_STATUS=1`, which the user's
-  shell config sets inside Herdr panes, on every machine that runs Pi under
-  Herdr. In fish: `if test "$HERDR_ENV" = 1; set -gx PI_PROGRAM_STATUS 1; end`;
-  in bash or zsh: `if [ "$HERDR_ENV" = 1 ]; then export PI_PROGRAM_STATUS=1; fi`.
-  Without it Herdr falls back to reading Pi's screen and never sees it
-  blocked. See "Pi" in `docs/next/website/src/content/docs/integrations.mdx`
+  query, so Pi reports only with `PI_PROGRAM_STATUS=1` in its pane, which the
+  user's shell config sets inside Herdr panes, on every machine that runs Pi
+  under Herdr; "Pi" in `docs/next/website/src/content/docs/integrations.mdx`
+  has the lines. Without it Herdr falls back to reading Pi's screen and never
+  sees it blocked. A Pi started directly as a layout, popup, plugin pane or
+  custom command, rather than from a pane's shell, does not read the shell
+  config, so it does not report through 7501
   (`src/pane/program_status.rs`, `src/terminal/state/in_band.rs`)
 - Smaller sidebar and navigation fixes; see the log above
 
