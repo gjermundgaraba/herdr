@@ -18,6 +18,14 @@ use super::*;
 use crate::api::schema::UiPickOutcome;
 use crate::protocol::endpoint::{EndpointPickClose, EndpointPickOpen};
 
+/// The connection a daemon's picker arrived on. Its answer goes back on that
+/// connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ControlOrigin {
+    pub(crate) endpoint_id: ClientEndpointId,
+    pub(crate) generation: u64,
+}
+
 /// The picker this client shows, by the connection that opened it.
 #[derive(Debug)]
 struct OpenPick {

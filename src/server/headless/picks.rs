@@ -15,6 +15,35 @@ pub(super) struct PendingPick {
 }
 
 impl HeadlessServer {
+    /// Answers `ui.pick.resolve`, the client-lane method a client sends
+    /// whatever it presents: it neither needs an active surface nor takes the
+    /// command lease. Returns any other request.
+    pub(super) fn handle_client_lane_request(
+        &mut self,
+        client_id: u64,
+        boot_id: &str,
+        mut request: Box<api::schema::Request>,
+    ) -> Option<Box<api::schema::Request>> {
+        let result = match request.method {
+            Method::UiPickResolve(params) => self.resolve_client_pick(client_id, params),
+            method => {
+                request.method = method;
+                return Some(request);
+            }
+        };
+        let boot_id = boot_id.to_owned();
+        let message = match result {
+            Ok(result) => crate::server::client_commands::success_message_with_result(
+                boot_id, request.id, result,
+            ),
+            Err((code, message)) => {
+                crate::server::client_commands::error_message(boot_id, request.id, code, message)
+            }
+        };
+        self.send_to_client(client_id, message);
+        None
+    }
+
     /// Handles `ui.pick*` methods and returns the message for any other method.
     pub(super) fn handle_ui_pick_request(
         &mut self,
@@ -94,7 +123,7 @@ impl HeadlessServer {
 
     /// Applies `ui.pick.resolve` from the client lane. A client answers its
     /// picker whatever it presents, so this needs no active surface.
-    pub(super) fn resolve_client_pick(
+    fn resolve_client_pick(
         &mut self,
         client_id: u64,
         params: UiPickResolveParams,

@@ -120,20 +120,6 @@ pub(in crate::client) fn fleet(labels: &[&str]) -> (ClientShellState, Vec<Client
     (state, remotes)
 }
 
-/// The snapshot the client retains for a machine.
-pub(in crate::client) fn retained(
-    state: &ClientShellState,
-    endpoint_id: &ClientEndpointId,
-) -> ClientShellSnapshot {
-    state
-        .endpoints
-        .iter()
-        .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        .and_then(|endpoint| endpoint.snapshot.as_deref())
-        .expect("retained snapshot")
-        .clone()
-}
-
 /// The Agents list as `(machine label, pane id)`, in display order.
 pub(in crate::client) fn listed(state: &ClientShellState) -> Vec<(String, String)> {
     aggregate_navigation::aggregate_agent_rows(

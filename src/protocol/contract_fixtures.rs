@@ -1,14 +1,14 @@
-//! The fixtures for the wire shapes this fork adds between the daemon, its
-//! clients, and the tools that read client reports. Herdr GPUI's protocol
-//! crate keeps verbatim copies of these files, so each test pins a fixture to
-//! the exact value the daemon decodes and to its canonical encoding.
+//! The fixtures for the wire shapes this fork adds between the daemon and its
+//! clients. Herdr GPUI's protocol crate keeps verbatim copies of these files,
+//! so each test pins a fixture to the exact value the daemon decodes and to
+//! its canonical encoding.
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::endpoint::{
-    client_jump_message, pick_close_message, pick_open_message, EndpointClientJump,
-    EndpointPickClose, EndpointPickOpen, CLIENT_JUMP_KIND, PICK_CLOSE_KIND, PICK_OPEN_KIND,
+    pick_close_message, pick_open_message, EndpointPickClose, EndpointPickOpen, PICK_CLOSE_KIND,
+    PICK_OPEN_KIND,
 };
 use super::{
     ClientShellAgent, ClientShellCommand, ClientShellCommandAction, ClientShellPane,
@@ -16,10 +16,8 @@ use super::{
 };
 use crate::agent_priority::priority_key;
 use crate::api::schema::{
-    AgentStatus, ClientEndpointStatus, ClientInfo, ClientJumpOutcome, ClientJumpParams,
-    ClientJumpResolveParams, ClientReport, ClientReportAgent, ClientReportEndpoint, EventData,
-    EventEnvelope, EventKind, Method, PaneTarget, Request, ResponseResult, SuccessResponse,
-    UiPickCreate, UiPickItem, UiPickOutcome, UiPickResolveParams,
+    AgentStatus, Method, PaneTarget, Request, UiPickCreate, UiPickItem, UiPickOutcome,
+    UiPickResolveParams,
 };
 
 macro_rules! fixture {
@@ -178,54 +176,6 @@ fn snapshot() -> ClientShellSnapshot {
     }
 }
 
-fn report() -> ClientReport {
-    let local = agents();
-    let mut remote = agent("w1:p4", "w1", AgentStatus::Working, 3, BLOCKED_AT, None);
-    remote.focused = true;
-    let row = |endpoint_id: &str, label: &str, number: usize, agent: ClientShellAgent| {
-        ClientReportAgent {
-            endpoint_id: endpoint_id.into(),
-            focused: endpoint_id == "local" && agent.focused,
-            workspace_label: label.into(),
-            workspace_number: number,
-            cwd: Some(format!("/work/{label}")),
-            foreground_cwd: None,
-            agent,
-        }
-    };
-    ClientReport {
-        focused: Some(true),
-        active_endpoint_id: Some("local".into()),
-        endpoints: vec![
-            ClientReportEndpoint {
-                endpoint_id: "local".into(),
-                label: "Local".into(),
-                status: ClientEndpointStatus::Online,
-                boot_id: Some("boot-a".into()),
-            },
-            ClientReportEndpoint {
-                endpoint_id: "ssh:0123456789abcdef0123456789abcdef".into(),
-                label: "Build".into(),
-                status: ClientEndpointStatus::Online,
-                boot_id: Some("boot-b".into()),
-            },
-            ClientReportEndpoint {
-                endpoint_id: "ssh:fedcba9876543210fedcba9876543210".into(),
-                label: "Staging".into(),
-                status: ClientEndpointStatus::Reconnecting,
-                boot_id: None,
-            },
-        ],
-        // Display order: the keys of both endpoints, merged.
-        agents: vec![
-            row("local", "api", 1, local[0].clone()),
-            row("local", "web", 2, local[1].clone()),
-            row("ssh:0123456789abcdef0123456789abcdef", "infra", 1, remote),
-            row("local", "web", 2, local[2].clone()),
-        ],
-    }
-}
-
 #[test]
 fn snapshot_fixture_carries_agent_priority() {
     let expected = snapshot();
@@ -258,65 +208,6 @@ fn a_snapshot_without_the_additions_still_decodes() {
         .agents
         .iter()
         .all(|agent| agent.priority_key.is_empty() && agent.priority_mark.is_none()));
-}
-
-#[test]
-fn client_report_fixture_is_the_lane_request() {
-    let expected = Request {
-        id: "client-shell:7".into(),
-        method: Method::ClientReport(report()),
-    };
-    assert_canonical(fixture!("endpoint-client-report-v1.json"), &expected);
-
-    let Method::ClientReport(mut normalized) = expected.method.clone() else {
-        unreachable!();
-    };
-    assert_eq!(normalized.normalize(), Ok(()));
-    assert_eq!(Method::ClientReport(normalized), expected.method);
-}
-
-#[test]
-fn client_jump_fixture_is_the_control_payload() {
-    let expected = EndpointClientJump {
-        jump_id: "jump-3".into(),
-        endpoint_id: "ssh:0123456789abcdef0123456789abcdef".into(),
-        boot_id: "boot-b".into(),
-        pane_id: "w1:p4".into(),
-    };
-    assert_canonical(fixture!("endpoint-client-jump-v1.json"), &expected);
-
-    let ServerMessage::EndpointControl { kind, data } = client_jump_message(&expected).unwrap()
-    else {
-        panic!("a jump is an endpoint control");
-    };
-    assert_eq!(kind, CLIENT_JUMP_KIND);
-    assert_eq!(kind, "endpoint.client-jump.v1");
-    assert_eq!(
-        serde_json::from_str::<EndpointClientJump>(&data).unwrap(),
-        expected
-    );
-}
-
-#[test]
-fn client_jump_resolve_fixture_lists_every_outcome() {
-    let expected = [
-        ClientJumpOutcome::Focused,
-        ClientJumpOutcome::StaleBoot,
-        ClientJumpOutcome::NotFound,
-        ClientJumpOutcome::Unavailable,
-        ClientJumpOutcome::Timeout,
-    ]
-    .into_iter()
-    .enumerate()
-    .map(|(index, outcome)| Request {
-        id: format!("client-shell:{}", index + 8),
-        method: Method::ClientJumpResolve(ClientJumpResolveParams {
-            jump_id: "jump-3".into(),
-            outcome,
-        }),
-    })
-    .collect::<Vec<_>>();
-    assert_canonical(fixture!("endpoint-client-jump-resolve-v1.json"), &expected);
 }
 
 fn pick_open() -> EndpointPickOpen {
@@ -421,70 +312,4 @@ fn agent_mark_unread_fixture_is_the_request() {
         }),
     };
     assert_canonical(fixture!("endpoint-agent-mark-unread-v1.json"), &expected);
-}
-
-fn reporting_client() -> ClientInfo {
-    ClientInfo {
-        client_id: 7,
-        report: Some(report()),
-    }
-}
-
-#[test]
-fn client_list_fixture_is_the_api_response() {
-    let expected = SuccessResponse {
-        id: "req_clients".into(),
-        result: ResponseResult::ClientList {
-            boot_id: "boot-a".into(),
-            clients: vec![
-                reporting_client(),
-                // A connection that has not reported, such as a second
-                // connection of the same window.
-                ClientInfo {
-                    client_id: 8,
-                    report: None,
-                },
-            ],
-        },
-    };
-    assert_canonical(fixture!("api-client-list-v1.json"), &expected);
-}
-
-#[test]
-fn client_changed_fixture_is_the_pushed_event() {
-    let expected = vec![EventEnvelope {
-        event: EventKind::ClientChanged,
-        data: EventData::ClientChanged { client_id: 7 },
-    }];
-    assert_canonical(fixture!("api-client-changed-v1.json"), &expected);
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct JumpExchange {
-    request: Request,
-    response: SuccessResponse,
-}
-
-#[test]
-fn client_jump_api_fixture_is_the_request_and_its_success() {
-    let expected = JumpExchange {
-        request: Request {
-            id: "req_jump".into(),
-            method: Method::ClientJump(ClientJumpParams {
-                client_id: 7,
-                endpoint_id: "ssh:0123456789abcdef0123456789abcdef".into(),
-                boot_id: "boot-b".into(),
-                pane_id: "w1:p4".into(),
-            }),
-        },
-        response: SuccessResponse {
-            id: "req_jump".into(),
-            result: ResponseResult::ClientJumped {
-                client_id: 7,
-                endpoint_id: "ssh:0123456789abcdef0123456789abcdef".into(),
-                pane_id: "w1:p4".into(),
-            },
-        },
-    };
-    assert_canonical(fixture!("api-client-jump-v1.json"), &expected);
 }

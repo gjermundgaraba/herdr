@@ -14,8 +14,6 @@ const ENDPOINT_RESPONSE_CHUNK_BYTES: usize = 512 * 1024;
 
 const CLIENT_SHELL_METHODS: &[&str] = &[
     "agent.mark_unread",
-    "client.jump.resolve",
-    "client.report",
     "client_shell.surface.set",
     "command.invoke",
     "integration.install",
@@ -304,14 +302,6 @@ mod tests {
         assert_eq!(
             actual.remove("ui.pick.resolve").as_deref(),
             Some("4d7bdabc63bd848851f6da06f4da1a94782ddec890c5f7776455c2fc4b969f49")
-        );
-        assert_eq!(
-            actual.remove("client.report").as_deref(),
-            Some("0037ea039c1ab2037c64d51e6bfe1cf2f6f7c0c618902376e46dee792cedcbc3")
-        );
-        assert_eq!(
-            actual.remove("client.jump.resolve").as_deref(),
-            Some("148b1bbd841d098c9c355c337a253c57d6a6bf94658fba1f34bc35934dc11fb2")
         );
         assert_eq!(
             actual.remove("agent.mark_unread").as_deref(),

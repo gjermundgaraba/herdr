@@ -79,8 +79,6 @@ mod tests {
     use super::*;
     use crate::client::endpoint::ProfileId;
 
-    mod client_jump;
-
     #[test]
     fn unknown_optional_controls_are_ignored() {
         assert!(matches!(

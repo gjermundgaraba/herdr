@@ -41,20 +41,6 @@ pub(crate) enum ClientEndpointFocusTarget {
     },
 }
 
-impl ClientShellEndpoint {
-    /// Which agent view projection the endpoint holds: at most one exists per
-    /// connection, boot, and snapshot revision.
-    pub(super) fn agent_view_identity(&self) -> Option<(Option<u64>, &str, u64)> {
-        self.agent_view_projection.as_ref().map(|projection| {
-            (
-                projection.generation,
-                projection.boot_id.as_str(),
-                projection.revision,
-            )
-        })
-    }
-}
-
 impl ClientShellState {
     pub(crate) fn set_endpoint_catalog(&mut self, profiles: &[SavedSshEndpoint]) {
         let mut next = Vec::with_capacity(profiles.len().saturating_add(1));

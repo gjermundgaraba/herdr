@@ -1,4 +1,3 @@
-use super::client_contract::lane;
 use super::*;
 use crate::api::schema::{
     Method, Request, ResponseResult, UiPickItem, UiPickOutcome, UiPickParams,
@@ -6,6 +5,42 @@ use crate::api::schema::{
 use crate::protocol::endpoint::{
     EndpointPickClose, EndpointPickOpen, PICK_CLOSE_KIND, PICK_OPEN_KIND,
 };
+
+/// Sends one request down a client's command lane and returns its response.
+fn lane(
+    server: &mut HeadlessServer,
+    control: &std::sync::mpsc::Receiver<Vec<u8>>,
+    client_id: u64,
+    boot_id: &str,
+    method: Method,
+) -> String {
+    server.handle_server_event(ServerEvent::ClientShellEndpointRequest {
+        client_id,
+        boot_id: boot_id.into(),
+        request: Box::new(Request {
+            id: "lane".into(),
+            method,
+        }),
+    });
+    loop {
+        let message = read_server_message(
+            control
+                .recv_timeout(Duration::from_secs(1))
+                .expect("lane response"),
+        );
+        if let ServerMessage::ClientShellEndpointResponseChunk {
+            request_id,
+            final_chunk,
+            data,
+            ..
+        } = message
+        {
+            assert_eq!(request_id, "lane");
+            assert!(final_chunk);
+            return String::from_utf8(data).expect("response text");
+        }
+    }
+}
 
 fn request_pick(
     server: &mut HeadlessServer,
@@ -55,10 +90,7 @@ pub(super) fn client_request(
     response_rx.try_recv().expect("client request response")
 }
 
-pub(super) fn next_control(
-    receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
-    expected: &str,
-) -> String {
+fn next_control(receiver: &std::sync::mpsc::Receiver<Vec<u8>>, expected: &str) -> String {
     loop {
         let message = read_server_message(
             receiver
