@@ -1,4 +1,3 @@
-use super::client_contract::lane;
 use super::*;
 use crate::api::schema::{
     Method, Request, ResponseResult, UiPickItem, UiPickOutcome, UiPickParams,
@@ -7,27 +6,52 @@ use crate::protocol::endpoint::{
     EndpointPickClose, EndpointPickOpen, PICK_CLOSE_KIND, PICK_OPEN_KIND,
 };
 
-fn request_pick(
+/// Sends one request down a client's command lane and returns its response.
+fn lane(
     server: &mut HeadlessServer,
-    pick_id: &str,
-    client_id: Option<u64>,
+    control: &std::sync::mpsc::Receiver<Vec<u8>>,
+    client_id: u64,
+    method: Method,
+) -> String {
+    server.handle_server_event(ServerEvent::ClientShellEndpointRequest {
+        client_id,
+        boot_id: "test-boot".into(),
+        request: Box::new(Request {
+            id: "lane".into(),
+            method,
+        }),
+    });
+    loop {
+        let message = read_server_message(
+            control
+                .recv_timeout(Duration::from_secs(1))
+                .expect("lane response"),
+        );
+        if let ServerMessage::ClientShellEndpointResponseChunk {
+            request_id,
+            final_chunk,
+            data,
+            ..
+        } = message
+        {
+            assert_eq!(request_id, "lane");
+            assert!(final_chunk);
+            return String::from_utf8(data).expect("response text");
+        }
+    }
+}
+
+/// Sends one request from the socket API, as a script does.
+pub(super) fn api_request(
+    server: &mut HeadlessServer,
+    id: &str,
+    method: Method,
 ) -> std::sync::mpsc::Receiver<String> {
     let (respond_to, response_rx) = std::sync::mpsc::channel();
     server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
         request: Request {
-            id: pick_id.into(),
-            method: Method::UiPick(UiPickParams {
-                title: "Move pane".into(),
-                items: vec![UiPickItem {
-                    id: "w1:t2".into(),
-                    label: "2 build".into(),
-                    detail: None,
-                    badge: None,
-                }],
-                selected: None,
-                create: None,
-                client_id,
-            }),
+            id: id.into(),
+            method,
         },
         respond_to,
         response_write_complete: None,
@@ -35,10 +59,30 @@ fn request_pick(
     response_rx
 }
 
-pub(super) fn next_control(
-    receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
-    expected: &str,
-) -> String {
+fn request_pick(
+    server: &mut HeadlessServer,
+    pick_id: &str,
+    client_id: Option<u64>,
+) -> std::sync::mpsc::Receiver<String> {
+    api_request(
+        server,
+        pick_id,
+        Method::UiPick(UiPickParams {
+            title: "Move pane".into(),
+            items: vec![UiPickItem {
+                id: "w1:t2".into(),
+                label: "2 build".into(),
+                detail: None,
+                badge: None,
+            }],
+            selected: None,
+            create: None,
+            client_id,
+        }),
+    )
+}
+
+fn next_control(receiver: &std::sync::mpsc::Receiver<Vec<u8>>, expected: &str) -> String {
     loop {
         let message = read_server_message(
             receiver
@@ -89,23 +133,11 @@ async fn only_the_showing_client_resolves_a_pick() {
     )));
     let picked = UiPickOutcome::Picked { id: "w1:t2".into() };
 
-    let wrong = lane(
-        &mut server,
-        &first,
-        61,
-        "test-boot",
-        resolve("pick-1", picked.clone()),
-    );
+    let wrong = lane(&mut server, &first, 61, resolve("pick-1", picked.clone()));
     assert_eq!(error_code(&wrong), "pick_not_found");
     assert!(waiting.try_recv().is_err());
 
-    lane(
-        &mut server,
-        &second,
-        62,
-        "test-boot",
-        resolve("pick-1", picked.clone()),
-    );
+    lane(&mut server, &second, 62, resolve("pick-1", picked.clone()));
     assert_eq!(outcome(&waiting.try_recv().unwrap()), picked);
     assert!(server.fork.pending_picks.is_empty());
     shutdown_test_runtimes(&mut server);
@@ -129,7 +161,6 @@ async fn a_client_answers_its_pick_whatever_it_presents_and_however_busy_it_is()
         &mut server,
         &control,
         61,
-        "test-boot",
         resolve("pick-1", UiPickOutcome::Cancelled),
     );
     assert!(answered.contains(r#""type":"ok""#), "{answered}");
@@ -140,15 +171,11 @@ async fn a_client_answers_its_pick_whatever_it_presents_and_however_busy_it_is()
     assert!(server.clients[&61].shell_endpoint_command_in_flight);
 
     // Pick answers come from a client connection only.
-    let (respond_to, response) = std::sync::mpsc::channel();
-    server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
-        request: Request {
-            id: "api".into(),
-            method: resolve("pick-1", UiPickOutcome::Cancelled),
-        },
-        respond_to,
-        response_write_complete: None,
-    });
+    let response = api_request(
+        &mut server,
+        "api",
+        resolve("pick-1", UiPickOutcome::Cancelled),
+    );
     assert_eq!(
         error_code(&response.try_recv().unwrap()),
         "connection_local_only"
@@ -167,17 +194,13 @@ async fn a_client_shows_one_pick_and_closing_cancels_it() {
     let busy = request_pick(&mut server, "pick-2", None);
     assert_eq!(error_code(&busy.try_recv().unwrap()), "ui_busy");
 
-    let (respond_to, closed) = std::sync::mpsc::channel();
-    server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
-        request: Request {
-            id: "close".into(),
-            method: Method::UiPickClose(api::schema::UiPickCloseParams {
-                pick_id: "pick-1".into(),
-            }),
-        },
-        respond_to,
-        response_write_complete: None,
-    });
+    let closed = api_request(
+        &mut server,
+        "close",
+        Method::UiPickClose(api::schema::UiPickCloseParams {
+            pick_id: "pick-1".into(),
+        }),
+    );
     assert!(closed.try_recv().unwrap().contains("\"ok\""));
     assert_eq!(
         outcome(&waiting.try_recv().unwrap()),

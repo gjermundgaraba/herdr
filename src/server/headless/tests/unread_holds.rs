@@ -1,7 +1,7 @@
 //! `agent.mark_unread` against attached clients: when a held completion
 //! comes back, and when presenting the pane clears it again.
 
-use super::picks::error_code;
+use super::picks::{api_request, error_code};
 use super::*;
 use crate::api::schema::{
     AgentStatus, EventData, Method, PaneTarget, Request, ResponseResult, WorkspaceTarget,
@@ -25,20 +25,6 @@ fn client_request(server: &mut HeadlessServer, client_id: u64, method: Method) -
     );
     server.settle_unread_holds();
     response_rx.try_recv().expect("client request response")
-}
-
-/// A request from the socket API, as a script sends it.
-fn api_request(server: &mut HeadlessServer, method: Method) -> String {
-    let (respond_to, response_rx) = std::sync::mpsc::channel();
-    server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
-        request: Request {
-            id: "api".into(),
-            method,
-        },
-        respond_to,
-        response_write_complete: None,
-    });
-    response_rx.try_recv().expect("api request response")
 }
 
 struct Fixture {
@@ -122,20 +108,26 @@ impl Fixture {
     fn api_mark(&mut self, pane_id: &str) -> String {
         api_request(
             &mut self.server,
+            "api",
             Method::AgentMarkUnread(PaneTarget {
                 pane_id: pane_id.into(),
             }),
         )
+        .try_recv()
+        .expect("mark_unread response")
     }
 
     /// `pane focus` on the agent's pane from the socket API.
     fn api_focus(&mut self) -> String {
         api_request(
             &mut self.server,
+            "api",
             Method::PaneFocus(PaneTarget {
                 pane_id: self.pane_id.clone(),
             }),
         )
+        .try_recv()
+        .expect("pane.focus response")
     }
 
     /// Moves one client to a space, as its own navigation does.

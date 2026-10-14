@@ -200,8 +200,10 @@ fn a_picker_is_cancelled_when_the_presented_endpoints_connection_drops() {
 fn a_picker_from_an_endpoint_not_presented_is_cancelled_as_it_arrives() {
     let mut state = shell_with_pick(false);
     let elsewhere = ControlOrigin {
-        endpoint_id: ClientEndpointId::from_storage_key("ssh:0123456789abcdef0123456789abcdef")
-            .expect("ssh endpoint id"),
+        endpoint_id: ClientEndpointId::Ssh(
+            crate::client::endpoint::ProfileId::parse("0123456789abcdef0123456789abcdef")
+                .expect("ssh profile id"),
+        ),
         generation: 2,
     };
     assert!(!state.receive_pick_open(elsewhere.clone(), pick_open("pick-9", false)));

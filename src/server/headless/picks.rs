@@ -15,6 +15,39 @@ pub(super) struct PendingPick {
 }
 
 impl HeadlessServer {
+    /// Answers `ui.pick.resolve`, the client-lane method a client sends
+    /// whatever it presents: it neither needs an active surface nor takes the
+    /// command lease.
+    pub(super) fn resolve_client_pick(
+        &mut self,
+        client_id: u64,
+        boot_id: String,
+        request_id: String,
+        params: UiPickResolveParams,
+    ) {
+        let owned = self
+            .fork
+            .pending_picks
+            .get(&params.pick_id)
+            .is_some_and(|pick| pick.client_id == client_id);
+        let message = if owned {
+            self.finish_pick(&params.pick_id, params.outcome);
+            crate::server::client_commands::success_message_with_result(
+                boot_id,
+                request_id,
+                ResponseResult::Ok {},
+            )
+        } else {
+            crate::server::client_commands::error_message(
+                boot_id,
+                request_id,
+                "pick_not_found",
+                "no open picker with that id on this client",
+            )
+        };
+        self.send_to_client(client_id, message);
+    }
+
     /// Handles `ui.pick*` methods and returns the message for any other method.
     pub(super) fn handle_ui_pick_request(
         &mut self,
@@ -90,28 +123,6 @@ impl HeadlessServer {
         };
         let _ = msg.respond_to.send(response);
         None
-    }
-
-    /// Applies `ui.pick.resolve` from the client lane. A client answers its
-    /// picker whatever it presents, so this needs no active surface.
-    pub(super) fn resolve_client_pick(
-        &mut self,
-        client_id: u64,
-        params: UiPickResolveParams,
-    ) -> Result<ResponseResult, (&'static str, String)> {
-        let owned = self
-            .fork
-            .pending_picks
-            .get(&params.pick_id)
-            .is_some_and(|pick| pick.client_id == client_id);
-        if !owned {
-            return Err((
-                "pick_not_found",
-                "no open picker with that id on this client".to_owned(),
-            ));
-        }
-        self.finish_pick(&params.pick_id, params.outcome);
-        Ok(ResponseResult::Ok {})
     }
 
     /// Answers the waiting caller and returns the picker's client.

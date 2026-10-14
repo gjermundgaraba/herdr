@@ -1,7 +1,7 @@
 //! A client attached to several machines, for the tests of logic that Herdr
-//! GPUI mirrors: the priority order, the client report, and jumps. Nothing
-//! here draws. The client loop's contract tests (`client_contract/tests.rs`)
-//! build their shell state here too.
+//! GPUI mirrors: the priority order and Back/Forward. Nothing here draws. The
+//! client loop's picker answer tests (`client_contract/tests.rs`) build their
+//! shell state here too.
 
 use super::*;
 use crate::client::endpoint::{ClientEndpointStatus, ProfileId, SavedSshEndpoint};
@@ -118,20 +118,6 @@ pub(in crate::client) fn fleet(labels: &[&str]) -> (ClientShellState, Vec<Client
         state.set_endpoint_status(remote, ClientEndpointStatus::Online);
     }
     (state, remotes)
-}
-
-/// The snapshot the client retains for a machine.
-pub(in crate::client) fn retained(
-    state: &ClientShellState,
-    endpoint_id: &ClientEndpointId,
-) -> ClientShellSnapshot {
-    state
-        .endpoints
-        .iter()
-        .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
-        .and_then(|endpoint| endpoint.snapshot.as_deref())
-        .expect("retained snapshot")
-        .clone()
 }
 
 /// The Agents list as `(machine label, pane id)`, in display order.

@@ -18,6 +18,14 @@ use super::*;
 use crate::api::schema::UiPickOutcome;
 use crate::protocol::endpoint::{EndpointPickClose, EndpointPickOpen};
 
+/// The connection a daemon's picker arrived on. Its answer goes back on that
+/// connection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ControlOrigin {
+    pub(crate) endpoint_id: ClientEndpointId,
+    pub(crate) generation: u64,
+}
+
 /// The picker this client shows, by the connection that opened it.
 #[derive(Debug)]
 struct OpenPick {
@@ -288,7 +296,7 @@ impl ClientShellState {
         true
     }
 
-    pub(super) fn move_pick_selection(&mut self, delta: isize) {
+    fn move_pick_selection(&mut self, delta: isize) {
         let Some(ClientShellOverlay::Pick(pick)) = self.overlay.as_mut() else {
             return;
         };
@@ -297,7 +305,7 @@ impl ClientShellState {
     }
 
     /// Answers the open picker with the selected row, or cancels it.
-    pub(super) fn resolve_pick(
+    fn resolve_pick(
         &mut self,
         outcome_choice: Option<UiPickOutcome>,
         outcome: &mut ClientShellInput,

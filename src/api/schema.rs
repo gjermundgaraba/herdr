@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 pub mod agents;
-pub mod clients;
 pub mod commands;
 pub mod common;
 pub mod events;
@@ -17,7 +16,6 @@ pub mod workspaces;
 pub mod worktrees;
 
 pub use agents::*;
-pub use clients::*;
 pub use commands::*;
 pub use common::*;
 pub use events::*;
@@ -77,16 +75,6 @@ pub enum Method {
     ClientWindowTitleClear(EmptyParams),
     #[serde(rename = "client_shell.surface.set")]
     ClientShellSurfaceSet(ClientShellSurfaceSetParams),
-    /// Client lane: replaces the calling client's report.
-    #[serde(rename = "client.report")]
-    ClientReport(ClientReport),
-    #[serde(rename = "client.list")]
-    ClientList(EmptyParams),
-    #[serde(rename = "client.jump")]
-    ClientJump(ClientJumpParams),
-    /// Client lane: answers the jump the daemon sent this client.
-    #[serde(rename = "client.jump.resolve")]
-    ClientJumpResolve(ClientJumpResolveParams),
     #[serde(rename = "session.snapshot")]
     SessionSnapshot(EmptyParams),
     #[serde(rename = "workspace.create")]

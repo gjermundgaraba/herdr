@@ -75,11 +75,9 @@ use crate::server::socket_paths::{
 use crate::server::terminal_attach::paste_payload_for_runtime;
 
 mod bootstrap;
-mod client_reports;
 mod client_views;
 mod endpoint_requests;
 mod fork_state;
-mod jumps;
 mod lifecycle;
 mod native_graphics;
 mod notifications;
@@ -971,7 +969,7 @@ impl HeadlessServer {
         });
         let was_foreground = self.foreground_client_id == Some(client_id);
         let removed = self.clients.remove(&client_id);
-        self.forget_fork_client(client_id, removed.as_ref());
+        self.cancel_client_picks(client_id);
         self.tab_geometry_controllers
             .retain(|_, controller_id| *controller_id != client_id);
         if let Some(mut removed) = removed {
@@ -2021,7 +2019,6 @@ impl HeadlessServer {
                 connection.shell_agent_completions = Some(completion_projection);
                 connection.shell_agent_view = agent_view;
                 self.clients.insert(client_id, connection);
-                self.emit_client_changed(client_id);
                 if self.app.state.popup_pane.is_some() && self.popup_owner_tab_id.is_none() {
                     self.popup_owner_tab_id = self.shell_tab_id_for_client(client_id);
                 }
@@ -2967,11 +2964,6 @@ impl HeadlessServer {
         let Some(msg) = self.handle_ui_pick_request(msg) else {
             return true;
         };
-        let Some(msg) = self.handle_client_api_request(msg) else {
-            // The request changes nothing clients draw, but tokens that
-            // expired just above do.
-            return metadata_expired;
-        };
 
         if let api::schema::Method::NotificationShow(params) = &msg.request.method {
             let response =
@@ -3297,8 +3289,6 @@ impl HeadlessServer {
             return false;
         }
         let mut changed = false;
-
-        self.expire_client_jumps(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.

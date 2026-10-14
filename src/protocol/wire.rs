@@ -1066,7 +1066,7 @@ pub struct ClientShellPane {
     pub right_click_passthrough: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientShellAgent {
     pub pane_id: String,
     pub workspace_id: String,
