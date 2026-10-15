@@ -217,6 +217,18 @@ Never symlink the installed binary into `target/`. Keep
 `[update] version_check = false` in the Herdr config so the built-in updater
 cannot replace the fork build with an upstream release.
 
+### Linux builds from CI
+
+Every push to `custom` runs `.github/workflows/fork-build.yml`, which builds
+the static Linux binaries and replaces the `custom-latest` prerelease with
+them, so a Linux machine can fetch the fork build from
+`https://github.com/gjermundgaraba/herdr/releases/download/custom-latest/herdr-linux-x86_64`
+(or `-aarch64`). `SHA256SUMS` and `BUILD_INFO-*.txt` there name the commit,
+the only way to tell fork builds apart. The rolling tag moves on every push,
+so `git fetch --tags origin` refuses to update a stale local copy; delete it
+with `git tag -d custom-latest`. Upstream's `ci.yml` does not run on
+`custom`, so this workflow only builds; it runs no tests.
+
 ## Activating a new build
 
 Running servers and TUI clients keep the old binary. Do not restart anything
