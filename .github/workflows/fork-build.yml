@@ -1,0 +1,130 @@
+name: Fork build
+
+# Fork-only: builds the static Linux binaries of custom on every push and
+# publishes them as the rolling custom-latest prerelease, so machines can
+# download the fork build from a fixed URL. The build steps follow the Linux
+# job in build-artifacts-manual.yml.
+
+on:
+  push:
+    branches: [custom]
+  workflow_dispatch:
+
+concurrency:
+  group: fork-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  RUST_TOOLCHAIN_VERSION: 1.96.1
+  RELEASE_TAG: custom-latest
+
+jobs:
+  build-linux:
+    if: github.repository == 'gjermundgaraba/herdr'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            name: herdr-linux-x86_64
+          - target: aarch64-unknown-linux-musl
+            name: herdr-linux-aarch64
+
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Install Zig
+        uses: vercel-labs/setup-zig@83c1594f26b86da8a9a8ddd9b5ee5f3af0f96943 # v1.0.2
+        with:
+          version: 0.16.0
+
+      - name: Prefer official Ubuntu mirrors over Azure
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            sudo sed -i '/azure.archive.ubuntu.com/d' /etc/apt/apt-mirrors.txt
+            echo "Using apt mirrors:"
+            cat /etc/apt/apt-mirrors.txt
+          fi
+
+      - name: Install Linux build tools
+        run: |
+          sudo find /etc/apt/sources.list.d -type f \( -iname '*microsoft*' -o -iname '*azure-cli*' \) -print -delete
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build musl-tools gcc-aarch64-linux-gnu crossbuild-essential-arm64
+
+      - name: Set Linux aarch64 linker
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Remove Zig caches
+        run: rm -rf .zig-cache vendor/libghostty-vt/.zig-cache vendor/libghostty-vt/zig-out
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package artifact
+        run: |
+          info="BUILD_INFO-${{ matrix.name }}.txt"
+          cp target/${{ matrix.target }}/release/herdr ${{ matrix.name }}
+          file ${{ matrix.name }} > "$info"
+          ldd ${{ matrix.name }} 2>&1 | tee -a "$info"
+          grep -q "statically linked" "$info"
+          if nm -u ${{ matrix.name }} 2>/dev/null | grep -E '(__cxa|GLIBCXX|CXXABI|_ZSt)'; then
+            echo "error: Linux artifact has unresolved C++ runtime symbols" >&2
+            exit 1
+          fi
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "target=${{ matrix.target }}"
+          } >> "$info"
+          sha256sum ${{ matrix.name }} | sed 's/^/sha256=/' >> "$info"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ${{ matrix.name }}
+          path: |
+            ${{ matrix.name }}
+            BUILD_INFO-${{ matrix.name }}.txt
+          retention-days: 7
+
+  publish:
+    needs: build-linux
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish rolling prerelease
+        run: |
+          cd dist
+          sha256sum herdr-linux-* > SHA256SUMS
+          gh release delete "$RELEASE_TAG" --cleanup-tag --yes || true
+          gh release create "$RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "custom ${GITHUB_SHA::8}" \
+            --notes "Fork build of custom at $GITHUB_SHA. Replaced on every push." \
+            herdr-linux-* BUILD_INFO-*.txt SHA256SUMS

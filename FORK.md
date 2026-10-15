@@ -130,7 +130,7 @@ first two kinds below.
 | Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/space_groups/group_row.rs` | no: Herdr GPUI does not show pinned sections, which the TUI resolves from its own config; group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
 | Mark unread | `src/client/shell/mark_unread.rs` | `crates/herdr-gpui/src/mark_unread.rs` | yes |
 | Agent and workspace pickers | `src/client/shell/aggregate_navigation/agent_picker.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
-| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail |
+| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail, except that after a pane opened from an activity-bar section, Back in Herdr GPUI first returns to that section, which the TUI does not have |
 | Client-side keys stay local | `src/config/keybinds/client_actions.rs`, `src/client/shell/client_actions.rs` | `crates/herdr-gpui/src/keymap/daemon/client_actions.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
 | Plugin popup selection | `src/client/shell/actions.rs` | `crates/herdr-gpui/src/palette.rs` | yes: both send the pane selection with a plugin key the daemon advertises as a popup |
 
@@ -216,6 +216,18 @@ build works. Do not leave backups in other locations such as `/tmp`.
 Never symlink the installed binary into `target/`. Keep
 `[update] version_check = false` in the Herdr config so the built-in updater
 cannot replace the fork build with an upstream release.
+
+### Linux builds from CI
+
+Every push to `custom` runs `.github/workflows/fork-build.yml`, which builds
+the static Linux binaries and replaces the `custom-latest` prerelease with
+them, so a Linux machine can fetch the fork build from
+`https://github.com/gjermundgaraba/herdr/releases/download/custom-latest/herdr-linux-x86_64`
+(or `-aarch64`). `SHA256SUMS` and `BUILD_INFO-*.txt` there name the commit,
+the only way to tell fork builds apart. The rolling tag moves on every push,
+so `git fetch --tags origin` refuses to update a stale local copy; delete it
+with `git tag -d custom-latest`. Upstream's `ci.yml` does not run on
+`custom`, so this workflow only builds; it runs no tests.
 
 ## Activating a new build
 
