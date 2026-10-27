@@ -220,5 +220,5 @@ changes need just a TUI relaunch. Never use `herdr server stop` or kill Herdr
 processes to activate a build. Until servers are handed off, the new CLI may
 report a protocol mismatch against them; use the backup binary for those calls.
 
-Plugin daemons such as Hub may need a restart after a server
-handoff; follow their lifecycle docs in the `herdr-plugins` repository.
+Plugin daemons such as space-meta's restart through their startup hook after a
+server handoff; their lifecycle docs are in the `herdr-plugins` repository.
