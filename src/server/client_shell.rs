@@ -97,7 +97,7 @@ pub(super) fn snapshot_with_completions(
                 agent_status: workspace.agent_status,
             }
         })
-        .collect::<Vec<_>>();
+        .collect();
     let tabs = snapshot
         .tabs
         .into_iter()
@@ -152,8 +152,6 @@ pub(super) fn snapshot_with_completions(
         .agents
         .into_iter()
         .map(|agent| {
-            let (priority_key, priority_mark) =
-                crate::agent_priority::client_fields(app, &workspaces, &agent);
             let pane_id = agent.pane_id;
             let focused = focused_pane_id.as_deref() == Some(pane_id.as_str());
             let mut state_labels = agent.state_labels.into_iter().collect::<Vec<_>>();
@@ -175,8 +173,6 @@ pub(super) fn snapshot_with_completions(
                 state_labels,
                 tokens,
                 focused,
-                priority_key,
-                priority_mark,
             }
         })
         .collect();
@@ -632,8 +628,6 @@ fn split_hit_rect(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    mod priority_keys;
 
     #[tokio::test(flavor = "current_thread")]
     async fn snapshot_metadata_skips_scroll_reads_and_preserves_public_session_data() {

@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 22;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -1083,17 +1083,6 @@ pub struct ClientShellAgent {
     pub state_labels: Vec<(String, String)>,
     pub tokens: Vec<(String, String)>,
     pub focused: bool,
-    /// The agent's place in the `priority` order, with the `space_priority`
-    /// lift applied. Opaque: order agents by comparing these strings byte by
-    /// byte, smallest first; an empty key follows every non-empty one. Keys
-    /// from different endpoints compare the same way; see
-    /// [`crate::agent_priority::priority_key`].
-    #[serde(default)]
-    pub priority_key: String,
-    /// The mark of the agent's space: its `space_priority` workspace metadata
-    /// token, if that is non-empty.
-    #[serde(default)]
-    pub priority_mark: Option<String>,
 }
 
 /// Origin-relative geometry for one pane in a rendered pane surface.

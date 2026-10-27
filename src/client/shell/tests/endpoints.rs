@@ -1,6 +1,5 @@
 use super::*;
 
-mod agent_order;
 #[path = "workspace_navigation.rs"]
 mod workspace_navigation;
 use crate::client::endpoint::{
@@ -38,10 +37,6 @@ fn agent(
         state_labels: Vec::new(),
         tokens: Vec::new(),
         focused: true,
-        // What a daemon sends for an unlifted space, with the lifecycle
-        // sequence standing in for its stamp.
-        priority_key: crate::agent_priority::priority_key(false, status, state_change_seq),
-        priority_mark: None,
     }
 }
 
@@ -1733,6 +1728,80 @@ fn selected_position_sort_uses_public_tab_and_pane_numbers() {
     .map(|row| row.agent.name.as_deref().expect("agent name"))
     .collect::<Vec<_>>();
     assert_eq!(names, ["pane two", "pane nine", "tab nine"]);
+}
+
+#[test]
+fn aggregate_priority_uses_client_observed_recency_across_machines() {
+    use crate::api::schema::AgentStatus;
+    use crate::config::AgentSidebarToken;
+
+    let mut config = Config::default();
+    config.ui.agent_panel_sort = crate::config::AgentPanelSortConfig::Priority;
+    config.ui.sidebar.agents.rows =
+        vec![vec![AgentSidebarToken::Machine, AgentSidebarToken::Agent]];
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    let profile = remote_profile();
+    let endpoint_id = ClientEndpointId::Ssh(profile.id.clone());
+    state.set_endpoint_catalog(&[profile]);
+    state.set_endpoint_status(&endpoint_id, ClientEndpointStatus::Online);
+
+    let mut local = snapshot();
+    local.agents = vec![agent("local agent", AgentStatus::Idle, 1)];
+    state.set_snapshot(Box::new(local));
+    state.set_pane_surface(surface());
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 1)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
+
+    let mut local = snapshot();
+    local.agents = vec![agent("local agent", AgentStatus::Idle, 2)];
+    state.set_snapshot(Box::new(local));
+    let frame_text = |state: &mut ClientShellState| {
+        let frame = state.compose(100, 28).expect("combined endpoint frame");
+        frame
+            .cells
+            .chunks(frame.width as usize)
+            .map(|row| {
+                row.iter()
+                    .map(|cell| cell.symbol.as_str())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let text = frame_text(&mut state);
+    assert!(
+        text.find("Local · local agent").expect("local agent")
+            < text.find("Build · remote agent").expect("remote agent")
+    );
+
+    remote.agents = vec![agent("remote agent", AgentStatus::Working, 2)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
+    let text = frame_text(&mut state);
+    assert!(
+        text.find("Build · remote agent").expect("remote agent")
+            < text.find("Local · local agent").expect("local agent")
+    );
+
+    remote.agents = vec![agent("remote agent", AgentStatus::Idle, 3)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+    let text = frame_text(&mut state);
+    assert!(
+        text.find("Build · remote agent").expect("remote agent")
+            < text.find("Local · local agent").expect("local agent")
+    );
+    let mut outcome = ClientShellInput::default();
+    assert!(
+        state.handle_endpoint_navigation(crate::input::KeybindAction::FocusAgent(0), &mut outcome,)
+    );
+    assert!(matches!(
+        outcome.actions.as_slice(),
+        [ClientShellAction::ActivateEndpoint {
+            endpoint_id: activated,
+            target: Some(ClientEndpointFocusTarget::Pane(pane_id)),
+        }] if activated == &endpoint_id && pane_id == "pane_1"
+    ));
 }
 
 #[test]

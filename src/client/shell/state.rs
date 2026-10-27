@@ -360,8 +360,6 @@ pub(super) struct ClientNavigatorRow {
     pub(super) status: Option<crate::api::schema::AgentStatus>,
     pub(super) stale: bool,
     pub(super) current: bool,
-    /// The agent priority token value of the agent's space, shown before the label.
-    pub(super) mark: Option<String>,
     pub(super) target: ClientNavigatorTarget,
 }
 

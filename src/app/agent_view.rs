@@ -72,12 +72,12 @@ pub(crate) fn apply_agent_view(app: &AppState, entries: &mut Vec<AgentPanelEntry
         crate::app::state::AgentPanelSort::Priority
     ) {
         entries.sort_by_key(|entry| {
-            crate::agent_priority::sort_key(
-                app.workspaces
-                    .get(entry.ws_idx)
-                    .is_some_and(crate::agent_priority::lifts),
-                super::api_helpers::pane_agent_status(entry.state, entry.seen),
-                entry.agent_order_stamp.unwrap_or_default(),
+            (
+                std::cmp::Reverse(super::api_helpers::tab_attention_priority(
+                    entry.state,
+                    entry.seen,
+                )),
+                std::cmp::Reverse(entry.last_agent_state_change_seq),
             )
         });
     }
@@ -358,8 +358,6 @@ mod tests {
     };
     use crate::detect::{Agent, AgentState};
     use crate::workspace::Workspace;
-
-    mod priority;
 
     fn state_with_agents() -> AppState {
         let mut state = AppState::test_new();

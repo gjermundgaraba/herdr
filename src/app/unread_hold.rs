@@ -24,18 +24,6 @@ pub(crate) enum MarkUnreadError {
 }
 
 impl AppState {
-    /// Allocates the next agent ordering event: its lifecycle sequence and
-    /// its stamp on the priority clock.
-    pub(crate) fn next_agent_order_event(&mut self) -> (u64, u64) {
-        self.next_agent_state_change_seq += 1;
-        self.fork.last_agent_order_stamp =
-            crate::agent_priority::next_stamp(self.fork.last_agent_order_stamp);
-        (
-            self.next_agent_state_change_seq,
-            self.fork.last_agent_order_stamp,
-        )
-    }
-
     /// Holds the pane's acknowledged completion until `client_id` stops
     /// presenting the pane. Marking an armed pane again moves the hold to the
     /// new client.
@@ -78,11 +66,11 @@ impl AppState {
         pane.unread_hold = Some(UnreadHold::Restored);
         pane.seen = false;
         let terminal_id = pane.attached_terminal_id.clone();
-        let (sequence, stamp) = self.next_agent_order_event();
+        self.next_agent_state_change_seq += 1;
+        let sequence = self.next_agent_state_change_seq;
         if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
             terminal.last_agent_state_change_seq = Some(sequence);
             terminal.last_agent_completion_seq = Some(sequence);
-            terminal.agent_order_stamp = Some(stamp);
         }
         true
     }
@@ -238,11 +226,11 @@ mod tests {
 
     fn complete(state: &mut AppState, ws_idx: usize) {
         let terminal_id = pane(state, ws_idx).attached_terminal_id.clone();
-        let (sequence, stamp) = state.next_agent_order_event();
+        state.next_agent_state_change_seq += 1;
+        let sequence = state.next_agent_state_change_seq;
         let terminal = state.terminals.get_mut(&terminal_id).unwrap();
         terminal.last_agent_state_change_seq = Some(sequence);
         terminal.last_agent_completion_seq = Some(sequence);
-        terminal.agent_order_stamp = Some(stamp);
         set_seen(state, ws_idx, false);
     }
 
@@ -339,44 +327,5 @@ mod tests {
         assert_eq!(status(&state, 0), AgentStatus::Idle);
         assert!(state.unread_holds().is_empty());
         assert!(!state.clear_unread_hold(0, target));
-    }
-
-    #[test]
-    fn a_restored_completion_queues_behind_the_ones_already_waiting() {
-        let mut state = state(3);
-        let key = |state: &AppState, ws_idx: usize| {
-            crate::agent_priority::priority_key(
-                false,
-                status(state, ws_idx),
-                terminal(state, ws_idx).agent_order_stamp.unwrap_or(0),
-            )
-        };
-        complete(&mut state, 0);
-        state.mark_active_tab_seen();
-        complete(&mut state, 1);
-        complete(&mut state, 2);
-        let target = pane_id(&state, 0);
-        state.arm_unread_hold(0, target, None).unwrap();
-        // While armed the agent is idle, behind every waiting agent.
-        assert!(key(&state, 1) < key(&state, 2));
-        assert!(key(&state, 2) < key(&state, 0));
-
-        state.restore_unread_hold(0, target);
-
-        // Restored, it is the youngest completion in the done group.
-        assert!(key(&state, 1) < key(&state, 2));
-        assert!(key(&state, 2) < key(&state, 0));
-        assert!(key(&state, 0).starts_with("1.1."));
-
-        // A later completion queues behind it.
-        set_seen(&mut state, 1, true);
-        complete(&mut state, 1);
-        assert!(key(&state, 0) < key(&state, 1));
-
-        // Seen again, it is the freshest idle agent.
-        state.clear_unread_hold(0, target);
-        set_seen(&mut state, 2, true);
-        assert!(key(&state, 0) < key(&state, 2));
-        assert!(key(&state, 0).starts_with("1.3."));
     }
 }

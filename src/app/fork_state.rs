@@ -14,9 +14,6 @@ pub(crate) struct AppFork {
 /// The fork's fields of [`super::state::AppState`].
 #[derive(Default)]
 pub(crate) struct StateFork {
-    /// Stamp of the latest agent ordering event; see
-    /// [`crate::agent_priority::priority_key`].
-    pub(crate) last_agent_order_stamp: u64,
     /// Whether some pane may carry an unread hold. Lets the server skip its
     /// per-event settle pass; it clears the flag once it finds none.
     pub(crate) unread_holds_pending: bool,

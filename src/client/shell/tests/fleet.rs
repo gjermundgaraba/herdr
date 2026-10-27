@@ -1,47 +1,13 @@
 //! A client attached to several machines, for the tests of logic that Herdr
-//! GPUI mirrors: the priority order and Back/Forward. Nothing here draws. The
+//! GPUI mirrors, such as Back/Forward. Nothing here draws. The
 //! client loop's picker answer tests (`client_contract/tests.rs`) build their
 //! shell state here too.
 
 use super::*;
 use crate::client::endpoint::{ClientEndpointStatus, ProfileId, SavedSshEndpoint};
 
-/// An agent as a daemon reports it: `priority_key` already says where it
-/// sorts. `stamp` is the daemon's ordering clock, and stands in for the
-/// lifecycle sequence too.
-pub(in crate::client) fn agent(pane_id: &str, status: AgentStatus, stamp: u64) -> ClientShellAgent {
-    ClientShellAgent {
-        state_change_seq: stamp,
-        ..keyed_agent(
-            pane_id,
-            status,
-            &crate::agent_priority::priority_key(false, status, stamp),
-        )
-    }
-}
-
-/// An agent in a space that carries a priority token.
-pub(in crate::client) fn lifted_agent(
-    pane_id: &str,
-    status: AgentStatus,
-    stamp: u64,
-) -> ClientShellAgent {
-    ClientShellAgent {
-        state_change_seq: stamp,
-        priority_mark: Some("★".into()),
-        ..keyed_agent(
-            pane_id,
-            status,
-            &crate::agent_priority::priority_key(true, status, stamp),
-        )
-    }
-}
-
-pub(in crate::client) fn keyed_agent(
-    pane_id: &str,
-    status: AgentStatus,
-    key: &str,
-) -> ClientShellAgent {
+/// An agent as a daemon reports it, its lifecycle sequence at `seq`.
+pub(in crate::client) fn agent(pane_id: &str, status: AgentStatus, seq: u64) -> ClientShellAgent {
     ClientShellAgent {
         pane_id: pane_id.into(),
         workspace_id: "ws_1".into(),
@@ -53,12 +19,10 @@ pub(in crate::client) fn keyed_agent(
         terminal_title: None,
         terminal_title_stripped: None,
         agent_status: status,
-        state_change_seq: 1,
+        state_change_seq: seq,
         state_labels: Vec::new(),
         tokens: Vec::new(),
         focused: false,
-        priority_key: key.into(),
-        priority_mark: None,
     }
 }
 
@@ -118,16 +82,4 @@ pub(in crate::client) fn fleet(labels: &[&str]) -> (ClientShellState, Vec<Client
         state.set_endpoint_status(remote, ClientEndpointStatus::Online);
     }
     (state, remotes)
-}
-
-/// The Agents list as `(machine label, pane id)`, in display order.
-pub(in crate::client) fn listed(state: &ClientShellState) -> Vec<(String, String)> {
-    aggregate_navigation::aggregate_agent_rows(
-        &state.endpoints,
-        &state.active_endpoint_id,
-        state.config.agent_panel_sort,
-    )
-    .into_iter()
-    .map(|row| (row.endpoint.label.to_owned(), row.agent.pane_id.clone()))
-    .collect()
 }

@@ -1,6 +1,5 @@
 use super::*;
 
-mod agent_picker_marks;
 mod pick_overlay;
 mod settings_overlay;
 mod worktree_overlays;
@@ -882,15 +881,7 @@ fn render_navigator_overlay(
         let current = if r.current { "◆ " } else { "" };
         let status = r.status.map(status_dot).unwrap_or_default();
         let status_separator = if status.is_empty() { "" } else { " " };
-        let mark = r
-            .mark
-            .as_deref()
-            .map(|mark| format!("{mark} "))
-            .unwrap_or_default();
-        let label = format!(
-            "{indent}{current}{status}{status_separator}{mark}{}",
-            r.label
-        );
+        let label = format!("{indent}{current}{status}{status_separator}{}", r.label);
         let st = if r.status.is_none() {
             st.add_modifier(Modifier::BOLD)
         } else {
@@ -975,7 +966,6 @@ fn render_navigator_overlay(
                 );
             }
         }
-        agent_picker_marks::paint_mark(b, rect, columns, r, &label, ix == selected, st, p);
         let machine_status = match &r.target {
             ClientNavigatorTarget::Machine { endpoint_id } if !endpoint_id.is_local() => endpoints
                 .iter()

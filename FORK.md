@@ -38,13 +38,6 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   completion in the daemon's current tab therefore never becomes a badge
   while every client presents another machine; see "Agent status" in
   `docs/next/website/src/content/docs/client-contract.md`
-- Agent priority: a space whose `space_priority` workspace metadata token,
-  the key the space-priority plugin writes, has a non-empty value lifts its
-  blocked and done agents to the top of the `priority` agent order, and the
-  agent picker shows the token's value. That order also queues blocked and
-  done agents oldest state change first. The daemon sends it as a
-  `priority_key` per agent, which clients compare as plain strings, also
-  across hosts, and sends the mark as `priority_mark` (`src/agent_priority.rs`)
 - One invoke path: `type = "plugin"` keybindings and `plugin.invoke`
   (which replaces `plugin.action.invoke`) run any manifest entrypoint with a
   target pane, tab, or space and its selection as context. Actions and panes
@@ -57,9 +50,8 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   spaces, or a pane's agent session, through the socket API
   (`src/app/api/plugins/entrypoint.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
-  saves tokens in the session snapshot, so plugin state such as the
-  `space_priority` token survives restarts and handoffs
-  (`src/metadata_tokens.rs`)
+  saves tokens in the session snapshot, so plugin state survives restarts
+  and handoffs (`src/metadata_tokens.rs`)
 - Plugin-facing events: `pane.closed` and `pane.exited` carry `tab_id`, and
   `pane.cwd_changed` reports shell cwd changes. `agent.start` is upstream's:
   the plugin SDK's `start_agent` retries a starting shell as upstream's CLI
@@ -111,9 +103,8 @@ first two kinds below.
 | --- | --- | --- | --- |
 | Sidebar `separator_before` | `src/config/sidebar.rs`, `src/config/sidebar/separator.rs`, `src/ui/sidebar/tokens.rs` | `crates/herdr-gpui/src/config/sidebar.rs`, `crates/herdr-gpui/src/config/sidebar/separator.rs`, `crates/herdr-gpui/src/sidebar/tokens.rs` | yes |
 | Plugin picker | `src/client/shell/picks.rs`, `src/client/shell/pick_overlay.rs` | `crates/herdr-gpui/src/picker.rs`, `crates/herdr-gpui/src/picker/` | yes, except a picker that arrives while a menu, a dialog, or another picker or navigator is open: Herdr GPUI answers `cancelled`, the TUI replaces its overlay and shows the picker; and Herdr GPUI sends a picker's answer only after the request its connection holds is answered |
-| Agent priority order | `src/client/shell/aggregate_navigation/agent_order.rs` | `crates/herdr-gpui/src/sidebar/agents/priority.rs`, `crates/herdr-gpui/src/sidebar/agents.rs` | yes: both sort by the daemon's `priority_key`, whose `space_priority` lift neither client configures, and break ties between equal keys by host, then snapshot order, except for agents without a key, from a host that sends none: Herdr GPUI ranks them by upstream's status and recency order, the TUI keeps their listing order; under a plugin agent view: Herdr GPUI keeps each host's own view order, the TUI applies the active host's view across hosts; and for a host whose connection is up but that is not online (a moment during a refused handshake or an outage): Herdr GPUI's panel ranks it as connected, while the TUI ranks it as stale |
 | Mark unread | `src/client/shell/mark_unread.rs` | `crates/herdr-gpui/src/mark_unread.rs` | yes |
-| Agent and workspace pickers | `src/client/shell/aggregate_navigation/agent_picker.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
+| Agent and workspace pickers | `src/client/shell/aggregate_navigation/agent_picker.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker; it orders agents by its own status and recency order, the TUI by status and then each daemon's `state_change_seq`; and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
 | Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail, except that after a pane opened from an activity-bar section, Back in Herdr GPUI first returns to that section, which the TUI does not have |
 | Client-side keys stay local | `src/config/keybinds/client_actions.rs`, `src/client/shell/client_actions.rs` | `crates/herdr-gpui/src/keymap/daemon/client_actions.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
 | Plugin popup selection | `src/client/shell/actions.rs` | `crates/herdr-gpui/src/palette.rs` | yes: both send the pane selection with a plugin key the daemon advertises as a popup |
@@ -152,11 +143,11 @@ lands.
   touching it: a small edit in place beats a duplicate. An upstream test whose
   behavior the fork changes is edited in place.
   `src/client/shell/aggregate_navigation.rs` stays rewritten in two places
-  for other fork features. Its rows drop upstream's `recency`: the priority
-  order breaks ties between equal keys by the rows' endpoint and snapshot
-  order, which its stable sort keeps, not by client-side recency. It drops the
-  recency and presentation fields and the `seen` flag, and `seen()` reads the
-  daemon's status, because the TUI's completion ledger is removed.
+  for other fork features. Its rows drop upstream's client-side `recency`,
+  so the priority order breaks ties within a status by the daemon's
+  `state_change_seq` instead, and the rows drop the presentation fields and
+  the `seen` flag, with `seen()` reading the daemon's status, because the
+  TUI's completion ledger is removed.
   `src/client/shell/overlay_input.rs` also stays rewritten: upstream's
   `open_navigator_overlay` becomes a layout-taking `open_navigator(layout)`,
   which the fork's agent and workspace pickers share, because a fork hook

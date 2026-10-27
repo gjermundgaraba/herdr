@@ -5,7 +5,6 @@
 
 use super::fleet::{agent, profiles};
 use super::*;
-use crate::agent_priority::priority_key;
 use crate::client::endpoint::ClientEndpointStatus;
 use crate::config::AgentPanelSortConfig;
 use crate::input::{KeybindAction, KeybindMatch};
@@ -16,7 +15,7 @@ use crate::input::{KeybindAction, KeybindMatch};
 struct Daemon {
     endpoint_id: ClientEndpointId,
     snapshot: ClientShellSnapshot,
-    /// The latest ordering event: its lifecycle sequence and its stamp.
+    /// The latest lifecycle sequence.
     clock: u64,
 }
 
@@ -69,14 +68,13 @@ impl Daemon {
             .expect("agent")
     }
 
-    /// A status change: a new sequence and stamp.
+    /// A status change: a new sequence.
     fn event(&mut self, pane_id: &str, status: AgentStatus) {
         self.clock += 1;
         let clock = self.clock;
         let agent = self.agent(pane_id);
         agent.agent_status = status;
         agent.state_change_seq = clock;
-        agent.priority_key = priority_key(false, status, clock);
     }
 
     /// The marking client stopped presenting the pane: the completion is back
@@ -328,10 +326,10 @@ fn a_restored_hold_shows_its_badge_while_its_pane_is_only_in_view() {
         status(&state, &ClientEndpointId::Local, "pane_1"),
         AgentStatus::Done
     );
-    // It queues where the daemon put it: behind the completions that waited.
+    // Its new sequence makes it the newest completion, so it leads them.
     assert_eq!(
         local_order(&state, AgentPanelSortConfig::Priority),
-        ["pane_2", "pane_3", "pane_1"]
+        ["pane_1", "pane_3", "pane_2"]
     );
 }
 
@@ -343,9 +341,9 @@ fn restored_state(federated: bool) -> (ClientShellState, Vec<(ClientEndpointId, 
     daemon.restore_hold("pane_1");
     daemon.send(&mut state);
     let mut expected = vec![
-        (ClientEndpointId::Local, "pane_2".into()),
-        (ClientEndpointId::Local, "pane_3".into()),
         (ClientEndpointId::Local, "pane_1".into()),
+        (ClientEndpointId::Local, "pane_3".into()),
+        (ClientEndpointId::Local, "pane_2".into()),
     ];
     if let Some(remote) = remote {
         expected.push((remote, "pane_1".into()));

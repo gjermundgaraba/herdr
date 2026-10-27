@@ -368,15 +368,6 @@ status_indicators = "symbols"
 
 The symbols are static, so this option does not enable spinner animation.
 
-`agent_panel_sort = "priority"` orders agents as an attention queue: blocked, then done, working, idle, and unknown. Blocked and done agents queue oldest first, so the agent that has waited longest comes next; working and idle agents show the newest first. A space whose `space_priority` workspace metadata token has a non-empty value is lifted in that order: its blocked and done agents come before every other agent, and its working and idle agents keep their usual place. Plugins set the token with `workspace.report_metadata`; the space-priority plugin, for example, sets it on spaces you mark urgent:
-
-```toml
-[ui]
-agent_panel_sort = "priority"
-```
-
-The agent picker shows the token's value before the labels of the space's agents. The `spaces` order ignores the token.
-
 ### Sidebar row layouts
 
 The expanded desktop sidebar renders each inner array in `rows` as one line. These are the complete default layouts:

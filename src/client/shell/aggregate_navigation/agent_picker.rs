@@ -1,5 +1,5 @@
 //! The agent picker: every agent across endpoints as one flat list in the
-//! `priority` order, each row marked with its space's priority mark.
+//! `priority` order.
 //!
 //! Mirrored client logic: Herdr GPUI's agent picker is
 //! `crates/herdr-gpui/src/picker/navigator/rows.rs` (see "Sibling fork:
@@ -35,7 +35,6 @@ pub(super) fn agent_navigator_rows(
             .workspaces
             .iter()
             .find(|workspace| workspace.workspace_id == agent.workspace_id);
-        let mark = agent.priority_mark.clone();
         let workspace = workspace.map_or(agent.workspace_id.as_str(), |workspace| {
             workspace.label.as_str()
         });
@@ -69,7 +68,6 @@ pub(super) fn agent_navigator_rows(
             stale: row.endpoint.stale(),
             current: row.endpoint.endpoint_id == active_endpoint_id
                 && snapshot.focused_pane_id.as_deref() == Some(agent.pane_id.as_str()),
-            mark,
             target: ClientNavigatorTarget::Pane {
                 endpoint_id: row.endpoint.endpoint_id.clone(),
                 pane_id: agent.pane_id.clone(),

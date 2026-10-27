@@ -3,7 +3,6 @@
 use super::*;
 use crate::protocol::ClientShellAgent;
 
-pub(super) mod agent_order;
 mod agent_picker;
 
 #[derive(Clone, Copy)]
@@ -143,7 +142,13 @@ fn sort_aggregate_rows(
     sort: crate::config::AgentPanelSortConfig,
 ) {
     if sort == crate::config::AgentPanelSortConfig::Priority {
-        rows.sort_by(agent_order::priority_order);
+        rows.sort_by_key(|row| {
+            (
+                row.endpoint.stale(),
+                std::cmp::Reverse(status_priority(row.agent.agent_status)),
+                std::cmp::Reverse(row.agent.state_change_seq),
+            )
+        });
     }
 }
 
@@ -391,7 +396,6 @@ pub(super) fn navigator_rows(
                                 stale,
                                 current: endpoint.endpoint_id == *active_endpoint_id
                                     && snapshot.focused_pane_id.as_deref() == Some(&pane.pane_id),
-                                mark: None,
                                 target: ClientNavigatorTarget::Pane {
                                     endpoint_id: endpoint.endpoint_id.clone(),
                                     pane_id: pane.pane_id.clone(),
@@ -413,7 +417,6 @@ pub(super) fn navigator_rows(
                         status: None,
                         stale,
                         current: false,
-                        mark: None,
                         target: ClientNavigatorTarget::Workspace {
                             endpoint_id: endpoint.endpoint_id.clone(),
                             workspace_id: workspace.workspace_id.clone(),
@@ -437,7 +440,6 @@ pub(super) fn navigator_rows(
                     status: None,
                     stale,
                     current: false,
-                    mark: None,
                     target: ClientNavigatorTarget::Machine {
                         endpoint_id: endpoint.endpoint_id.clone(),
                     },

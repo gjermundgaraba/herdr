@@ -1762,10 +1762,9 @@ impl AppState {
         let suppress_completion = force_suppress_completion
             || (change.state == AgentState::Idle && suppress_acquisition_completion);
         if change.previous_state != change.state {
-            let (_, stamp) = self.next_agent_order_event();
+            self.next_agent_state_change_seq += 1;
             if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
                 terminal.last_agent_state_change_seq = Some(self.next_agent_state_change_seq);
-                terminal.agent_order_stamp = Some(stamp);
                 terminal.last_agent_completion_seq = (!suppress_completion
                     && is_completion_transition(&change))
                 .then_some(self.next_agent_state_change_seq);

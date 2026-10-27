@@ -40,11 +40,10 @@ consults only `prefix+` bindings, by the key after the prefix: `prefix+u`
 runs on `u`, and a direct binding such as `alt+left` does nothing.
 
 `agent_picker` opens the session navigator as a flat list of every agent across
-connected machines, in the Priority order described below: by each daemon's
-`priority_key`, with the agents of machines that are not online last. The top
-row is selected: `j`/`k` or `↑`/`↓` move, `/` focuses the search, `Enter` opens
-the selection. Agents whose space carries a non-empty `space_priority` token
-show its value before their label. `workspace_list` opens the navigator
+connected machines, in the Priority order described below, with the agents of
+machines that are not online last. The top row is selected: `j`/`k` or `↑`/`↓`
+move, `/` focuses the search, `Enter` opens the selection. `workspace_list`
+opens the navigator
 listing only workspaces, with the search focused: type to search, and matching
 panes appear under their workspaces while a search is active. `↑`/`↓` or
 `ctrl+n`/`ctrl+p` move, `Esc` leaves the search and then closes. Both share the
@@ -82,15 +81,11 @@ them when one of them goes to the agent's tab. A held completion needs more
 than its tab: it clears when a client arrives at its pane, so it keeps its
 badge when you only move to a neighbouring split.
 
-The Priority order comes from each machine's daemon. Every agent carries a
-`priority_key`; the TUI sorts by it and merges machines by comparing keys, with
-ties going to the machine listed first and then to the agent's place in its
-machine's list. Agents of a machine that is reconnecting follow every agent of
-the machines that are online. A restored completion queues behind the
-completions that were already waiting in its Priority group, and new
-completions queue after it. The sidebar, agent picker, navigation, and mobile
-list share this order. The `space_priority` lift and status groups are part of
-the key, which each machine's daemon computes. Custom sorts apply when the
-endpoint supplies their definitions. Older endpoints supply
-view membership and an initial order, and send no keys, so their agents keep
-that order, after every agent that has a key. Spaces retains the supplied order.
+The Priority order ranks agents by status, blocked first, then done, working,
+idle, and unknown, and within a status puts the latest state change first, by
+the `state_change_seq` each machine's daemon reports. Those sequences count
+each daemon's own changes, so between machines that tiebreak is only
+approximate. Agents of a machine that is reconnecting follow every agent of the
+machines that are online. The sidebar, agent picker, navigation, and mobile
+list share this order. Custom sorts apply when the endpoint supplies their
+definitions. Spaces retains the supplied order.

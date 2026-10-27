@@ -36,7 +36,12 @@ pub(super) fn ordered_agent_pane_ids(
     }
     let mut agents = snapshot.agents.iter().collect::<Vec<_>>();
     if sort == crate::config::AgentPanelSortConfig::Priority {
-        agents.sort_by_key(|&agent| super::aggregate_navigation::agent_order::priority_key(agent));
+        agents.sort_by_key(|agent| {
+            (
+                std::cmp::Reverse(status_priority(agent.agent_status)),
+                std::cmp::Reverse(agent.state_change_seq),
+            )
+        });
     }
     agents
         .into_iter()

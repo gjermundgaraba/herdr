@@ -418,7 +418,6 @@ async fn a_restored_completion_reaches_clients_as_done_under_a_new_sequence() {
     let seeded = client_shell_snapshot(&control);
     let before = seeded.agents[0].clone();
     assert_eq!(before.agent_status, AgentStatus::Idle);
-    assert!(before.priority_key.starts_with("1.3."), "{before:?}");
 
     fixture.mark(61);
     fixture.visit(61, 1);
@@ -432,8 +431,6 @@ async fn a_restored_completion_reaches_clients_as_done_under_a_new_sequence() {
     assert_eq!(snapshot.workspaces[0].agent_status, AgentStatus::Done);
     // The restored completion is a new ordering event.
     assert!(after.state_change_seq > before.state_change_seq);
-    // It queues as the youngest done agent.
-    assert!(after.priority_key.starts_with("1.1."), "{after:?}");
     shutdown_test_runtimes(&mut fixture.server);
 }
 
