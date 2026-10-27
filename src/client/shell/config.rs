@@ -143,7 +143,6 @@ impl ClientShellConfig {
                     keybinds: config.keybinds(),
                 }),
             local_keys: config.keys.clone(),
-            local_client_actions: config.keybinds(),
             keybinding_source: ClientShellKeybindingSource::Local,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             prompt_new_workspace_name: config.ui.prompt_new_workspace_name,
@@ -282,9 +281,6 @@ impl ClientShellConfig {
             }
         };
         if self.keybinding_source == ClientShellKeybindingSource::Endpoint {
-            keybinds
-                .keybinds
-                .copy_client_actions(&self.local_client_actions);
             for command in commands {
                 let Ok(action) = command.action.try_into() else {
                     continue;
@@ -319,9 +315,6 @@ impl ClientShellConfig {
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
 
-        if !invalid_section("keys") {
-            self.reload_client_actions(config);
-        }
         if !invalid_section("keys")
             && self.keybinding_source != ClientShellKeybindingSource::Endpoint
         {
@@ -481,8 +474,6 @@ mod tests {
     use crossterm::event::{KeyCode, KeyModifiers};
 
     use super::*;
-
-    mod client_keys;
 
     #[test]
     fn live_reload_applies_client_owned_sections() {

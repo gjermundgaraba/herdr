@@ -464,7 +464,10 @@ impl AppState {
 
         let mut changed = false;
         for pane in tab.panes.values_mut() {
-            changed |= pane.mark_seen();
+            if !pane.seen {
+                pane.seen = true;
+                changed = true;
+            }
         }
         changed
     }
@@ -1515,16 +1518,6 @@ impl AppState {
                     .collect()
                 }
             }
-            AppEvent::InBandHookStateReported {
-                pane_id,
-                app,
-                state,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_in_band_hook_state_at(&app, state, Instant::now())
-                })
-                .into_iter()
-                .collect(),
             AppEvent::AgentResumeReported {
                 pane_id,
                 source,
@@ -1750,9 +1743,7 @@ impl AppState {
         };
         if completion_reset {
             self.pending_agent_notifications.remove(&pane_id);
-            let pane = self.workspaces[ws_idx].pane_state_mut(pane_id)?;
-            pane.unread_hold = None;
-            pane.seen = true;
+            self.workspaces[ws_idx].pane_state_mut(pane_id)?.seen = true;
         }
         if mutation.session_ref_changed || managed_changed || agent_name_changed {
             self.mark_session_dirty();
@@ -1769,8 +1760,6 @@ impl AppState {
                     && is_completion_transition(&change))
                 .then_some(self.next_agent_state_change_seq);
             }
-            // A real lifecycle change supersedes a completion held as unread.
-            self.workspaces[ws_idx].pane_state_mut(pane_id)?.unread_hold = None;
         }
         let seen = self.apply_pane_state_change(ws_idx, pane_id, &change, suppress_completion)?;
         let update = PaneStateUpdate {

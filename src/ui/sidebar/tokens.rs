@@ -3,13 +3,10 @@ use crate::config::{
     SpacesSidebarConfig,
 };
 
-mod separator;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolvedToken {
     pub kind: ResolvedTokenKind,
     pub style: SidebarTokenStyle,
-    pub separator_before: Option<std::sync::Arc<str>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,11 +43,7 @@ impl ResolvedTokenKind {
 
 impl ResolvedToken {
     fn new(kind: ResolvedTokenKind, style: SidebarTokenStyle) -> Self {
-        Self {
-            kind,
-            style,
-            separator_before: None,
-        }
+        Self { kind, style }
     }
 
     #[cfg(test)]
@@ -120,7 +113,7 @@ pub(crate) fn agent_rows(
                     let style = kind
                         .text_value()
                         .map_or(Some(style), |value| configured.style_for_value(value))?;
-                    Some(ResolvedToken::new(kind, style).separated(configured.separator_before()))
+                    Some(ResolvedToken::new(kind, style))
                 })
                 .collect::<Vec<_>>();
             (!resolved.is_empty()).then_some(resolved)
@@ -176,7 +169,7 @@ pub(crate) fn space_rows(
                     let style = kind
                         .text_value()
                         .map_or(Some(style), |value| configured.style_for_value(value))?;
-                    Some(ResolvedToken::new(kind, style).separated(configured.separator_before()))
+                    Some(ResolvedToken::new(kind, style))
                 })
                 .collect::<Vec<_>>();
             (!resolved.is_empty()).then_some(resolved)
@@ -184,10 +177,8 @@ pub(crate) fn space_rows(
         .collect()
 }
 
-pub(crate) fn separator<'a>(previous: &ResolvedToken, current: &'a ResolvedToken) -> &'a str {
-    if let Some(separator) = current.separator_before.as_deref() {
-        separator
-    } else if matches!(previous.kind, ResolvedTokenKind::StateIcon)
+pub(crate) fn separator(previous: &ResolvedToken, current: &ResolvedToken) -> &'static str {
+    if matches!(previous.kind, ResolvedTokenKind::StateIcon)
         || matches!(current.kind, ResolvedTokenKind::GitStatus { .. })
     {
         " "
@@ -200,8 +191,6 @@ pub(crate) fn separator<'a>(previous: &ResolvedToken, current: &'a ResolvedToken
 mod tests {
     use super::*;
     use crate::config::{AgentSidebarToken, SpaceSidebarToken};
-
-    mod separator_before;
 
     struct Entry {
         workspace: String,

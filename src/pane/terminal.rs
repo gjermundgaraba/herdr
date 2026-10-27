@@ -170,7 +170,6 @@ pub(crate) struct ProcessBytesResult {
     pub clipboard_writes: Vec<Vec<u8>>,
     pub reported_cwd: Option<std::path::PathBuf>,
     pub terminal_responses: Vec<Bytes>,
-    pub program_status_reports: Vec<super::program_status::ProgramStatusReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -1369,7 +1368,6 @@ impl GhosttyPaneTerminal {
                 clipboard_writes: Vec::new(),
                 reported_cwd: None,
                 terminal_responses: Vec::new(),
-                program_status_reports: Vec::new(),
             };
         };
 
@@ -1399,7 +1397,6 @@ impl GhosttyPaneTerminal {
             );
         }
         let terminal_title_changed = core.agent_osc_state.observe(bytes);
-        let program_status_reports = core.agent_osc_state.drain_program_status_reports();
 
         core.kitty_keyboard.observe(bytes);
         let mut terminal_responses = Vec::new();
@@ -1488,7 +1485,6 @@ impl GhosttyPaneTerminal {
             clipboard_writes,
             reported_cwd,
             terminal_responses,
-            program_status_reports,
         }
     }
 

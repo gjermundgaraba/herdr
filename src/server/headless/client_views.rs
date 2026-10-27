@@ -904,7 +904,7 @@ impl HeadlessServer {
         }
         let geometry_changed =
             method_claims_geometry && self.reapply_controlled_shell_tab_geometry(false);
-        changed | geometry_changed | self.settle_unread_holds()
+        changed | geometry_changed
     }
 
     pub(super) fn handle_client_shell_api_request(
@@ -922,9 +922,7 @@ impl HeadlessServer {
         self.set_default_shell_target_from_client(client_id);
         let popup_before = self.app.state.popup_pane.is_some();
         let popup_owner = self.shell_tab_id_for_client(client_id);
-        self.app.fork.invoking_client_id = Some(client_id);
         let changed = self.handle_api_request_with_shutdown_check_inner(msg, false, true);
-        self.app.fork.invoking_client_id = None;
         self.focus_shell_client_on_default_target(client_id);
         if !popup_before && self.app.state.popup_pane.is_some() {
             self.popup_owner_tab_id = popup_owner;

@@ -1,6 +1,4 @@
 use super::*;
-mod advertised;
-use advertised::advertised_as;
 
 impl ClientShellState {
     pub(super) fn record_binding(
@@ -48,9 +46,6 @@ impl ClientShellState {
                 if action == crate::input::KeybindAction::OpenNavigator {
                     self.open_navigator_overlay();
                     outcome.repaint = true;
-                    return;
-                }
-                if self.client_action_key(action, outcome) {
                     return;
                 }
                 if action == crate::input::KeybindAction::Help {
@@ -188,13 +183,12 @@ impl ClientShellState {
                 let resolved_labels = command.bindings.labels();
                 let command_id = self.snapshot.as_deref().and_then(|snapshot| {
                     if let Some(candidate) = snapshot.commands.iter().find(|candidate| {
-                        candidate.command_id == command.command
-                            && advertised_as(candidate.action, action)
+                        candidate.command_id == command.command && candidate.action == action
                     }) {
-                        return Some((candidate.command_id.clone(), candidate.action));
+                        return Some(candidate.command_id.clone());
                     }
                     let mut candidates = snapshot.commands.iter().filter(|candidate| {
-                        advertised_as(candidate.action, action)
+                        candidate.action == action
                             && !resolved_labels.is_empty()
                             && resolved_labels
                                 .iter()
@@ -204,9 +198,9 @@ impl ClientShellState {
                     candidates
                         .next()
                         .is_none()
-                        .then(|| (candidate.command_id.clone(), candidate.action))
+                        .then(|| candidate.command_id.clone())
                 });
-                let Some((command_id, advertised)) = command_id else {
+                let Some(command_id) = command_id else {
                     self.set_endpoint_error(
                         "custom command is not available on this endpoint; reload configuration",
                     );
@@ -254,7 +248,7 @@ impl ClientShellState {
                     pane_id: snapshot.focused_pane_id.clone(),
                     selection,
                 };
-                if advertised == crate::protocol::ClientShellCommandAction::Popup {
+                if action == crate::protocol::ClientShellCommandAction::Popup {
                     self.popup_pending = true;
                     self.popup_pending_deadline = None;
                     if !self.push_endpoint_method_with_kind(
@@ -574,7 +568,6 @@ impl ClientShellState {
         }
         match pending.kind {
             PendingEndpointKind::Generic => {}
-            PendingEndpointKind::MarkUnread => return self.mark_unread_answered(result.is_ok()),
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {
                 return match result {

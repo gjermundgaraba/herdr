@@ -13,7 +13,6 @@ pub(crate) const MAX_ENDPOINT_REQUEST_ID_BYTES: usize = 128;
 const ENDPOINT_RESPONSE_CHUNK_BYTES: usize = 512 * 1024;
 
 const CLIENT_SHELL_METHODS: &[&str] = &[
-    "agent.mark_unread",
     "client_shell.surface.set",
     "command.invoke",
     "integration.install",
@@ -44,7 +43,6 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "tab.focus",
     "tab.move",
     "tab.rename",
-    "ui.pick.resolve",
     "workspace.close",
     "workspace.create",
     "workspace.focus",
@@ -298,14 +296,6 @@ mod tests {
         assert_eq!(
             actual.remove("pane.link.resolve").as_deref(),
             Some("f5e4a3e01453ae7b188f127ce951c12c20e0bebcc17cc364eeb6d1a01fd5bf81")
-        );
-        assert_eq!(
-            actual.remove("ui.pick.resolve").as_deref(),
-            Some("4d7bdabc63bd848851f6da06f4da1a94782ddec890c5f7776455c2fc4b969f49")
-        );
-        assert_eq!(
-            actual.remove("agent.mark_unread").as_deref(),
-            Some("463122bae84c81d00653c26d97d3e40f253e30f12868cfd2c2ffe7bfae7ee169")
         );
 
         assert_eq!(

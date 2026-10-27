@@ -107,9 +107,8 @@ colon, underscore, and hyphen.
 
 Action ids, pane ids, and link handler ids are local ids inside the plugin.
 They may use ASCII letters, digits, colon, underscore, and hyphen, but not
-dots. Action and pane ids share one namespace, so no action may reuse a pane
-id; link handler ids must be unique among themselves. Herdr qualifies action
-and pane ids as `plugin.id.entrypoint` when it needs a globally unique name.
+dots. Each id type must be unique inside a plugin. Herdr qualifies action ids
+as `plugin.id.action` when it needs a globally unique name.
 
 Use `platforms = ["linux", "macos", "windows"]` to declare where the plugin
 can run. Build commands, startup hooks, actions, event hooks, panes, and link
@@ -185,7 +184,7 @@ When you are authoring a local plugin, link the working directory instead:
 herdr plugin link /path/to/plugin
 herdr plugin config-dir example.layout
 herdr plugin action list --plugin example.layout
-herdr plugin invoke example.layout.apply
+herdr plugin action invoke example.layout.apply
 herdr plugin pane open --plugin example.layout --entrypoint board
 herdr plugin log list --plugin example.layout
 ```
@@ -286,13 +285,8 @@ file format and lifecycle.
 
 `HERDR_PLUGIN_CONTEXT_JSON` can include workspace, tab, focused pane, worktree,
 agent, selected text, clicked URL, and link handler fields when they are
-available for that invocation. When a key or API call names a
-pane, tab, or space, the context describes that target rather than whatever has
-focus. Shell plugins can read the individual env vars for common ids, or parse
-the context JSON for the full shape.
-
-When a shell client, the TUI or Herdr GPUI, started the plugin, `client_id` and
-`HERDR_CLIENT_ID` identify that client within the server; event hooks omit both.
+available for that invocation. Shell plugins can read the individual env vars
+for common ids, or parse the context JSON for the full shape.
 
 Use `HERDR_BIN_PATH` when a plugin needs to call Herdr portably from Node,
 PowerShell, Bash, or another runtime. The raw socket transport behind
@@ -301,25 +295,6 @@ while Windows clients connect to a named pipe. CLI calls through
 `HERDR_BIN_PATH` avoid that transport difference. See the
 [CLI reference](/docs/cli-reference/) for available commands and
 [socket API](/docs/socket-api/) for raw request shapes.
-
-## Pickers
-
-A plugin that needs a choice from the user calls `ui.pick` instead of drawing
-its own picker pane. Herdr shows a native filterable list in the shell client,
-the TUI or Herdr GPUI, that started the plugin (the context's `client_id`), or
-in the foreground shell client when that client is gone, and the call blocks
-until the user answers:
-
-```json
-{"id":"req_pick","method":"ui.pick","params":{"title":"Move pane to","items":[{"id":"t2","label":"build","badge":"2","detail":"3 panes"}],"selected":"t2","create":{"label":"New tab"},"client_id":7}}
-```
-
-The result's `outcome` is `{"type":"picked","id":"t2"}`,
-`{"type":"created","text":"..."}` when `create` is set and the user submits
-filter text that matches no label, or `{"type":"cancelled"}`. Only one picker is
-open per client; a second call returns `ui_busy`, and `no_client` means no
-shell client is attached. Closing the request connection or calling `ui.pick.close` with
-the pick id dismisses the picker.
 
 ## Panes
 
@@ -369,21 +344,15 @@ must still be valid Windows argv commands.
 
 ## Keybindings
 
-Bind a key to an installed plugin entrypoint, an action or a pane, by its fully
-qualified ID:
+Bind a key to an installed plugin action:
 
 ```toml
 [[keys.command]]
 key = "prefix+l"
-type = "plugin"
+type = "plugin_action"
 command = "example.layout.apply"
 description = "apply layout"
 ```
-
-Herdr preserves the originating pane and selection context. A pane opens with
-its manifest defaults; optional `width` and `height` override popup dimensions
-and are ignored for other placements.
-See [custom command keybindings](./configuration#custom-command-keybindings).
 
 ## Link handlers
 

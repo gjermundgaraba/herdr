@@ -30,10 +30,8 @@ mod cursor;
 mod input;
 mod kitty_keyboard;
 mod osc;
-mod program_status;
 mod state;
 mod terminal;
-pub(crate) mod unread_hold;
 mod xtgettcap;
 
 use self::agent_detection::{
@@ -2613,7 +2611,6 @@ impl PaneRuntime {
                 if let Some(cwd) = result.reported_cwd.clone() {
                     publish_reported_cwd(pane_id, cwd, &reported_cwd, &read_events);
                 }
-                program_status::publish(pane_id, result.program_status_reports, &read_events);
                 for content in result.clipboard_writes {
                     if let Err(err) = read_events.try_send(AppEvent::ClipboardWrite { content }) {
                         warn!(
@@ -2819,7 +2816,6 @@ impl PaneRuntime {
                 if let Some(cwd) = result.reported_cwd.clone() {
                     publish_reported_cwd(pane_id, cwd, &reported_cwd, &events);
                 }
-                program_status::publish(pane_id, result.program_status_reports, &events);
                 for content in result.clipboard_writes {
                     if let Err(err) = events.try_send(AppEvent::ClipboardWrite { content }) {
                         warn!(

@@ -29,12 +29,6 @@ impl App {
             ));
         };
         let args = command.iter().skip(1).cloned().collect::<Vec<_>>();
-        // Event hooks fire per event, not for a client.
-        let mut invoked = context.clone();
-        if event_json.is_none() {
-            invoked.client_id = self.fork.invoking_client_id;
-        }
-        let context = &invoked;
         let context_json = serde_json::to_string(context)
             .map_err(|err| ("invalid_plugin_context", err.to_string()))?;
         super::env::ensure_plugin_user_dirs(plugin)
@@ -75,9 +69,6 @@ impl App {
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
             env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
-        }
-        if let Some(client_id) = context.client_id {
-            env.push(("HERDR_CLIENT_ID".to_string(), client_id.to_string()));
         }
         if let Some(clicked_url) = context.clicked_url.as_ref() {
             env.push(("HERDR_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));

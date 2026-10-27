@@ -14,7 +14,6 @@
 
 mod attach;
 mod catalog_reload;
-mod client_contract;
 mod clipboard_forwarding;
 mod clipboard_images;
 mod config_reload;
@@ -540,7 +539,6 @@ async fn run_client_loop(
     let stdin_tx = event_tx.clone();
 
     let mut endpoint_commands = endpoint_commands::EndpointCommands::default();
-    let mut client_contract = client_contract::ClientContract::default();
 
     // Spawn the stdin reader thread.
     let will_query_host_terminal_theme = state.attach_escape.is_none();
@@ -783,10 +781,6 @@ async fn run_client_loop(
                 },
                 &supervisor_tx,
             );
-        }
-        // Once per turn, the client contract answers settled pickers.
-        if let Some(shell) = state.shell.as_mut() {
-            client_contract.sync(shell, &mut write_stream);
         }
         let timer_delay = state
             .shell
@@ -1475,15 +1469,12 @@ async fn run_client_loop(
                         boot_id,
                         request_id,
                         ..
-                    } => {
-                        client_contract::ClientContract::owns_response(request_id)
-                            || endpoint_commands.accepts_response(
-                                &endpoint_id,
-                                generation,
-                                boot_id,
-                                request_id,
-                            )
-                    }
+                    } => endpoint_commands.accepts_response(
+                        &endpoint_id,
+                        generation,
+                        boot_id,
+                        request_id,
+                    ),
                     _ => false,
                 };
                 if !endpoint::accepts_endpoint_message(
@@ -1909,15 +1900,6 @@ async fn run_client_loop(
                         if request_id.starts_with("client-shell-surface:") {
                             continue;
                         }
-                        if client_contract::ClientContract::owns_response(&request_id) {
-                            if final_chunk {
-                                client_contract::ClientContract::receive_response(
-                                    &request_id,
-                                    &data,
-                                );
-                            }
-                            continue;
-                        }
                         let completed = endpoint_commands
                             .receive_chunk(
                                 &endpoint_id,
@@ -2121,31 +2103,13 @@ async fn run_client_loop(
                                 }
                                 continue;
                             }
-                            Ok(endpoint::EndpointControlMessage::AgentCompletions(
-                                _completions, // Keeps the field read; `_` brings back dead_code.
-                            )) => continue,
-                            Ok(endpoint::EndpointControlMessage::Contract(control)) => {
-                                let Some(shell) = state.shell.as_mut() else {
-                                    continue;
-                                };
-                                let (outcome, frame) = client_contract::handle_control(
-                                    shell,
-                                    &endpoint_id,
-                                    generation,
-                                    control,
-                                    state.reported_size,
-                                );
-                                if finish_client_shell_input(
-                                    &mut state,
-                                    outcome,
-                                    frame,
-                                    &mut write_stream,
-                                    &mut pending_activation,
-                                    &mut endpoint_commands,
-                                    &mut prefix_input_source,
-                                    &mut scheduled_activation,
-                                )? {
-                                    return Ok(());
+                            Ok(endpoint::EndpointControlMessage::AgentCompletions(projection)) => {
+                                if let Some(shell) = state.shell.as_mut() {
+                                    shell.set_endpoint_agent_completions(
+                                        &endpoint_id,
+                                        generation,
+                                        projection,
+                                    );
                                 }
                                 continue;
                             }

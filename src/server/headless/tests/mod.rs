@@ -4,8 +4,6 @@ mod event_fairness;
 mod native_graphics;
 #[path = "pane_move.rs"]
 mod pane_move_tests;
-mod picks;
-mod plugin_origin;
 #[path = "pane_graphics.rs"]
 mod retained_graphics_tests;
 #[path = "surface_delta.rs"]
@@ -14,7 +12,6 @@ mod surface_delta_tests;
 mod surface_interest_tests;
 #[path = "surface_scroll.rs"]
 mod surface_scroll_tests;
-mod unread_holds;
 
 fn client_shell_projection(
     receiver: &std::sync::mpsc::Receiver<Vec<u8>>,
@@ -126,7 +123,6 @@ fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServ
         server_config_diagnostic: None,
         server_config_diagnostic_without_keybindings: None,
         terminal_attach_owners: HashMap::new(),
-        fork: Default::default(),
         pending_alt_screen_reads: Vec::new(),
         deferred_alt_screen_reads: Vec::new(),
         next_activity_stamp: 1,

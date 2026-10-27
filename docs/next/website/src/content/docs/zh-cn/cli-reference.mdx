@@ -154,7 +154,7 @@ herdr workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [
 herdr workspace get <workspace_id>
 herdr workspace focus <workspace_id>
 herdr workspace rename <workspace_id> <label>
-herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N|--persist]
+herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]
 herdr workspace close <workspace_id> [--group]
 ```
 
@@ -308,7 +308,7 @@ herdr pane report-metadata <pane_id> \
 
 `--token` 设置一个命名展示值,`--clear-token` 删除一个值。未提及的令牌保持不变。窗格令牌可在智能体侧边栏行中写成 `$name`;工作区令牌可用于空间行。TTL 分别应用于该次调用更新的每个令牌键。
 
-`--source` 和 `--applies-to-source` 必须不超过 80 个字符,并且只能包含 ASCII 字母、数字、冒号、点、下划线和连字符。`--ttl-ms` 让元数据自动过期,取值必须在 `1` 到 `86400000` 毫秒之间。想让元数据一直保留到被替换、清除或窗格或工作区关闭时,省略它。`workspace report-metadata --persist` 会把设置的令牌随会话保存,使其跨越重启和实时交接保留。`--seq` 让 Herdr 忽略来自同一 `--source` 的过期上报;过期上报会被 API 接受,但被窗格状态忽略。每个窗格或工作区在其生命周期内最多接受来自 32 个不同来源的带序号令牌上报,清除或过期不会释放这些来源名额。
+`--source` 和 `--applies-to-source` 必须不超过 80 个字符,并且只能包含 ASCII 字母、数字、冒号、点、下划线和连字符。`--ttl-ms` 让元数据自动过期,取值必须在 `1` 到 `86400000` 毫秒之间。想让元数据一直保留到被替换、清除或窗格或工作区关闭时,省略它。`--seq` 让 Herdr 忽略来自同一 `--source` 的过期上报;过期上报会被 API 接受,但被窗格状态忽略。每个窗格或工作区在其生命周期内最多接受来自 32 个不同来源的带序号令牌上报,清除或过期不会释放这些来源名额。
 
 ## 智能体
 
@@ -337,7 +337,7 @@ herdr agent explain --file PATH --agent LABEL [--json|--verbose]
 
 `agent prompt` 遵循当前的 bracketed paste 模式，即使智能体处于 working，也会将文本和延迟的 Enter 作为一次有序提交写入。不带 `--wait` 时，成功只确认写入完成，不代表轮次已经开始。在 Windows 上，Codex 在 Enter 前会收到粘贴边界，因此提交不依赖提示大小；调用方的超时包含提交时间。如果智能体已经是 `blocked`,它不会发送输入,而是返回 `agent_blocked`。使用 `--wait` 时,从其他非 working 状态接受的提示必须在提交后的最多五秒内产生可观察的 `working` 或 `blocked` 状态，否则 Herdr 返回 `agent_prompt_stalled`；如果调用方的超时先到期，则返回普通的 `timeout` 错误。这可防止无关的 `idle`、`done` 或会话变化错误地完成等待。观察到活动后，它会等待请求的第一个稳定状态。它不会跟踪单独的轮次。如果智能体已经处于 working，当前轮次的完成可能满足等待。`--until` 用于缩小匹配状态，不带 `--wait` 时会被拒绝。独立的 `agent wait` 在当前状态匹配时立即返回。两者默认匹配 `idle`、`done` 或 `blocked`；需要 `unknown` 时请明确使用 `--until unknown`。
 
-`idle` 和 `done` 都表示可以接受输入。CLI/API 使用服务器的已查看状态：`done` 表示尚未标记为已查看的 idle；显式 `pane focus` / `agent focus` 会标记目标，读取不会。由 `agent.mark_unread` 恢复的完成状态不会被该命令本身清除：命令会把所有已连接的客户端移到该窗格，只有当这使某个窗口并非已知失去焦点的客户端到达该窗格时，标记才会清除；原本就在显示该窗格的客户端、正在显示另一台机器的客户端和处于后台的客户端都不会清除它，没有客户端连接时发送的命令也不会。所有已连接的客户端都显示这同一个已查看状态，因此 Done 标记在 CLI 和每个客户端中都相同。`blocked` 表示 Herdr 识别到审批或提问界面。`unknown` 表示智能体存在但无法可靠分类,不代表工作成功。
+`idle` 和 `done` 都表示可以接受输入。CLI/API 使用服务器的已查看状态：`done` 表示尚未标记为已查看的 idle；显式 `pane focus` / `agent focus` 会标记目标，读取不会。每个 TUI 客户端独立记录它已显示的完成状态，因此其 Done 标记可能与 CLI 或其他客户端不同。`blocked` 表示 Herdr 识别到审批或提问界面。`unknown` 表示智能体存在但无法可靠分类,不代表工作成功。
 
 `agent send-keys` 发送 `enter`、`up`、`esc`、`ctrl+c` 等逻辑按键。Herdr 会在写入任何字节前验证所有按键。`agent read` 读取解析出的终端流,`agent rename` 为已检测到的智能体命名。
 
@@ -454,10 +454,10 @@ herdr plugin config-dir <plugin_id>
 
 ```bash
 herdr plugin action list [--plugin ID]
-herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]
+herdr plugin action invoke <action_id> [--plugin ID]
 ```
 
-`plugin invoke` 运行一个已安装、已启用、平台兼容插件的动作或打开其窗格,与 `type = "plugin"` 按键一样,以给定的空间、标签页或窗格作为上下文。动作会在 JSON 响应中打印已启动命令的日志记录。条目 id 不能包含点,所以即使插件 id 包含点,限定 id 也不会有歧义。
+`plugin action invoke` 为一个已安装、已启用、平台兼容的插件动作启动清单命令,并在 JSON 响应中打印已启动命令的日志记录。当多个插件使用相同的动作 id 时,使用限定的动作 id (`plugin.id.action`)。本地动作 id 不能包含点,所以即使插件 id 包含点,限定 id 也不会有歧义。
 
 日志:
 

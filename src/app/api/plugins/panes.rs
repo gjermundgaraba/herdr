@@ -253,7 +253,6 @@ impl App {
     ) -> Result<Vec<(String, String)>, (String, String)> {
         let mut env = super::super::env::normalize_launch_env(env)?;
         crate::platform::set_default_plugin_pane_pwd(&mut env, cwd);
-        let context = self.invoked_pane_context(context);
         let context_json = serde_json::to_string(&context)
             .map_err(|err| ("invalid_plugin_context".to_string(), err.to_string()))?;
         super::env::ensure_plugin_user_dirs(plugin)
@@ -271,9 +270,6 @@ impl App {
             entrypoint.to_string(),
         ));
         env.push(("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json));
-        if let Some(client_id) = context.client_id {
-            env.push(("HERDR_CLIENT_ID".to_string(), client_id.to_string()));
-        }
         if let Ok(current_exe) = crate::platform::launch_executable() {
             env.push((
                 "HERDR_BIN_PATH".to_string(),
@@ -369,6 +365,5 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
             | "HERDR_PLUGIN_ENTRYPOINT_ID"
             | "HERDR_PLUGIN_CONTEXT_JSON"
             | "HERDR_BIN_PATH"
-            | "HERDR_CLIENT_ID"
     )
 }

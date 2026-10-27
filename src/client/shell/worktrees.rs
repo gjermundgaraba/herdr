@@ -539,8 +539,7 @@ impl ClientShellState {
                 | PendingEndpointKind::PaneLinkActivate { .. }
                 | PendingEndpointKind::PaneLinkResolve { .. }
                 | PendingEndpointKind::CopyMotion { .. }
-                | PendingEndpointKind::CopySearch { .. }
-                | PendingEndpointKind::MarkUnread,
+                | PendingEndpointKind::CopySearch { .. },
                 Err(_),
             ) => true,
         }

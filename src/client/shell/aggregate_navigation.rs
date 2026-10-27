@@ -3,8 +3,6 @@
 use super::*;
 use crate::protocol::ClientShellAgent;
 
-mod agent_picker;
-
 #[derive(Clone, Copy)]
 pub(super) struct CachedEndpointSnapshot<'a> {
     pub(super) endpoint_index: usize,
@@ -12,6 +10,8 @@ pub(super) struct CachedEndpointSnapshot<'a> {
     pub(super) label: &'a str,
     pub(super) status: ClientEndpointStatus,
     pub(super) snapshot: &'a ClientShellSnapshot,
+    pub(super) agent_recency: &'a HashMap<String, u64>,
+    pub(super) agent_presentation: &'a super::endpoint_agent_state::EndpointAgentPresentation,
 }
 
 impl CachedEndpointSnapshot<'_> {
@@ -36,6 +36,8 @@ pub(super) fn cached_endpoint_snapshots(
                     label: &endpoint.label,
                     status: endpoint.status,
                     snapshot,
+                    agent_recency: &endpoint.agent_recency,
+                    agent_presentation: &endpoint.agent_presentation,
                 })
         })
 }
@@ -43,6 +45,7 @@ pub(super) fn cached_endpoint_snapshots(
 pub(super) struct AggregateAgentRow<'a> {
     pub(super) endpoint: CachedEndpointSnapshot<'a>,
     pub(super) agent: &'a ClientShellAgent,
+    pub(super) recency: u64,
 }
 
 pub(super) struct AggregateAgentTarget {
@@ -84,7 +87,15 @@ pub(super) fn aggregate_agent_rows<'a>(
                     .snapshot
                     .agents
                     .iter()
-                    .map(move |agent| AggregateAgentRow { endpoint, agent })
+                    .map(move |agent| AggregateAgentRow {
+                        recency: endpoint
+                            .agent_recency
+                            .get(&agent.pane_id)
+                            .copied()
+                            .unwrap_or_default(),
+                        endpoint,
+                        agent,
+                    })
             })
             .collect::<Vec<_>>();
         if let Some(view) = view {
@@ -129,7 +140,15 @@ pub(super) fn aggregate_agent_rows<'a>(
                         .agents
                         .iter()
                         .find(|agent| agent.pane_id == pane_id)?;
-                    Some(AggregateAgentRow { endpoint, agent })
+                    Some(AggregateAgentRow {
+                        recency: endpoint
+                            .agent_recency
+                            .get(&pane_id)
+                            .copied()
+                            .unwrap_or_default(),
+                        endpoint,
+                        agent,
+                    })
                 })
         })
         .collect::<Vec<_>>();
@@ -146,7 +165,7 @@ fn sort_aggregate_rows(
             (
                 row.endpoint.stale(),
                 std::cmp::Reverse(status_priority(row.agent.agent_status)),
-                std::cmp::Reverse(row.agent.state_change_seq),
+                std::cmp::Reverse(row.recency),
             )
         });
     }
@@ -156,6 +175,7 @@ struct ClientAgentViewEntry<'a> {
     endpoint_index: usize,
     snapshot: &'a ClientShellSnapshot,
     agent: &'a ClientShellAgent,
+    seen: bool,
 }
 
 impl<'a> ClientAgentViewEntry<'a> {
@@ -164,6 +184,7 @@ impl<'a> ClientAgentViewEntry<'a> {
             endpoint_index: row.endpoint.endpoint_index,
             snapshot: row.endpoint.snapshot,
             agent: row.agent,
+            seen: row.endpoint.agent_presentation.seen(row.agent),
         }
     }
 }
@@ -193,10 +214,8 @@ impl crate::agent_view_eval::AgentViewEntry for ClientAgentViewEntry<'_> {
         self.agent.agent.as_deref()
     }
 
-    /// The daemon reports an unseen completion as `done`, and every other
-    /// status only for an agent it counts as seen.
     fn seen(&self) -> bool {
-        self.agent.agent_status != crate::api::schema::AgentStatus::Done
+        self.seen
     }
 
     fn state_change_seq(&self) -> Option<u64> {
@@ -277,9 +296,6 @@ pub(super) fn navigator_rows(
         let value = value.to_lowercase();
         words.iter().all(|word| value.contains(word))
     };
-    if navigator.layout == NavigatorLayout::Agents {
-        return agent_picker::agent_navigator_rows(endpoints, active_endpoint_id, &filter, &text);
-    }
     let filtering = navigator.filter.is_some() || !query.is_empty();
     let federated = endpoints.len() > 1;
     let depth_offset = u8::from(federated);
@@ -422,10 +438,7 @@ pub(super) fn navigator_rows(
                             workspace_id: workspace.workspace_id.clone(),
                         },
                     });
-                    // The workspace list keeps panes hidden until a search needs them.
-                    if navigator.layout != NavigatorLayout::Workspaces || filtering {
-                        endpoint_rows.extend(children);
-                    }
+                    endpoint_rows.extend(children);
                 }
             }
         }

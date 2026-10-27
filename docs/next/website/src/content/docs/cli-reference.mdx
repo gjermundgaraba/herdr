@@ -158,7 +158,7 @@ herdr workspace create [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [
 herdr workspace get <workspace_id>
 herdr workspace focus <workspace_id>
 herdr workspace rename <workspace_id> <label>
-herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N|--persist]
+herdr workspace report-metadata <workspace_id> --source ID [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]
 herdr workspace close <workspace_id> [--group]
 ```
 
@@ -329,7 +329,7 @@ Metadata text is normalized before storage. Herdr trims surrounding whitespace, 
 
 `--token` patches one named display value; `--clear-token` removes one. Unmentioned tokens remain unchanged. Pane tokens are available to Agent sidebar rows as `$name`; workspace tokens are available to Space rows. TTL applies independently to the token keys updated by that call.
 
-`--source` and `--applies-to-source` must be 80 characters or fewer and may contain only ASCII letters, digits, colon, dot, underscore, and hyphen. `--ttl-ms` makes metadata expire automatically and must be between `1` and `86400000` milliseconds. Omit it for metadata that should stay until replaced, cleared, or the pane closes. `workspace report-metadata --persist` saves the tokens it sets with the session, so they survive restarts and live handoffs. `--seq` lets Herdr ignore stale reports from the same `--source`; stale reports are accepted by the API but ignored by pane state. A pane or workspace accepts sequenced token reports from at most 32 distinct sources during its lifetime; clearing or expiry does not release those source slots.
+`--source` and `--applies-to-source` must be 80 characters or fewer and may contain only ASCII letters, digits, colon, dot, underscore, and hyphen. `--ttl-ms` makes metadata expire automatically and must be between `1` and `86400000` milliseconds. Omit it for metadata that should stay until replaced, cleared, or the pane closes. `--seq` lets Herdr ignore stale reports from the same `--source`; stale reports are accepted by the API but ignored by pane state. A pane or workspace accepts sequenced token reports from at most 32 distinct sources during its lifetime; clearing or expiry does not release those source slots.
 
 ## Agents
 
@@ -358,7 +358,7 @@ A successful start returns only after the expected agent owns the same terminal 
 
 `agent prompt` honors live bracketed-paste mode and writes text followed by delayed Enter as one ordered submission, including while the agent is working. Success without `--wait` acknowledges the writes, not the start of a turn. On Windows, Codex receives a paste boundary before Enter so submission does not depend on prompt size; the caller timeout includes submission time. If the agent is already `blocked`, it returns `agent_blocked` without sending input. With `--wait`, a prompt sent from another non-working state has up to five seconds after submission to produce an observed `working` or `blocked` state or Herdr returns `agent_prompt_stalled`; if the caller timeout expires first, Herdr returns the normal `timeout` error. This prevents unrelated `idle`, `done`, or session changes from completing the wait. After activity is observed, it waits for the first requested settled status. It does not track individual turns. If the agent is already working, completion of that active turn may satisfy the wait. `--until` narrows the matching states and is rejected unless `--wait` is also present. Standalone `agent wait` returns immediately when the current status matches. Both default to `idle`, `done`, or `blocked`; use `--until unknown` explicitly when needed.
 
-`idle` and `done` both mean ready for input. The CLI/API uses the server's seen state: `done` is idle but not yet marked seen, explicit `pane focus` / `agent focus` commands mark the target seen, and reads do not. A completion that `agent.mark_unread` brought back is not cleared by the command itself. The command moves every attached client onto the pane, and the badge clears only if that brings to the pane a client whose window is not known to be unfocused; a client that presented the pane already, presents another machine, or is in the background does not clear it, and neither does a command sent while no client is attached. Every attached client shows this same seen state, so a Done badge is the same in the CLI and in every client. `blocked` means Herdr recognized an approval or question UI. `unknown` means an agent is present but Herdr cannot classify it confidently, not that its work succeeded.
+`idle` and `done` both mean ready for input. The CLI/API uses the server's seen state: `done` is idle but not yet marked seen, explicit `pane focus` / `agent focus` commands mark the target seen, and reads do not. Each TUI client tracks viewed completions independently, so its Done badge can differ from the CLI or another client. `blocked` means Herdr recognized an approval or question UI. `unknown` means an agent is present but Herdr cannot classify it confidently, not that its work succeeded.
 
 `agent send-keys` sends logical terminal keys such as `enter`, `up`, `esc`, or `ctrl+c`. Herdr validates every key before writing any bytes. `agent read` reads the resolved terminal stream, and `agent rename` names an already detected agent.
 
@@ -494,18 +494,18 @@ herdr plugin config-dir <plugin_id>
 
 `plugin config-dir` prints the plugin's config directory. It creates the directory if needed and seeds it from legacy plugin config locations when present. Use it in setup docs and shell scripts to point users at a stable path for `.env` files and other user-editable config, separate from the managed plugin checkout.
 
-Actions and entrypoints:
+Actions:
 
 ```bash
 herdr plugin action list [--plugin ID]
-herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]
+herdr plugin action invoke <action_id> [--plugin ID]
 ```
 
-`plugin invoke` runs an action or opens a pane of an installed, enabled,
-platform-compatible plugin, like a `type = "plugin"` key, with the given space,
-tab, or pane as its context. An action prints the started command log record in
-the JSON response. Entry ids cannot contain dots, so the qualified id remains
-unambiguous even when plugin ids contain dots.
+`plugin action invoke` starts the manifest command for an installed, enabled,
+platform-compatible plugin action and prints the started command log record in
+the JSON response. Use the qualified action id (`plugin.id.action`) when more
+than one plugin uses the same action id. Local action ids cannot contain dots,
+so qualified ids remain unambiguous even when plugin ids contain dots.
 
 Logs:
 

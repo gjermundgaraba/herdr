@@ -8,8 +8,6 @@ use super::Config;
 use crate::input::TerminalKey;
 use crate::popup_size::PopupSize;
 
-mod client_actions;
-
 pub type KeyCombo = (KeyCode, KeyModifiers);
 
 /// Built-in prefix used when `keys.prefix` is unset or invalid.
@@ -117,7 +115,6 @@ pub enum CommandKeybindType {
     Shell,
     Pane,
     Popup,
-    #[serde(rename = "plugin")]
     PluginAction,
 }
 
@@ -133,9 +130,9 @@ pub struct CommandKeybindConfig {
     pub action_type: CommandKeybindType,
     /// Optional user-defined description for this custom command.
     pub description: Option<String>,
-    /// Optional popup width for "popup", or for "plugin" targeting a popup pane: integer cells or a percentage string.
+    /// Optional popup width as cells or a percentage string when type = "popup".
     pub width: Option<PopupSize>,
-    /// Optional popup height for "popup", or for "plugin" targeting a popup pane: integer cells or a percentage string.
+    /// Optional popup height as cells or a percentage string when type = "popup".
     pub height: Option<PopupSize>,
 }
 
@@ -364,11 +361,6 @@ pub struct Keybinds {
     pub close_workspace: ActionKeybinds,
     pub workspace_picker: ActionKeybinds,
     pub goto: ActionKeybinds,
-    pub agent_picker: ActionKeybinds,
-    pub workspace_list: ActionKeybinds,
-    pub history_back: ActionKeybinds,
-    pub history_forward: ActionKeybinds,
-    pub mark_unread: ActionKeybinds,
     pub detach: ActionKeybinds,
     pub reload_config: ActionKeybinds,
     pub open_notification_target: ActionKeybinds,
@@ -552,11 +544,6 @@ impl Config {
             close_workspace: empty_action!(),
             workspace_picker: empty_action!(),
             goto: empty_action!(),
-            agent_picker: empty_action!(),
-            workspace_list: empty_action!(),
-            history_back: empty_action!(),
-            history_forward: empty_action!(),
-            mark_unread: empty_action!(),
             detach: empty_action!(),
             reload_config: empty_action!(),
             open_notification_target: empty_action!(),
@@ -686,11 +673,6 @@ impl Config {
             apply_action!(keybinds.close_workspace, close_workspace, source);
             apply_action!(keybinds.workspace_picker, workspace_picker, source);
             apply_action!(keybinds.goto, goto, source);
-            apply_action!(keybinds.agent_picker, agent_picker, source);
-            apply_action!(keybinds.workspace_list, workspace_list, source);
-            apply_action!(keybinds.history_back, history_back, source);
-            apply_action!(keybinds.history_forward, history_forward, source);
-            apply_action!(keybinds.mark_unread, mark_unread, source);
             apply_action!(keybinds.detach, detach, source);
             apply_action!(keybinds.reload_config, reload_config, source);
             apply_action!(
@@ -850,10 +832,7 @@ fn append_custom_command_bindings(
             CommandKeybindType::Popup => CustomCommandAction::Popup,
             CommandKeybindType::PluginAction => CustomCommandAction::PluginAction,
         };
-        let (width, height) = if matches!(
-            action,
-            CustomCommandAction::Popup | CustomCommandAction::PluginAction
-        ) {
+        let (width, height) = if action == CustomCommandAction::Popup {
             (command.width, command.height)
         } else {
             if command.width.is_some() || command.height.is_some() {
@@ -1596,8 +1575,6 @@ fn is_unmodified_printable(combo: KeyCombo) -> bool {
 mod tests {
     use super::*;
     use crate::{config::Config, input::TerminalKey};
-
-    mod plugin_commands;
 
     fn binding_triggers(bindings: &ActionKeybinds) -> Vec<BindingTrigger> {
         bindings

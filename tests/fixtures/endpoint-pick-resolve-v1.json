@@ -1,5 +1,0 @@
-[
-  { "pick_id": "pick-7", "outcome": { "type": "picked", "id": "t2" } },
-  { "pick_id": "pick-7", "outcome": { "type": "created", "text": "New tab name" } },
-  { "pick_id": "pick-7", "outcome": { "type": "cancelled" } }
-]

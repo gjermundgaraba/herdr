@@ -12,9 +12,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{ClientShellSnapshot, ClientSurfaceSize, ServerMessage};
 
-mod contract;
-pub use contract::*;
-
 pub const ENDPOINT_PROTOCOL_GENERATION: u32 = 1;
 pub const ENDPOINT_HELLO_KIND: &str = "endpoint.hello.v1";
 pub const ENDPOINT_WELCOME_KIND: &str = "endpoint.welcome.v1";

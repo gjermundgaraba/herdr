@@ -89,8 +89,11 @@ fn named_sessions_share_live_plugin_registry() {
             "--session",
             "alpha",
             "plugin",
+            "action",
             "invoke",
-            "example.first.run",
+            "run",
+            "--plugin",
+            "example.first",
         ],
     );
     assert_eq!(disabled.status.code(), Some(1));
@@ -629,7 +632,7 @@ id = "read"
 title = "Read"
 command = ["sh", "./read.sh", "action"]
 [[panes]]
-id = "view"
+id = "read"
 title = "Read"
 placement = "tab"
 command = ["sh", "./read.sh", "pane"]
@@ -721,7 +724,16 @@ mv "$HERDR_PLUGIN_ROOT/result-$kind.tmp" "$HERDR_PLUGIN_ROOT/result-$kind"
         let action = run_named_cli_json(
             &config_home,
             &runtime_dir,
-            &["--session", "beta", "plugin", "invoke", "example.live.read"],
+            &[
+                "--session",
+                "beta",
+                "plugin",
+                "action",
+                "invoke",
+                "read",
+                "--plugin",
+                "example.live",
+            ],
         );
         assert_eq!(action["result"]["type"], "plugin_action_invoked");
         let pane = run_cli_json(
@@ -733,7 +745,7 @@ mv "$HERDR_PLUGIN_ROOT/result-$kind.tmp" "$HERDR_PLUGIN_ROOT/result-$kind"
                 "--plugin",
                 "example.live",
                 "--entrypoint",
-                "view",
+                "read",
             ],
         );
         assert_eq!(pane["result"]["type"], "plugin_pane_opened");
@@ -892,7 +904,17 @@ command = ["sh", "-c", "sleep 5"]
         "example.layout"
     );
 
-    let invoked = run_cli_json(&socket_path, &["plugin", "invoke", "example.layout.apply"]);
+    let invoked = run_cli_json(
+        &socket_path,
+        &[
+            "plugin",
+            "action",
+            "invoke",
+            "apply",
+            "--plugin",
+            "example.layout",
+        ],
+    );
     assert_eq!(invoked["result"]["type"], "plugin_action_invoked");
     assert_eq!(invoked["result"]["action"]["action_id"], "apply");
 

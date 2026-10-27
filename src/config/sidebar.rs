@@ -1,8 +1,6 @@
 mod rules;
-mod separator;
 
 pub use rules::SidebarTokenRule;
-use separator::Separator;
 
 use std::collections::BTreeMap;
 
@@ -122,7 +120,6 @@ pub enum AgentSidebarToken {
         token: Box<AgentSidebarToken>,
         style: SidebarTokenStyle,
         rules: Vec<SidebarTokenRule>,
-        separator_before: Separator,
     },
 }
 
@@ -138,7 +135,6 @@ pub enum SpaceSidebarToken {
         token: Box<SpaceSidebarToken>,
         style: SidebarTokenStyle,
         rules: Vec<SidebarTokenRule>,
-        separator_before: Separator,
     },
 }
 
@@ -179,8 +175,6 @@ impl SpaceSidebarToken {
 struct RawStyledSidebarToken {
     token: String,
     #[serde(default)]
-    separator_before: Option<String>,
-    #[serde(default)]
     fg: Option<SidebarTokenColor>,
     #[serde(default)]
     bold: Option<bool>,
@@ -198,9 +192,9 @@ enum RawSidebarToken {
 }
 
 impl RawSidebarToken {
-    fn parts(self) -> Result<separator::RawParts, String> {
+    fn parts(self) -> Result<(String, Option<SidebarTokenStyle>, Vec<SidebarTokenRule>), String> {
         match self {
-            Self::Plain(token) => Ok((token, None, Vec::new(), None)),
+            Self::Plain(token) => Ok((token, None, Vec::new())),
             Self::Styled(token) => {
                 if token.rules.len() > 16 {
                     return Err("sidebar tokens may contain at most 16 rules".into());
@@ -218,7 +212,6 @@ impl RawSidebarToken {
                         dim: token.dim,
                     }),
                     token.rules,
-                    separator::sanitize(token.separator_before),
                 ))
             }
         }
@@ -252,7 +245,6 @@ fn serialize_styled_token<S>(
     name: String,
     style: SidebarTokenStyle,
     rules: &[SidebarTokenRule],
-    separator_before: &Separator,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -261,9 +253,6 @@ where
     use serde::ser::SerializeMap;
     let mut map = serializer.serialize_map(None)?;
     map.serialize_entry("token", &name)?;
-    if let Some(separator) = separator_before {
-        map.serialize_entry("separator_before", &separator[..])?;
-    }
     if let Some(fg) = style.fg {
         map.serialize_entry("fg", &fg)?;
     }
@@ -317,14 +306,7 @@ impl Serialize for AgentSidebarToken {
                 token,
                 style,
                 rules,
-                separator_before,
-            } => serialize_styled_token(
-                agent_token_name(token),
-                *style,
-                rules,
-                separator_before,
-                serializer,
-            ),
+            } => serialize_styled_token(agent_token_name(token), *style, rules, serializer),
             token => serializer.serialize_str(&agent_token_name(token)),
         }
     }
@@ -341,7 +323,7 @@ impl<'de> Deserialize<'de> for AgentSidebarToken {
     where
         D: serde::Deserializer<'de>,
     {
-        let (value, style, rules, separator_before) = RawSidebarToken::deserialize(deserializer)?
+        let (value, style, rules) = RawSidebarToken::deserialize(deserializer)?
             .parts()
             .map_err(serde::de::Error::custom)?;
         let token = parse_sidebar_token(
@@ -363,7 +345,6 @@ impl<'de> Deserialize<'de> for AgentSidebarToken {
             token: Box::new(token),
             style,
             rules,
-            separator_before,
         }))
     }
 }
@@ -378,14 +359,7 @@ impl Serialize for SpaceSidebarToken {
                 token,
                 style,
                 rules,
-                separator_before,
-            } => serialize_styled_token(
-                space_token_name(token),
-                *style,
-                rules,
-                separator_before,
-                serializer,
-            ),
+            } => serialize_styled_token(space_token_name(token), *style, rules, serializer),
             token => serializer.serialize_str(&space_token_name(token)),
         }
     }
@@ -402,7 +376,7 @@ impl<'de> Deserialize<'de> for SpaceSidebarToken {
     where
         D: serde::Deserializer<'de>,
     {
-        let (value, style, rules, separator_before) = RawSidebarToken::deserialize(deserializer)?
+        let (value, style, rules) = RawSidebarToken::deserialize(deserializer)?
             .parts()
             .map_err(serde::de::Error::custom)?;
         let token = parse_sidebar_token(
@@ -420,7 +394,6 @@ impl<'de> Deserialize<'de> for SpaceSidebarToken {
             token: Box::new(token),
             style,
             rules,
-            separator_before,
         }))
     }
 }
@@ -512,8 +485,6 @@ pub struct SidebarConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    mod separator_before;
 
     #[test]
     fn defaults_match_the_compact_agent_and_existing_space_layouts() {

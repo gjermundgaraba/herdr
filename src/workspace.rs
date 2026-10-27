@@ -453,7 +453,7 @@ impl Workspace {
             self.active_tab = idx;
             if let Some(tab) = self.tabs.get_mut(idx) {
                 for pane in tab.panes.values_mut() {
-                    pane.mark_seen();
+                    pane.seen = true;
                 }
             }
         }

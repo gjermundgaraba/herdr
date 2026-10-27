@@ -1,18 +1,16 @@
 mod context;
-mod entrypoint;
 mod env;
-mod keybind;
 mod manifest;
 mod panes;
 mod runtime;
 
 use super::responses::{encode_error, encode_success};
 use crate::api::schema::{
-    InstalledPluginInfo, PaneLinkActivateParams, PluginActionInfo, PluginActionListParams,
-    PluginLinkParams, PluginListParams, PluginLogListParams, PluginManifestAction,
-    PluginManifestLinkHandler, PluginPaneCloseParams, PluginPaneFocusParams, PluginPaneInfo,
-    PluginPaneOpenParams, PluginPanePlacement, PluginSetEnabledParams, PluginUnlinkParams,
-    ResponseResult,
+    InstalledPluginInfo, PaneLinkActivateParams, PluginActionInfo, PluginActionInvokeParams,
+    PluginActionListParams, PluginLinkParams, PluginListParams, PluginLogListParams,
+    PluginManifestAction, PluginManifestLinkHandler, PluginPaneCloseParams, PluginPaneFocusParams,
+    PluginPaneInfo, PluginPaneOpenParams, PluginPanePlacement, PluginSetEnabledParams,
+    PluginUnlinkParams, ResponseResult,
 };
 use crate::app::App;
 pub(super) use manifest::normalize_plugin_id;
@@ -174,6 +172,87 @@ impl App {
             .collect::<Vec<_>>();
         actions.sort_by_key(|action| action.qualified_id());
         encode_success(id, ResponseResult::PluginActionList { actions })
+    }
+
+    pub(super) fn handle_plugin_action_invoke(
+        &mut self,
+        id: String,
+        params: PluginActionInvokeParams,
+    ) -> String {
+        if let Err(err) = self.refresh_installed_plugins() {
+            return encode_error(id, "plugin_registry_load_failed", err.to_string());
+        }
+        let (plugin, action) =
+            match self.find_plugin_action(params.plugin_id.as_deref(), &params.action_id) {
+                Ok(pair) => pair,
+                Err((code, message)) => return encode_error(id, code, message),
+            };
+        if !plugin.enabled {
+            return encode_error(
+                id,
+                "plugin_disabled",
+                format!("plugin {} is disabled", plugin.plugin_id),
+            );
+        }
+        if let Err((code, message)) = ensure_platform_supported(
+            effective_platforms(&action.platforms, &plugin.platforms),
+            &format!("action '{}'", action.qualified_id()),
+        ) {
+            return encode_error(id, code, message);
+        }
+        let context = self.merge_plugin_context(params.context, &id);
+        let log = match self.start_plugin_command(
+            &plugin,
+            Some(action.action_id.clone()),
+            None,
+            action.command.clone(),
+            &context,
+            None,
+        ) {
+            Ok(log) => log,
+            Err((code, message)) => return encode_error(id, code, message),
+        };
+        encode_success(
+            id,
+            ResponseResult::PluginActionInvoked {
+                action,
+                context,
+                log,
+            },
+        )
+    }
+
+    pub(crate) fn invoke_plugin_action_from_keybind(
+        &mut self,
+        action_id: String,
+        selected_text: Option<String>,
+    ) -> Result<(), String> {
+        self.refresh_installed_plugins()
+            .map_err(|err| format!("failed to load plugin registry: {err}"))?;
+        let (plugin, action) = self
+            .find_plugin_action(None, &action_id)
+            .map_err(|(_, message)| message)?;
+        if !plugin.enabled {
+            return Err(format!("plugin {} is disabled", plugin.plugin_id));
+        }
+        ensure_platform_supported(
+            effective_platforms(&action.platforms, &plugin.platforms),
+            &action.qualified_id(),
+        )
+        .map_err(|(_, message)| message)?;
+        let mut context = self.current_plugin_context("keybinding");
+        context.invocation_source = Some("keybinding".to_string());
+        context.selected_text = selected_text;
+        self.start_plugin_command(
+            &plugin,
+            Some(action.action_id),
+            None,
+            action.command,
+            &context,
+            None,
+        )
+        .map(|_| ())
+        .map_err(|(_, message)| message)
     }
 
     fn read_checked_pane_link<T>(
@@ -521,6 +600,68 @@ impl App {
         encode_success(id, ResponseResult::PluginPaneClosed { pane_id })
     }
 
+    fn find_plugin_action(
+        &self,
+        plugin_id: Option<&str>,
+        action_id: &str,
+    ) -> Result<(crate::api::schema::InstalledPluginInfo, PluginActionInfo), (&'static str, String)>
+    {
+        if let Some(plugin_id) = plugin_id {
+            let plugin_id = normalize_plugin_id(plugin_id)
+                .ok_or_else(|| ("invalid_plugin_id", "invalid plugin id".to_string()))?;
+            let action_id = normalize_action_id(action_id)
+                .ok_or_else(|| ("invalid_plugin_action_id", "invalid action id".to_string()))?;
+            let plugin = self
+                .state
+                .installed_plugins
+                .get(&plugin_id)
+                .ok_or_else(|| ("plugin_not_found", "plugin not found".to_string()))?
+                .clone();
+            if !plugin_manifest_available(&plugin) {
+                return Err((
+                    "plugin_manifest_unavailable",
+                    format!("plugin {plugin_id} manifest is unavailable"),
+                ));
+            }
+            let action_info = plugin
+                .actions
+                .iter()
+                .find(|a| a.id == action_id)
+                .map(|a| manifest_action_info(&plugin_id, &plugin.platforms, a))
+                .ok_or_else(|| {
+                    (
+                        "plugin_action_not_found",
+                        "plugin action not found".to_string(),
+                    )
+                })?;
+            return Ok((plugin, action_info));
+        }
+
+        let action_id = action_id.trim();
+        let matches = manifest_actions(&self.state.installed_plugins)
+            .filter(|action| action.action_id == action_id || action.qualified_id() == action_id)
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [action] => {
+                let plugin = self
+                    .state
+                    .installed_plugins
+                    .get(&action.plugin_id)
+                    .cloned()
+                    .ok_or_else(|| ("plugin_not_found", "plugin not found".to_string()))?;
+                Ok((plugin, action.clone()))
+            }
+            [] => Err((
+                "plugin_action_not_found",
+                "plugin action not found".to_string(),
+            )),
+            _ => Err((
+                "ambiguous_plugin_action",
+                "plugin action id matches more than one action; include plugin_id".to_string(),
+            )),
+        }
+    }
+
     fn find_plugin_link_handler(
         &self,
         url: &str,
@@ -672,9 +813,6 @@ mod tests {
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    mod entrypoints;
-    pub(super) use entrypoints::{app_with_plugin, invoke_params, plugin_keybinding};
-
     #[tokio::test]
     async fn pane_link_resolve_checks_staleness_without_side_effects() {
         let mut app = test_app();
@@ -805,7 +943,7 @@ action = "open"
         std::fs::remove_dir_all(root).expect("remove test plugin");
     }
 
-    pub(super) fn test_app() -> App {
+    fn test_app() -> App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         App::new(
             &crate::config::Config::default(),
@@ -822,7 +960,7 @@ action = "open"
             .result
     }
 
-    pub(super) fn unique_temp_path(name: &str) -> std::path::PathBuf {
+    fn unique_temp_path(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -1700,13 +1838,13 @@ title = "Probe executable"
 command = ["sh", "-c", '"$HERDR_BIN_PATH" --list >/dev/null; printf "%s\n" "$?" > action-status']
 
 [[panes]]
-id = "view"
+id = "probe"
 title = "Probe executable"
 command = ["sh", "-c", '"$HERDR_BIN_PATH" --list >/dev/null; printf "%s\n" "$?" > pane-status']
 "#,
             );
             link_manifest(&mut app, &plugin_root);
-            app.invoke_plugin_from_keybind(&plugin_keybinding("example.update.probe"), None)
+            app.invoke_plugin_action_from_keybind("example.update.probe".into(), None)
                 .unwrap();
             let action_status = read_capture_when_ready(&plugin_root.join("action-status"), || {
                 app.drain_all_internal_events();
@@ -1715,7 +1853,7 @@ command = ["sh", "-c", '"$HERDR_BIN_PATH" --list >/dev/null; printf "%s\n" "$?" 
                 id: "update-pane".into(),
                 method: Method::PluginPaneOpen(PluginPaneOpenParams {
                     plugin_id: "example.update".into(),
-                    entrypoint: "view".into(),
+                    entrypoint: "probe".into(),
                     placement: Some(PluginPanePlacement::Overlay),
                     width: None,
                     height: None,
@@ -2375,7 +2513,27 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
-            method: Method::PluginInvoke(invoke_params("example.worktree-bootstrap", "bootstrap")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.worktree-bootstrap".into()),
+                action_id: "bootstrap".into(),
+                context: Some(PluginInvocationContext {
+                    workspace_id: Some("1".into()),
+                    workspace_label: None,
+                    workspace_cwd: None,
+                    worktree: None,
+                    tab_id: None,
+                    tab_label: None,
+                    focused_pane_id: None,
+                    focused_pane_cwd: None,
+                    focused_pane_agent: None,
+                    focused_pane_status: None,
+                    selected_text: None,
+                    invocation_source: Some("test".into()),
+                    correlation_id: Some("external-correlation".into()),
+                    clicked_url: None,
+                    link_handler_id: None,
+                }),
+            }),
         });
         let ResponseResult::PluginActionInvoked {
             action,
@@ -2392,8 +2550,12 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
         assert_eq!(action.command, ["bun", "run", "bootstrap.ts"]);
         assert_eq!(log.plugin_id, "example.worktree-bootstrap");
         assert_eq!(log.action_id.as_deref(), Some("bootstrap"));
-        assert_eq!(context.invocation_source.as_deref(), Some("api"));
-        assert_eq!(context.correlation_id.as_deref(), Some("invoke"));
+        assert_eq!(context.workspace_id.as_deref(), Some("1"));
+        assert_eq!(context.invocation_source.as_deref(), Some("test"));
+        assert_eq!(
+            context.correlation_id.as_deref(),
+            Some("external-correlation")
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -2436,7 +2598,11 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
-            method: Method::PluginInvoke(invoke_params("example.worktree-bootstrap", "bootstrap")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.worktree-bootstrap".into()),
+                action_id: "bootstrap".into(),
+                context: None,
+            }),
         });
         let value: serde_json::Value = serde_json::from_str(&invoke).unwrap();
         assert_eq!(value["error"]["code"], "plugin_manifest_unavailable");
@@ -2495,10 +2661,7 @@ command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
 
         make_stale(&mut app);
         assert!(app
-            .invoke_plugin_from_keybind(
-                &plugin_keybinding("example.worktree-bootstrap.bootstrap"),
-                None,
-            )
+            .invoke_plugin_action_from_keybind("bootstrap".into(), None)
             .unwrap_err()
             .contains("disabled"));
 
@@ -2662,7 +2825,11 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_ACTION_ID\""]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke-runner".into(),
-            method: Method::PluginInvoke(invoke_params("example.runner", "run")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.runner".into()),
+                action_id: "run".into(),
+                context: None,
+            }),
         });
         let ResponseResult::PluginActionInvoked { log, .. } = response_result(&invoke) else {
             panic!("expected plugin action invocation: {invoke}");
@@ -2725,7 +2892,11 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$HERDR_PLUGIN_ROOT\" \"$HERDR_PLUG
 
         let invoke = app.handle_api_request(Request {
             id: "invoke-runner".into(),
-            method: Method::PluginInvoke(invoke_params("example.action-paths", "run")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.action-paths".into()),
+                action_id: "run".into(),
+                context: None,
+            }),
         });
         let ResponseResult::PluginActionInvoked { log, .. } = response_result(&invoke) else {
             panic!("expected plugin action invocation: {invoke}");
@@ -2922,7 +3093,11 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > {}"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke-limit".into(),
-            method: Method::PluginInvoke(invoke_params("example.worktree-bootstrap", "bootstrap")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.worktree-bootstrap".into()),
+                action_id: "bootstrap".into(),
+                context: None,
+            }),
         });
         let value: serde_json::Value = serde_json::from_str(&invoke).unwrap();
         assert_eq!(value["error"]["code"], "plugin_command_limit_reached");
@@ -2976,7 +3151,6 @@ command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > {}"]
                 data: crate::api::schema::EventData::PaneClosed {
                     pane_id: closed_pane_id.clone(),
                     workspace_id: workspace_id.clone(),
-                    tab_id: closed_tab_id.clone(),
                 },
             },
             "pane.closed",
@@ -3327,7 +3501,11 @@ command = ["show-ctx"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke-context".into(),
-            method: Method::PluginInvoke(invoke_params("example.context", "show")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.context".into()),
+                action_id: "show".into(),
+                context: None,
+            }),
         });
 
         let ResponseResult::PluginActionInvoked { context, .. } = response_result(&invoke) else {
@@ -3385,7 +3563,11 @@ command = ["show-ctx"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke-disabled".into(),
-            method: Method::PluginInvoke(invoke_params("example.worktree-bootstrap", "bootstrap")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.worktree-bootstrap".into()),
+                action_id: "bootstrap".into(),
+                context: None,
+            }),
         });
         let value: serde_json::Value = serde_json::from_str(&invoke).unwrap();
         assert_eq!(value["error"]["code"], "plugin_disabled");
@@ -3796,7 +3978,11 @@ command = ["act"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
-            method: Method::PluginInvoke(invoke_params("example.reject", "act")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.reject".into()),
+                action_id: "act".into(),
+                context: None,
+            }),
         });
         let value: serde_json::Value = serde_json::from_str(&invoke).unwrap();
         assert_eq!(
@@ -3858,7 +4044,11 @@ command = ["act"]
 
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
-            method: Method::PluginInvoke(invoke_params("example.override", "act")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.override".into()),
+                action_id: "act".into(),
+                context: None,
+            }),
         });
         let value: serde_json::Value = serde_json::from_str(&invoke).unwrap();
         assert_eq!(
@@ -3914,7 +4104,11 @@ command = ["act"]
         // Invoke should succeed regardless (local dev allowance)
         let invoke = app.handle_api_request(Request {
             id: "invoke".into(),
-            method: Method::PluginInvoke(invoke_params("example.nodecl", "act")),
+            method: Method::PluginActionInvoke(PluginActionInvokeParams {
+                plugin_id: Some("example.nodecl".into()),
+                action_id: "act".into(),
+                context: None,
+            }),
         });
         assert!(
             invoke.contains("plugin_action_invoked"),

@@ -189,7 +189,6 @@ pub(crate) fn load_plugin_manifest(
         .map(normalize_manifest_pane)
         .collect::<Result<Vec<_>, _>>()?;
     reject_duplicate_pane_ids(&panes)?;
-    super::entrypoint::reject_shared_entrypoint_ids(&actions, &panes)?;
     panes.sort_by(|a, b| a.id.cmp(&b.id));
     let link_handlers = raw
         .link_handlers

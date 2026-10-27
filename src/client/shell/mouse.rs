@@ -1442,9 +1442,6 @@ impl ClientShellState {
             }
             return;
         }
-        if self.pick_mouse(mouse, point, outcome) {
-            return;
-        }
         if matches!(
             self.overlay,
             Some(

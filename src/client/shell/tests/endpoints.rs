@@ -1805,6 +1805,31 @@ fn aggregate_priority_uses_client_observed_recency_across_machines() {
 }
 
 #[test]
+fn unselected_endpoint_completion_projects_done_client_side() {
+    use crate::api::schema::AgentStatus;
+
+    let (mut state, endpoint_id) = state_with_remote();
+    let mut remote = snapshot();
+    remote.boot_id = "remote-boot".into();
+    remote.agents = vec![agent("background agent", AgentStatus::Working, 2)];
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote.clone()));
+    remote.revision = 2;
+    remote.agents = vec![agent("background agent", AgentStatus::Idle, 3)];
+
+    state.set_endpoint_snapshot(&endpoint_id, Box::new(remote));
+
+    let status = state
+        .endpoints
+        .iter()
+        .find(|endpoint| endpoint.endpoint_id == endpoint_id)
+        .and_then(|endpoint| endpoint.snapshot.as_deref())
+        .and_then(|snapshot| snapshot.agents.first())
+        .map(|agent| agent.agent_status);
+    assert_eq!(status, Some(AgentStatus::Done));
+    assert_eq!(state.active_endpoint_id, ClientEndpointId::Local);
+}
+
+#[test]
 fn clicking_remote_machine_name_requests_activation_without_mutating_projection() {
     let (mut state, endpoint_id) = state_with_remote();
     state.compose(100, 28).expect("combined endpoint frame");

@@ -17,9 +17,6 @@ use crate::api::subscriptions::{match_output, output_match_read_source};
 use crate::api::{ApiRequestSender, EventHub};
 use crate::ipc::LocalStream;
 
-mod pick;
-pub(super) use pick::wait_for_pick;
-
 const AGENT_PROMPT_EFFECT_TIMEOUT_MS: u64 = 5_000;
 
 pub(super) fn wait_for_output(

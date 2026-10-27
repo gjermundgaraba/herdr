@@ -11,7 +11,6 @@ pub(crate) enum EndpointControlMessage {
     AgentViewProjection(DecodedAgentViewProjection),
     AgentCompletions(crate::protocol::endpoint::EndpointAgentCompletions),
     Snapshot(Box<crate::protocol::ClientShellSnapshot>),
-    Contract(crate::client::client_contract::Control),
     Ignored,
 }
 
@@ -26,9 +25,6 @@ pub(crate) fn decode_endpoint_control(
         return Ok(serde_json::from_str(data)
             .map(EndpointControlMessage::AgentCompletions)
             .unwrap_or(EndpointControlMessage::Ignored));
-    }
-    if let Some(control) = crate::client::client_contract::decode_control(kind, data) {
-        return Ok(control);
     }
     if kind == crate::protocol::endpoint::AGENT_VIEW_PROJECTION_KIND {
         let Ok(projection): Result<crate::protocol::endpoint::EndpointAgentViewProjection, _> =

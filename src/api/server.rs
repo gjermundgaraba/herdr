@@ -14,9 +14,7 @@ use crate::api::schema::{
     ErrorBody, ErrorResponse, Method, Request, ResponseResult, ServerCapabilities, SuccessResponse,
 };
 use crate::api::subscriptions::ActiveSubscription;
-use crate::api::wait::{
-    prompt_agent, wait_for_agent, wait_for_event, wait_for_output, wait_for_pick,
-};
+use crate::api::wait::{prompt_agent, wait_for_agent, wait_for_event, wait_for_output};
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
     bind_local_listener, is_connection_closed_error, local_stream_peer_closed,
@@ -482,10 +480,6 @@ fn handle_connection_with_stop(
             )?;
             finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
         }
-        Method::UiPick(params) => {
-            let response = wait_for_pick(request_id.clone(), params, &mut stream, api_tx, running)?;
-            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
-        }
         Method::PaneWaitForOutput(params) => {
             let response =
                 wait_for_output(request_id.clone(), params, &mut stream, api_tx, running)?;
@@ -653,7 +647,6 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::AgentViewSet(_) => "agent.view.set",
         Method::AgentViewClear(_) => "agent.view.clear",
         Method::AgentFocus(_) => "agent.focus",
-        Method::AgentMarkUnread(_) => "agent.mark_unread",
         Method::AgentStart(_) => "agent.start",
         Method::AgentPrompt(_) => "agent.prompt",
         Method::AgentWait(_) => "agent.wait",
@@ -707,14 +700,11 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::PluginEnable(_) => "plugin.enable",
         Method::PluginDisable(_) => "plugin.disable",
         Method::PluginActionList(_) => "plugin.action.list",
-        Method::PluginInvoke(_) => "plugin.invoke",
+        Method::PluginActionInvoke(_) => "plugin.action.invoke",
         Method::PluginLogList(_) => "plugin.log.list",
         Method::PluginPaneOpen(_) => "plugin.pane.open",
         Method::PluginPaneFocus(_) => "plugin.pane.focus",
         Method::PluginPaneClose(_) => "plugin.pane.close",
-        Method::UiPick(_) => "ui.pick",
-        Method::UiPickResolve(_) => "ui.pick.resolve",
-        Method::UiPickClose(_) => "ui.pick.close",
     }
 }
 
@@ -1714,7 +1704,6 @@ mod tests {
                             data: crate::api::schema::EventData::PaneClosed {
                                 pane_id: "pane_1".into(),
                                 workspace_id: "ws_1".into(),
-                                tab_id: "ws_1:t1".into(),
                             },
                         });
                     }
@@ -1864,7 +1853,6 @@ mod tests {
                 data: crate::api::schema::EventData::PaneClosed {
                     pane_id: "w999:p9".into(),
                     workspace_id: "w999".into(),
-                    tab_id: "w999:t1".into(),
                 },
             });
             msg.respond_to

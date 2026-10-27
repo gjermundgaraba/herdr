@@ -77,15 +77,12 @@ use crate::server::terminal_attach::paste_payload_for_runtime;
 mod bootstrap;
 mod client_views;
 mod endpoint_requests;
-mod fork_state;
 mod lifecycle;
 mod native_graphics;
 mod notifications;
-mod picks;
 mod render;
 mod retained_surface;
 mod surface_interest;
-mod unread_holds;
 
 // Producers can refill even a bounded channel while it is being drained.
 // Yield to scheduled work and rendering between batches; select! below
@@ -233,7 +230,6 @@ pub struct HeadlessServer {
     server_config_diagnostic_without_keybindings: Option<String>,
     /// Writable direct attach owner per terminal id string.
     terminal_attach_owners: HashMap<String, u64>,
-    fork: fork_state::ForkState,
     /// Deferred application-history reads currently driving alternate-screen viewports.
     pending_alt_screen_reads: Vec<crate::server::alt_screen_read::PendingAltScreenRead>,
     /// Reads waiting for an alternate-screen traversal of the same terminal to finish.
@@ -384,7 +380,6 @@ impl HeadlessServer {
             server_config_diagnostic,
             server_config_diagnostic_without_keybindings,
             terminal_attach_owners: HashMap::new(),
-            fork: Default::default(),
             pending_alt_screen_reads: Vec::new(),
             deferred_alt_screen_reads: Vec::new(),
             next_activity_stamp: 1,
@@ -672,8 +667,7 @@ impl HeadlessServer {
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
-                    // A closing pane or space can move a client's focus too.
-                    if self.handle_internal_event_with_forwarding(ev) | self.settle_unread_holds() {
+                    if self.handle_internal_event_with_forwarding(ev) {
                         needs_render = true;
                         needs_full_render = true;
                         needs_graphics_render = false;
@@ -969,7 +963,6 @@ impl HeadlessServer {
         });
         let was_foreground = self.foreground_client_id == Some(client_id);
         let removed = self.clients.remove(&client_id);
-        self.cancel_client_picks(client_id);
         self.tab_geometry_controllers
             .retain(|_, controller_id| *controller_id != client_id);
         if let Some(mut removed) = removed {
@@ -2670,8 +2663,7 @@ impl HeadlessServer {
     }
 
     fn handle_server_event_with_render_impact(&mut self, ev: ServerEvent) -> RenderImpact {
-        // Any client event can move a client off a pane or back onto it.
-        if self.handle_server_event(ev) | self.settle_unread_holds() {
+        if self.handle_server_event(ev) {
             RenderImpact::Full
         } else {
             RenderImpact::None
@@ -2960,10 +2952,6 @@ impl HeadlessServer {
             }
             return true;
         }
-
-        let Some(msg) = self.handle_ui_pick_request(msg) else {
-            return true;
-        };
 
         if let api::schema::Method::NotificationShow(params) = &msg.request.method {
             let response =

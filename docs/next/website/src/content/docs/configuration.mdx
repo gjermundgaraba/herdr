@@ -229,27 +229,18 @@ instead. Exit the shell to close the popup and restore the tiled terminal view.
 
 `type = "shell"` runs detached in the background.
 
-`type = "plugin"` runs an installed plugin entrypoint: an action or a pane
-declared in the plugin manifest. The command is its fully qualified
-`plugin_id.entrypoint`:
+`type = "plugin_action"` invokes an installed plugin action id. Use the
+qualified id when action ids are not globally unique:
 
 ```toml
 [[keys.command]]
-key = "prefix+s"
-type = "plugin"
-command = "gjermundgaraba.clankersnip.palette"
-description = "snippets"
+key = "prefix+l"
+type = "plugin_action"
+command = "example.layout.apply"
+description = "apply layout"
 ```
 
 `description` is optional. When set, it appears in the keybind help panel (opened with `prefix+?`) instead of the default `'custom command'` label.
-
-Herdr captures the originating pane and selected text as plugin context. A pane
-entrypoint opens with its manifest placement, command, and dimensions; optional
-`width` and `height` override popup dimensions, in terminal cells or percentage
-strings, and are ignored for actions and non-popup placements.
-
-Herdr resolves the target when the binding runs and reports a malformed,
-unqualified, or missing target as an error then.
 
 Custom commands receive `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ACTIVE_WORKSPACE_ID`, `HERDR_ACTIVE_TAB_ID`, `HERDR_ACTIVE_PANE_ID`, and `HERDR_ACTIVE_PANE_CWD` when those values are available. Shell commands run from the focused pane's working directory when Herdr can detect it.
 
@@ -423,13 +414,6 @@ rows = [
 ```
 
 `fg` accepts strict `#RGB` or `#RRGGBB`. `bold` and `dim` accept booleans. Omitted fields preserve the token's contextual style; explicit `false` removes that modifier. Styling applies to one occurrence, so the same token may look different in another row or agent override. A foreground override replaces all semantic foregrounds inside that occurrence: for example, styled `git_status` ahead and behind counts use one color instead of their default green and red. Token styles never change separators or row backgrounds.
-
-Token tables also accept `separator_before`, independently of color and style. Set it to `" "` for a single space, or `""` to join directly to the preceding visible token. If omitted, existing defaults apply: a space after `state_icon` or before `git_status`, and ` · ` otherwise. A separator is never shown before the first visible token, including when earlier tokens are missing, hidden by rules, or omitted for lack of width. The override works in Space and Agent rows, including `rows_by_agent`. Control characters in a separator are ignored. Icons and `git_status` are always kept, so in a narrow sidebar a long separator can push them past the edge, where they are cut off.
-
-```toml
-[ui.sidebar.spaces]
-rows = [["branch", { token = "$git_dirty", fg = "#e5c07b", separator_before = " " }, "git_status"]]
-```
 
 Text-valued tokens also accept up to 16 ordered `rules`. Each rule contains exactly one condition—`equals`, `contains`, `starts_with`, `gt`, or `lt`—and optional `fg`, `bold`, and `dim` overrides:
 

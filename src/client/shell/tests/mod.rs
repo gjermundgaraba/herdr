@@ -247,13 +247,11 @@ fn surface_with_popup() -> PaneSurfaceFrame {
 
 mod agents_worktrees_notifications;
 mod chrome_context;
-mod client_keys;
 mod close_pane;
 mod close_tab;
 mod copy;
 mod endpoint_requests;
 mod endpoints;
-pub(in crate::client) mod fleet;
 mod graphics;
 mod input_conformance;
 #[path = "input.rs"]
@@ -262,8 +260,5 @@ mod keybindings_settings;
 mod link_hover;
 mod mobile;
 mod mouse_selection;
-mod picks;
-mod plugin_popups;
 mod popup_focus_projection;
 mod startup_overlays;
-mod unread_queue;

@@ -1,7 +1,0 @@
-{
-  "id": "client-shell:14",
-  "method": "agent.mark_unread",
-  "params": {
-    "pane_id": "w1:p1"
-  }
-}

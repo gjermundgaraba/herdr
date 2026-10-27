@@ -105,12 +105,11 @@ Raw socket method names use dot notation:
 | Tab | `tab.create`, `tab.list`, `tab.get`, `tab.focus`, `tab.rename`, `tab.move`, `tab.close` |
 | Pane | `pane.split`, `pane.swap`, `pane.move`, `pane.zoom`, `pane.layout`, `pane.process_info`, `pane.neighbor`, `pane.edges`, `pane.focus_direction`, `pane.resize`, `pane.list`, `pane.current`, `pane.get`, `pane.rename`, `pane.send_text`, `pane.send_keys`, `pane.send_input`, `pane.read`, `pane.report_agent`, `pane.report_agent_session`, `pane.report_metadata`, `pane.clear_agent_authority`, `pane.release_agent`, `pane.close`, `pane.wait_for_output` |
 | Popup | `popup.close` |
-| UI | `ui.pick`, `ui.pick.close` |
 | Layout | `layout.export`, `layout.apply`, `layout.set_split_ratio` |
-| Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.mark_unread`, `agent.start`, `agent.view.set`, `agent.view.clear` |
+| Agent | `agent.list`, `agent.get`, `agent.read`, `agent.explain`, `agent.send_keys`, `agent.prompt`, `agent.wait`, `agent.rename`, `agent.focus`, `agent.start`, `agent.view.set`, `agent.view.clear` |
 | Events | `events.subscribe`, `events.wait` |
 | Integrations | `integration.install`, `integration.uninstall` |
-| Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
+| Plugins | `plugin.link`, `plugin.list`, `plugin.unlink`, `plugin.enable`, `plugin.disable`, `plugin.action.list`, `plugin.action.invoke`, `plugin.log.list`, `plugin.pane.open`, `plugin.pane.focus`, `plugin.pane.close` |
 
 `agent.wait` is server-owned and event-driven. It pins the resolved pane occupant so a replacement cannot satisfy the wait. `agent.prompt` accepts an optional `wait` object with `until` and `timeout_ms`; this submits the prompt and starts the wait in one request, avoiding a race between separate calls. If the resolved agent is already `blocked`, `agent.prompt` returns `agent_blocked` without sending input or starting the wait.
 
@@ -549,22 +548,17 @@ Actions are resolved from the linked manifest. `plugin.action.list` returns all 
 `plugin.action.list` returns each action's effective `platforms` after applying
 plugin-level inheritance.
 
-Invoke an action or pane entrypoint against a target:
+Invoke an action by its qualified id or bare action id:
 
 ```json
-{"id":"req_plugin_invoke","method":"plugin.invoke","params":{"plugin_id":"example.worktree-bootstrap","entry_id":"bootstrap","pane_id":"w1:p2"}}
+{"id":"req_plugin_invoke","method":"plugin.action.invoke","params":{"action_id":"example.worktree-bootstrap.bootstrap","context":{"invocation_source":"keybinding"}}}
 ```
 
-`plugin.invoke` is the path keys use. The most specific of
-`pane_id`, `tab_id`, and `workspace_id` supplies the invocation context; less
-specific ids must name the same target or the call returns `target_mismatch`,
-and with no ids the focused pane supplies it. An optional `selection` in
-`pane_id` becomes `selected_text`. An action starts its manifest command and
-returns the invocation context plus the started command log record. A pane
-opens at its manifest placement: split and zoomed panes split the target pane,
-tab panes open in the target space, and popup and overlay panes take only their
-context from the target. Invoking an entry of a disabled plugin returns a
-`plugin_disabled` error.
+`plugin.action.invoke` resolves the manifest action, starts the manifest
+command, and returns the Herdr-built invocation context plus the started command
+log record. Missing context fields are filled from the active workspace, tab,
+focused pane, worktree provenance, and request id. Invoking an action from a
+disabled plugin returns a `plugin_disabled` error.
 
 Herdr injects `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV=1`,
 `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`,
@@ -772,7 +766,7 @@ Presentation text is normalized before storage. Herdr trims surrounding whitespa
 
 `source` and `applies_to_source` are source identifiers. They must be 80 characters or fewer and may contain only ASCII letters, digits, colon, dot, underscore, and hyphen.
 
-Use `ttl_ms` for short-lived metadata. It must be between `1` and `86400000` milliseconds. Omit `ttl_ms` for metadata that should stay until replaced, cleared, or the pane/workspace closes. Presentation fields retain their existing source-scoped expiry behavior; each token updated by the call receives its own deadline. Pane token metadata is not restored after a server restart. Workspace tokens reported with `"persist": true` are saved with the session and survive restarts and live handoffs until replaced or cleared; `persist` cannot be combined with `ttl_ms`, and a later report without `persist` makes the tokens it sets live-only again.
+Use `ttl_ms` for short-lived metadata. It must be between `1` and `86400000` milliseconds. Omit `ttl_ms` for metadata that should stay until replaced, cleared, or the pane/workspace closes. Presentation fields retain their existing source-scoped expiry behavior; each token updated by the call receives its own deadline. Token metadata is not restored after a server restart.
 
 Use `seq` when a hook may send updates out of order. For the same `source`, reports with a sequence number less than or equal to the last accepted sequence are accepted by the API but ignored by the pane state. A pane or workspace accepts sequenced token reports from at most 32 distinct sources during its lifetime; clearing or expiry does not release those source slots.
 
@@ -828,11 +822,8 @@ Tab event subscriptions include `tab.created`, `tab.closed`, `tab.focused`,
 `workspace_id`, requested `insert_index`, and updated ordered `tabs` list for
 that workspace.
 Pane event subscriptions include `pane.created`, `pane.updated`, `pane.closed`, `pane.focused`,
-`pane.moved`, `pane.exited`, `pane.cwd_changed`, `pane.agent_detected`,
+`pane.moved`, `pane.exited`, `pane.agent_detected`,
 `pane.output_matched`, `pane.agent_status_changed`, and `pane.scroll_changed`.
-`pane.closed` and `pane.exited` include the pane's `tab_id`. `pane.cwd_changed`
-emits `pane_id`, `workspace_id`, `tab_id`, and the new `cwd` when the shell
-reports a different working directory.
 `pane.focused` also reports manual pane selection changes from any client attached
 to this server. It does not move other clients' views, and its payload does not
 identify the client. Selecting an already-selected pane does not emit it again.

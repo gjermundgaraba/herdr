@@ -23,100 +23,28 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
 
 ## What the fork adds
 
-- Client-side `[keys]` actions: agent and workspace lists, Back/Forward
-  through each machine's own trail of focused panes (a port of Herdr GPUI's
-  per-endpoint trail, `src/client/shell/history.rs`), and `mark_unread`, which
-  asks the daemon for the unread hold, documented in
-  `docs/next/website/src/content/docs/client-actions.md`
-- The unread hold in the daemon: `agent.mark_unread` restores a seen
-  completion once the marking client stops presenting the pane, so every
-  client shows the same badge (`src/app/unread_hold.rs`)
-- Agent status comes from the daemon alone: the TUI's per-client completion
-  ledger is removed, so the TUI shows each agent's `agent_status` as the
-  snapshot sends it, like Herdr GPUI. The daemon still sends upstream's
-  `endpoint.agent-completions.v1` control, which both clients ignore. A
-  completion in the daemon's current tab therefore never becomes a badge
-  while every client presents another machine; see "Agent status" in
-  `docs/next/website/src/content/docs/client-contract.md`
-- One invoke path: `type = "plugin"` keybindings and `plugin.invoke`
-  (which replaces `plugin.action.invoke`) run any manifest entrypoint with a
-  target pane, tab, or space and its selection as context. Actions and panes
-  share one id namespace and one resolver; a pane opens through upstream's
-  `plugin.pane.open` handler (`src/app/api/plugins/entrypoint.rs`)
-- Plugin invocation context: the target a `plugin.invoke` call names
-  supplies the context instead of focus, and actions, panes, and startup
-  hooks also get the `client_id` (`HERDR_CLIENT_ID`) of the invoking shell
-  client, the TUI or Herdr GPUI. Plugins read anything else, such as tabs,
-  spaces, or a pane's agent session, through the socket API
-  (`src/app/api/plugins/entrypoint.rs`)
-- Persisted workspace tokens: `workspace.report_metadata` with `persist`
-  saves tokens in the session snapshot, so plugin state survives restarts
-  and handoffs (`src/metadata_tokens.rs`)
-- Plugin-facing events: `pane.closed` and `pane.exited` carry `tab_id`, and
-  `pane.cwd_changed` reports shell cwd changes. `agent.start` is upstream's:
-  the plugin SDK's `start_agent` retries a starting shell as upstream's CLI
-  does
-- Native pickers: `ui.pick` blocks while the invoking shell client, the TUI
-  or Herdr GPUI, shows a filterable list, and returns the picked id, created
-  text, or cancellation
-  (`src/server/headless/picks.rs`, `src/client/shell/picks.rs`)
-- Agent state from OSC 7501 program status reports, applied to the session a
-  state-reporting integration recorded; the bundled Pi integration (v10)
-  reports only the session. Herdr does not answer the protocol's support
-  query, so Pi reports only with `PI_PROGRAM_STATUS=1` in its pane, which the
-  user's shell config sets inside Herdr panes, on every machine that runs Pi
-  under Herdr; "Pi" in `docs/next/website/src/content/docs/integrations.mdx`
-  has the lines. Without it Herdr falls back to reading Pi's screen and never
-  sees it blocked. A Pi started directly as a layout, popup, plugin pane or
-  custom command, rather than from a pane's shell, does not read the shell
-  config, so it does not report through 7501. The bundled extension no
-  longer reports working or idle itself, so whenever Pi does not report
-  through 7501 (`PI_PROGRAM_STATUS` unset, or Pi launched directly), every
-  state falls back to screen detection
-  (`src/pane/program_status.rs`, `src/terminal/state/in_band.rs`)
-- Smaller sidebar and navigation fixes; see the log above
+Nothing in the code, for now. The stack ends in a commit whose subject starts
+with `revert: return custom to stock`, which returns the code, tests, and docs
+to the release tag. The tree differs from the tag only in this file, the
+pointer to it in `AGENTS.md`, the `FORK.local.md` entry in `.gitignore`, and
+the Linux build workflow (see "Linux builds from CI"). The plugins in the
+`herdr-plugins` repository need the fork's features, so they are disabled.
 
-The main consumers are the plugins in the `herdr-plugins` repository.
+The earlier features, and how they were split between this fork and Herdr GPUI,
+are in the history before that commit:
+
+```sh
+git show "$(git log --format=%h -1 --grep='^revert: return custom to stock' custom)^:FORK.md"
+```
 
 ## Sibling fork: Herdr GPUI
 
 `gjermundgaraba/herdr-gpui` on branch `custom` is the user's fork of the native
-client, which attaches to this fork's daemon. The goal is the same features in
-the TUI here and in that client. Its path is in `FORK.local.md`, and its
-`FORK.md` has the matching section; read that before changing anything of the
-first two kinds below.
-
-- Contract: the wire shapes a daemon and its clients exchange, such as snapshot
-  fields, endpoint control kinds, and client methods. `src/protocol` here
-  defines them, and Herdr GPUI's `crates/herdr-protocol` copies them. Add or
-  update the fixture in `tests/fixtures/` with every change to one; that crate
-  keeps a copy, so a shape that changed on one side fails a test.
-- Mirrored client logic: `src/client` behavior Herdr GPUI also implements,
-  listed in the table below. Keep it portable: logic and its test cases apart
-  from terminal drawing, with the counterpart named in the module's header
-  comment.
-- Single owner: whatever the daemon computes or a plugin does. Prefer computing
-  a result in the daemon and sending it in the snapshot over logic each client
-  has to repeat.
-
-| Feature | Here (TUI) | Herdr GPUI | In step |
-| --- | --- | --- | --- |
-| Sidebar `separator_before` | `src/config/sidebar.rs`, `src/config/sidebar/separator.rs`, `src/ui/sidebar/tokens.rs` | `crates/herdr-gpui/src/config/sidebar.rs`, `crates/herdr-gpui/src/config/sidebar/separator.rs`, `crates/herdr-gpui/src/sidebar/tokens.rs` | yes |
-| Plugin picker | `src/client/shell/picks.rs`, `src/client/shell/pick_overlay.rs` | `crates/herdr-gpui/src/picker.rs`, `crates/herdr-gpui/src/picker/` | yes, except a picker that arrives while a menu, a dialog, or another picker or navigator is open: Herdr GPUI answers `cancelled`, the TUI replaces its overlay and shows the picker; and Herdr GPUI sends a picker's answer only after the request its connection holds is answered |
-| Mark unread | `src/client/shell/mark_unread.rs` | `crates/herdr-gpui/src/mark_unread.rs` | yes |
-| Agent and workspace pickers | `src/client/shell/aggregate_navigation/agent_picker.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker; it orders agents by its own status and recency order, the TUI by status and then each daemon's `state_change_seq`; and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
-| Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail, except that after a pane opened from an activity-bar section, Back in Herdr GPUI first returns to that section, which the TUI does not have |
-| Client-side keys stay local | `src/config/keybinds/client_actions.rs`, `src/client/shell/client_actions.rs` | `crates/herdr-gpui/src/keymap/daemon/client_actions.rs` | yes, except a direct key equal to the host profile's prefix key (the TUI runs the action, Herdr GPUI arms the prefix) and a local config that does not parse (the TUI keeps the previous five bindings, Herdr GPUI unbinds them) |
-| Plugin popup selection | `src/client/shell/actions.rs` | `crates/herdr-gpui/src/palette.rs` | yes: both send the pane selection with a plugin key the daemon advertises as a popup |
-
-Add a row, in both `FORK.md` files, when a mirrored feature lands in either
-client.
-
-A change to contract or mirrored code is finished only when the other side
-matches. Herdr GPUI is a separate project, and a change there is a separate
-task the user asks for, never a side effect of work in this repository: tell
-the user which change it now needs, and mark the row as behind until that
-lands.
+client, which attaches to this fork's daemon. It is back to stock as well. Its
+path is in `FORK.local.md`. When a feature returns, restore the contract,
+mirrored-client, and parity-table rules from the earlier `FORK.md` along with
+it. Herdr GPUI is a separate project, and a change there is a separate task the
+user asks for, never a side effect of work in this repository.
 
 ## Working on the commit stack
 
@@ -131,6 +59,9 @@ lands.
   not an ancestor of the next one. Move to a new release with
   `git rebase --onto vNEW vOLD custom`; a plain `git rebase vNEW` replays
   upstream's old release commits too. Never merge `master` into the stack.
+- While the code is stock, a new release needs no rebase: start `custom` again
+  from the new tag with only the files named under "What the fork adds", and
+  move the old branch to `backup/custom-<date>`.
 - A clean rebase does not prove compatibility. If an upstream change interacts
   with a customization, changes existing behavior, or leaves you unsure whether
   a customization still works, stop and ask the user. Do not remove, adapt, or
@@ -142,16 +73,6 @@ lands.
   not need to change, and never copy or wrap upstream code just to avoid
   touching it: a small edit in place beats a duplicate. An upstream test whose
   behavior the fork changes is edited in place.
-  `src/client/shell/aggregate_navigation.rs` stays rewritten in two places
-  for other fork features. Its rows drop upstream's client-side `recency`,
-  so the priority order breaks ties within a status by the daemon's
-  `state_change_seq` instead, and the rows drop the presentation fields and
-  the `seen` flag, with `seen()` reading the daemon's status, because the
-  TUI's completion ledger is removed.
-  `src/client/shell/overlay_input.rs` also stays rewritten: upstream's
-  `open_navigator_overlay` becomes a layout-taking `open_navigator(layout)`,
-  which the fork's agent and workspace pickers share, because a fork hook
-  would copy upstream's overlay literal.
 
 ## Upstream guardrails
 
@@ -220,5 +141,5 @@ changes need just a TUI relaunch. Never use `herdr server stop` or kill Herdr
 processes to activate a build. Until servers are handed off, the new CLI may
 report a protocol mismatch against them; use the backup binary for those calls.
 
-Plugin daemons such as space-meta's restart through their startup hook after a
-server handoff; their lifecycle docs are in the `herdr-plugins` repository.
+Plugin daemons restart through their startup hook after a server handoff;
+their lifecycle docs are in the `herdr-plugins` repository.

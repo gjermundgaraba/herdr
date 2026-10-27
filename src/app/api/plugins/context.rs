@@ -2,6 +2,33 @@ use crate::api::schema::{EventData, PluginInvocationContext};
 use crate::app::App;
 
 impl App {
+    pub(super) fn merge_plugin_context(
+        &self,
+        provided: Option<PluginInvocationContext>,
+        correlation_id: &str,
+    ) -> PluginInvocationContext {
+        let mut context = self.current_plugin_context(correlation_id);
+        if let Some(provided) = provided {
+            context.workspace_id = provided.workspace_id.or(context.workspace_id);
+            context.workspace_label = provided.workspace_label.or(context.workspace_label);
+            context.workspace_cwd = provided.workspace_cwd.or(context.workspace_cwd);
+            context.worktree = provided.worktree.or(context.worktree);
+            context.tab_id = provided.tab_id.or(context.tab_id);
+            context.tab_label = provided.tab_label.or(context.tab_label);
+            context.focused_pane_id = provided.focused_pane_id.or(context.focused_pane_id);
+            context.focused_pane_cwd = provided.focused_pane_cwd.or(context.focused_pane_cwd);
+            context.focused_pane_agent = provided.focused_pane_agent.or(context.focused_pane_agent);
+            context.focused_pane_status =
+                provided.focused_pane_status.or(context.focused_pane_status);
+            context.selected_text = provided.selected_text.or(context.selected_text);
+            context.invocation_source = provided.invocation_source.or(context.invocation_source);
+            context.correlation_id = provided.correlation_id.or(context.correlation_id);
+            context.clicked_url = provided.clicked_url.or(context.clicked_url);
+            context.link_handler_id = provided.link_handler_id.or(context.link_handler_id);
+        }
+        context
+    }
+
     pub(super) fn current_plugin_context(&self, correlation_id: &str) -> PluginInvocationContext {
         let Some(ws_idx) = self.state.active else {
             return empty_plugin_context(correlation_id);
@@ -121,11 +148,9 @@ impl App {
             EventData::PaneClosed {
                 pane_id,
                 workspace_id,
-                tab_id,
             } => {
                 let mut context = empty_plugin_context(correlation_id);
                 context.workspace_id = Some(workspace_id.clone());
-                context.tab_id = Some(tab_id.clone());
                 context.focused_pane_id = Some(pane_id.clone());
                 context
             }
@@ -141,12 +166,6 @@ impl App {
             | EventData::PaneExited {
                 pane_id,
                 workspace_id,
-                ..
-            }
-            | EventData::PaneCwdChanged {
-                pane_id,
-                workspace_id,
-                ..
             }
             | EventData::PaneAgentDetected {
                 pane_id,
@@ -169,7 +188,7 @@ impl App {
         }
     }
 
-    pub(super) fn plugin_context_for_workspace_id(
+    fn plugin_context_for_workspace_id(
         &self,
         workspace_id: &str,
         correlation_id: &str,
@@ -211,7 +230,7 @@ impl App {
         context
     }
 
-    pub(super) fn plugin_context_for_tab_id(
+    fn plugin_context_for_tab_id(
         &self,
         tab_id: &str,
         correlation_id: &str,
@@ -248,7 +267,7 @@ impl App {
             })
     }
 
-    pub(super) fn plugin_context_for_public_pane_id(
+    fn plugin_context_for_public_pane_id(
         &self,
         pane_id: &str,
         correlation_id: &str,
@@ -356,7 +375,6 @@ impl App {
             correlation_id: Some(correlation_id.to_string()),
             clicked_url: None,
             link_handler_id: None,
-            client_id: None,
         }
     }
 
@@ -388,6 +406,5 @@ fn empty_plugin_context(correlation_id: &str) -> PluginInvocationContext {
         correlation_id: Some(correlation_id.to_string()),
         clicked_url: None,
         link_handler_id: None,
-        client_id: None,
     }
 }

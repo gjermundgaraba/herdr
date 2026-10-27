@@ -1,14 +1,10 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-mod persisted;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct MetadataToken {
     value: String,
     expires_at: Option<Instant>,
-    /// Saved with the session, so it survives restarts and handoffs.
-    persist: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -51,24 +47,12 @@ impl MetadataTokens {
         ttl: Option<Duration>,
         now: Instant,
     ) -> bool {
-        self.apply(patch, ttl.and_then(|ttl| now.checked_add(ttl)), false)
-    }
-
-    fn apply(
-        &mut self,
-        patch: HashMap<String, Option<String>>,
-        expires_at: Option<Instant>,
-        persist: bool,
-    ) -> bool {
+        let expires_at = ttl.and_then(|ttl| now.checked_add(ttl));
         let mut changed = false;
         for (key, value) in patch {
             match value {
                 Some(value) => {
-                    let token = MetadataToken {
-                        value,
-                        expires_at,
-                        persist,
-                    };
+                    let token = MetadataToken { value, expires_at };
                     if self.entries.get(&key) != Some(&token) {
                         self.entries.insert(key, token);
                         changed = true;
@@ -122,8 +106,6 @@ impl MetadataTokens {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    mod persisted;
 
     fn patch(items: &[(&str, Option<&str>)]) -> HashMap<String, Option<String>> {
         items

@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 mod actions;
 mod agent_sidebar;
 mod aggregate_navigation;
-mod client_actions;
 mod machine_diagnostics;
 mod workspace_navigation;
 use workspace_navigation::{PendingWorkspaceHighlight, WorkspaceNavigationTarget};
@@ -11,29 +10,23 @@ mod composition;
 mod config;
 mod context_menu;
 mod copy_mode;
+mod endpoint_agent_state;
 mod endpoint_agents;
 mod endpoint_navigation;
 mod endpoint_notices;
 mod endpoint_sidebar;
 mod endpoints;
 pub(super) use endpoints::*;
-mod fork_state;
-use fork_state::NavigatorLayout;
 mod global_menu;
 mod graphics;
-mod history;
 mod input;
 mod input_source;
 mod link_hover;
-mod mark_unread;
 mod mobile;
 mod mouse;
 mod notification_policy;
 mod notifications;
 mod overlay_input;
-mod picks;
-use picks::{ClientPickOverlay, ClientPickRow};
-pub(crate) use picks::{ControlOrigin, ResolvedPick};
 mod preferences;
 mod render;
 mod scroll;
@@ -287,4 +280,4 @@ fn blit_pane_surface(target: &mut FrameData, source: &FrameData, area: Rect) {
 }
 
 #[cfg(test)]
-pub(super) mod tests;
+mod tests;

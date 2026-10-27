@@ -45,52 +45,10 @@ fn test_lock() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-struct TestBase(PathBuf);
-
-impl std::ops::Deref for TestBase {
-    type Target = Path;
-
-    fn deref(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl AsRef<Path> for TestBase {
-    fn as_ref(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TestBase {
-    fn drop(&mut self) {
-        cleanup_test_base(&self.0);
-    }
-}
-
-fn unique_test_dir() -> TestBase {
+fn unique_test_dir() -> PathBuf {
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
-    loop {
-        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = PathBuf::from(format!("/tmp/hlh-{}-{n}", std::process::id()));
-        match fs::create_dir(&path) {
-            Ok(()) => return TestBase(path),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => panic!("create handoff fixture: {error}"),
-        }
-    }
-}
-
-#[test]
-fn handoff_fixture_removes_its_directory_on_unwind() {
-    let mut path = None;
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let base = unique_test_dir();
-        path = Some(base.0.clone());
-        fs::write(base.join("owned-fixture"), "test").unwrap();
-        panic!("exercise failed-test cleanup");
-    }));
-    assert!(result.is_err());
-    assert!(!path.unwrap().exists());
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    PathBuf::from(format!("/tmp/hlh-{}-{n}", std::process::id()))
 }
 
 fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket: &Path) -> SpawnedHerdr {
@@ -107,7 +65,7 @@ fn spawn_server_with_env(
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
         config_home.join("herdr/config.toml"),
-        "onboarding = false\n[terminal]\nshell_mode = \"non_login\"\n",
+        "onboarding = false\n",
     )
     .unwrap();
 
@@ -123,8 +81,6 @@ fn spawn_server_with_env(
     support::isolate_herdr_test_process(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
-    // Pin the fixture config independently of debug/release config-directory names.
-    cmd.env("HERDR_CONFIG_PATH", config_home.join("herdr/config.toml"));
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
     cmd.env("HERDR_SOCKET_PATH", api_socket);
     cmd.env(
@@ -153,7 +109,7 @@ fn spawn_named_session_server(
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
         config_home.join("herdr-dev/config.toml"),
-        "onboarding = false\n[terminal]\nshell_mode = \"non_login\"\n",
+        "onboarding = false\n",
     )
     .unwrap();
 
@@ -169,11 +125,6 @@ fn spawn_named_session_server(
     support::isolate_herdr_test_process(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
-    // Pin the fixture config independently of debug/release config-directory names.
-    cmd.env(
-        "HERDR_CONFIG_PATH",
-        config_home.join("herdr-dev/config.toml"),
-    );
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
     cmd.env("HERDR_SESSION", session_name);
     cmd.env_remove("HERDR_SOCKET_PATH");
@@ -193,7 +144,7 @@ fn spawn_default_session_server(config_home: &Path, runtime_dir: &Path) -> Spawn
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
         config_home.join("herdr-dev/config.toml"),
-        "onboarding = false\n[terminal]\nshell_mode = \"non_login\"\n",
+        "onboarding = false\n",
     )
     .unwrap();
 
@@ -209,11 +160,6 @@ fn spawn_default_session_server(config_home: &Path, runtime_dir: &Path) -> Spawn
     support::isolate_herdr_test_process(&mut cmd);
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
-    // Pin the fixture config independently of debug/release config-directory names.
-    cmd.env(
-        "HERDR_CONFIG_PATH",
-        config_home.join("herdr-dev/config.toml"),
-    );
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
     cmd.env("XDG_STATE_HOME", runtime_dir.join("state"));
     cmd.env_remove("HERDR_SESSION");
@@ -240,7 +186,7 @@ fn spawn_server_with_args_and_socket_env(
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
         config_home.join("herdr-dev/config.toml"),
-        "onboarding = false\n[terminal]\nshell_mode = \"non_login\"\n",
+        "onboarding = false\n",
     )
     .unwrap();
 
@@ -260,11 +206,6 @@ fn spawn_server_with_args_and_socket_env(
     }
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
-    // Pin the fixture config independently of debug/release config-directory names.
-    cmd.env(
-        "HERDR_CONFIG_PATH",
-        config_home.join("herdr-dev/config.toml"),
-    );
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
     cmd.env_remove("HERDR_SESSION");
     if let Some(api_socket_env) = api_socket_env {
@@ -716,6 +657,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
     drop(spawned);
+    cleanup_test_base(&base);
 }
 
 #[cfg(target_os = "linux")]
@@ -804,6 +746,8 @@ fn live_handoff_unknown_pane_exit_preserves_session_on_shutdown() {
             .map(serde_json::Map::len),
         Some(1)
     );
+
+    cleanup_test_base(&base);
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -876,6 +820,7 @@ fn live_handoff_carries_more_panes_than_one_scm_rights_message() {
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
     drop(spawned);
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -908,6 +853,7 @@ fn live_handoff_preserves_named_session_socket_paths() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -954,6 +900,7 @@ fn live_handoff_ignores_leaked_default_socket_env_for_named_session() {
         serde_json::json!({"id":"test:stop-default","method":"server.stop","params":{}}),
     );
     drop(default_spawned);
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -988,6 +935,7 @@ fn live_handoff_preserves_client_socket_env_without_api_socket_env() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1034,6 +982,7 @@ fn live_handoff_preserves_installed_plugins() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1223,6 +1172,7 @@ fn live_handoff_preserves_pane_process_io() {
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
     let _ = client_socket;
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1318,6 +1268,7 @@ pathlib.Path({received:?}).write_text(data.hex())
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1417,6 +1368,7 @@ pathlib.Path({received:?}).write_text(data.hex())
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1499,6 +1451,7 @@ fn live_handoff_accepts_canonical_pane_id_from_child_env() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1513,15 +1466,12 @@ fn live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session() {
     let old_session = base.join("old-session.jsonl");
     let new_session = base.join("new-session.jsonl");
     let started_marker = base.join("agent-started");
-    // Keep the identifiable script process alive: macOS can hide environment
-    // hints after exec into a protected system binary such as /bin/sleep. The
-    // trailing builtin prevents that exec, and the sleep bounds orphan lifetime.
     let fake_pi = base.join("pi");
     fs::create_dir_all(&base).unwrap();
     fs::write(
         &fake_pi,
         format!(
-            "#!/bin/sh\nexport HERDR_AGENT=pi\necho started > {}\n/bin/sleep 120\n:\n",
+            "#!/bin/sh\nexport HERDR_AGENT=pi\necho started > {}\n/bin/sleep 30\n:\n",
             started_marker.display()
         ),
     )
@@ -1656,6 +1606,7 @@ fn live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1769,6 +1720,7 @@ fn live_handoff_keeps_agent_started_pane_after_agent_exits() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1835,6 +1787,7 @@ fn live_handoff_keeps_shell_pane_after_foreground_process_exits() {
         &api_socket,
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1906,6 +1859,7 @@ fn live_handoff_preserves_python_http_server() {
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
     let _ = client_socket;
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -1998,6 +1952,7 @@ fn live_handoff_preserves_http_servers_across_multiple_sessions() {
             serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
         );
     }
+    cleanup_test_base(&base);
 }
 
 #[test]
@@ -2076,6 +2031,7 @@ fn live_handoff_bad_expected_protocol_rolls_back_old_server() {
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
     drop(spawned);
+    cleanup_test_base(&base);
 }
 
 fn live_handoff_import_failure_rolls_back_old_server_at(failure_point: &str) {
@@ -2155,6 +2111,7 @@ fn live_handoff_import_failure_rolls_back_old_server_at(failure_point: &str) {
         serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
     );
     drop(spawned);
+    cleanup_test_base(&base);
 }
 
 #[test]

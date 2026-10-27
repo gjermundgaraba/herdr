@@ -464,9 +464,6 @@
                 "pane_id": {
                   "type": "string"
                 },
-                "tab_id": {
-                  "type": "string"
-                },
                 "type": {
                   "const": "pane_closed",
                   "type": "string"
@@ -478,8 +475,7 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id",
-                "tab_id"
+                "workspace_id"
               ],
               "type": "object"
             },
@@ -610,9 +606,6 @@
                 "pane_id": {
                   "type": "string"
                 },
-                "tab_id": {
-                  "type": "string"
-                },
                 "type": {
                   "const": "pane_exited",
                   "type": "string"
@@ -624,37 +617,7 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id",
-                "tab_id"
-              ],
-              "type": "object"
-            },
-            {
-              "description": "The shell reported a new working directory.",
-              "properties": {
-                "cwd": {
-                  "type": "string"
-                },
-                "pane_id": {
-                  "type": "string"
-                },
-                "tab_id": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "pane_cwd_changed",
-                  "type": "string"
-                },
-                "workspace_id": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "pane_id",
-                "workspace_id",
-                "tab_id",
-                "cwd"
+                "workspace_id"
               ],
               "type": "object"
             },
@@ -788,7 +751,6 @@
             "pane_moved",
             "pane_output_changed",
             "pane_exited",
-            "pane_cwd_changed",
             "pane_agent_detected",
             "pane_agent_status_changed",
             "layout_updated"
@@ -3444,6 +3406,33 @@
         "PingParams": {
           "type": "object"
         },
+        "PluginActionInvokeParams": {
+          "properties": {
+            "action_id": {
+              "type": "string"
+            },
+            "context": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/PluginInvocationContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "plugin_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "action_id"
+          ],
+          "type": "object"
+        },
         "PluginActionListParams": {
           "properties": {
             "plugin_id": {
@@ -3455,31 +3444,65 @@
           },
           "type": "object"
         },
-        "PluginInvokeParams": {
+        "PluginInvocationContext": {
           "properties": {
-            "entry_id": {
-              "description": "An action or pane id; they share one namespace per plugin.",
-              "type": "string"
-            },
-            "pane_id": {
+            "clicked_url": {
               "type": [
                 "string",
                 "null"
               ]
             },
-            "plugin_id": {
-              "type": "string"
+            "correlation_id": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
-            "selection": {
+            "focused_pane_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused_pane_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused_pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "focused_pane_status": {
               "anyOf": [
                 {
-                  "$ref": "#/schemas/request/$defs/PaneSelectionReadParams"
+                  "$ref": "#/schemas/request/$defs/AgentStatus"
                 },
                 {
                   "type": "null"
                 }
-              ],
-              "description": "Selection coordinates in `pane_id`, read into `selected_text`."
+              ]
+            },
+            "invocation_source": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "link_handler_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "selected_text": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "tab_id": {
               "type": [
@@ -3487,18 +3510,41 @@
                 "null"
               ]
             },
-            "workspace_id": {
-              "description": "The space, tab, or pane the invocation targets. The most specific id\nsupplies the context; omitted ids fall back to focus.",
+            "tab_label": {
               "type": [
                 "string",
                 "null"
               ]
+            },
+            "workspace_cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "worktree": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/request/$defs/WorkspaceWorktreeInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
-          "required": [
-            "plugin_id",
-            "entry_id"
-          ],
           "type": "object"
         },
         "PluginLinkParams": {
@@ -4123,18 +4169,6 @@
             {
               "properties": {
                 "type": {
-                  "const": "pane.cwd_changed",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
-                "type": {
                   "const": "pane.agent_detected",
                   "type": "string"
                 }
@@ -4332,169 +4366,6 @@
           ],
           "type": "string"
         },
-        "UiPickCloseParams": {
-          "properties": {
-            "pick_id": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "pick_id"
-          ],
-          "type": "object"
-        },
-        "UiPickCreate": {
-          "description": "Offers a \"create\" row for query text that matches no item.",
-          "properties": {
-            "label": {
-              "description": "Row label prefix, such as \"New group\".",
-              "type": "string"
-            }
-          },
-          "required": [
-            "label"
-          ],
-          "type": "object"
-        },
-        "UiPickItem": {
-          "description": "One row of a native picker.",
-          "properties": {
-            "badge": {
-              "description": "Short marker shown before the label.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "detail": {
-              "description": "Secondary text shown after the label.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "id": {
-              "type": "string"
-            },
-            "label": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "id",
-            "label"
-          ],
-          "type": "object"
-        },
-        "UiPickOutcome": {
-          "oneOf": [
-            {
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "picked",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "id"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
-                "text": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "created",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "text"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
-                "type": {
-                  "const": "cancelled",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            }
-          ]
-        },
-        "UiPickParams": {
-          "description": "Opens a picker on a shell client and waits until it resolves.",
-          "properties": {
-            "client_id": {
-              "description": "Client to show the picker on; defaults to the foreground client.\nPlugins pass the `client_id` from their invocation context.",
-              "format": "uint64",
-              "minimum": 0,
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "create": {
-              "anyOf": [
-                {
-                  "$ref": "#/schemas/request/$defs/UiPickCreate"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "items": {
-              "items": {
-                "$ref": "#/schemas/request/$defs/UiPickItem"
-              },
-              "type": "array"
-            },
-            "selected": {
-              "description": "Id of the item selected when the picker opens.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "title": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "title",
-            "items"
-          ],
-          "type": "object"
-        },
-        "UiPickResolveParams": {
-          "description": "Sent by the client that shows a picker.",
-          "properties": {
-            "outcome": {
-              "$ref": "#/schemas/request/$defs/UiPickOutcome"
-            },
-            "pick_id": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "pick_id",
-            "outcome"
-          ],
-          "type": "object"
-        },
         "WorkspaceCloseParams": {
           "properties": {
             "close_group": {
@@ -4597,10 +4468,6 @@
         },
         "WorkspaceReportMetadataParams": {
           "properties": {
-            "persist": {
-              "description": "Save the set tokens with the session so they survive restarts and\nhandoffs. Cannot be combined with `ttl_ms`.",
-              "type": "boolean"
-            },
             "seq": {
               "format": "uint64",
               "minimum": 0,
@@ -4653,6 +4520,33 @@
           },
           "required": [
             "workspace_id"
+          ],
+          "type": "object"
+        },
+        "WorkspaceWorktreeInfo": {
+          "properties": {
+            "checkout_path": {
+              "type": "string"
+            },
+            "is_linked_worktree": {
+              "type": "boolean"
+            },
+            "repo_key": {
+              "type": "string"
+            },
+            "repo_name": {
+              "type": "string"
+            },
+            "repo_root": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_key",
+            "repo_name",
+            "repo_root",
+            "checkout_path",
+            "is_linked_worktree"
           ],
           "type": "object"
         },
@@ -5483,22 +5377,6 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/AgentTarget"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "const": "agent.mark_unread",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/PaneTarget"
             }
           },
           "required": [
@@ -6358,11 +6236,11 @@
         {
           "properties": {
             "method": {
-              "const": "plugin.invoke",
+              "const": "plugin.action.invoke",
               "type": "string"
             },
             "params": {
-              "$ref": "#/schemas/request/$defs/PluginInvokeParams"
+              "$ref": "#/schemas/request/$defs/PluginActionInvokeParams"
             }
           },
           "required": [
@@ -6427,54 +6305,6 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PluginPaneCloseParams"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "const": "ui.pick",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/UiPickParams"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "const": "ui.pick.resolve",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/UiPickResolveParams"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "const": "ui.pick.close",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/UiPickCloseParams"
             }
           },
           "required": [
@@ -7347,9 +7177,6 @@
                 "pane_id": {
                   "type": "string"
                 },
-                "tab_id": {
-                  "type": "string"
-                },
                 "type": {
                   "const": "pane_closed",
                   "type": "string"
@@ -7361,8 +7188,7 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id",
-                "tab_id"
+                "workspace_id"
               ],
               "type": "object"
             },
@@ -7493,9 +7319,6 @@
                 "pane_id": {
                   "type": "string"
                 },
-                "tab_id": {
-                  "type": "string"
-                },
                 "type": {
                   "const": "pane_exited",
                   "type": "string"
@@ -7507,37 +7330,7 @@
               "required": [
                 "type",
                 "pane_id",
-                "workspace_id",
-                "tab_id"
-              ],
-              "type": "object"
-            },
-            {
-              "description": "The shell reported a new working directory.",
-              "properties": {
-                "cwd": {
-                  "type": "string"
-                },
-                "pane_id": {
-                  "type": "string"
-                },
-                "tab_id": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "pane_cwd_changed",
-                  "type": "string"
-                },
-                "workspace_id": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "pane_id",
-                "workspace_id",
-                "tab_id",
-                "cwd"
+                "workspace_id"
               ],
               "type": "object"
             },
@@ -7686,7 +7479,6 @@
             "pane_moved",
             "pane_output_changed",
             "pane_exited",
-            "pane_cwd_changed",
             "pane_agent_detected",
             "pane_agent_status_changed",
             "layout_updated"
@@ -8938,15 +8730,6 @@
             "clicked_url": {
               "type": [
                 "string",
-                "null"
-              ]
-            },
-            "client_id": {
-              "description": "Server-local id of the shell client, the TUI or Herdr GPUI, whose request\nstarted the plugin.",
-              "format": "uint64",
-              "minimum": 0,
-              "type": [
-                "integer",
                 "null"
               ]
             },
@@ -10577,22 +10360,6 @@
             },
             {
               "properties": {
-                "outcome": {
-                  "$ref": "#/schemas/success_response/$defs/UiPickOutcome"
-                },
-                "type": {
-                  "const": "ui_picked",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "outcome"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
                 "diagnostics": {
                   "items": {
                     "type": "string"
@@ -10805,54 +10572,6 @@
             "agent_status"
           ],
           "type": "object"
-        },
-        "UiPickOutcome": {
-          "oneOf": [
-            {
-              "properties": {
-                "id": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "picked",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "id"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
-                "text": {
-                  "type": "string"
-                },
-                "type": {
-                  "const": "created",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type",
-                "text"
-              ],
-              "type": "object"
-            },
-            {
-              "properties": {
-                "type": {
-                  "const": "cancelled",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "type"
-              ],
-              "type": "object"
-            }
-          ]
         },
         "WorkspaceInfo": {
           "properties": {

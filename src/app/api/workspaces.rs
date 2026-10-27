@@ -254,13 +254,6 @@ impl App {
             Ok(ttl) => ttl,
             Err(message) => return encode_error(id, "invalid_metadata_ttl", message),
         };
-        if params.persist && ttl.is_some() {
-            return encode_error(
-                id,
-                "invalid_metadata_ttl",
-                "persisted metadata tokens cannot expire",
-            );
-        }
         let tokens = match super::super::api_helpers::normalize_metadata_tokens(params.tokens) {
             Ok(tokens) => tokens,
             Err(message) => return encode_error(id, "invalid_metadata_token", message),
@@ -305,17 +298,12 @@ impl App {
                 );
             }
         }
-        let changed = if params.persist {
-            workspace.metadata_tokens.patch_persisted(tokens)
-        } else {
-            workspace
-                .metadata_tokens
-                .patch(tokens, ttl, std::time::Instant::now())
-        };
+        let changed = workspace
+            .metadata_tokens
+            .patch(tokens, ttl, std::time::Instant::now());
         if changed {
             self.sync_agent_metadata_deadline();
             self.emit_workspace_token_updated(index);
-            self.schedule_session_save();
         }
         encode_success(id, ResponseResult::Ok {})
     }
@@ -397,8 +385,6 @@ mod tests {
         config::Config,
         workspace::Workspace,
     };
-
-    mod persisted_tokens;
 
     // `new_cwd = follow` must anchor on the focused pane for every creation
     // surface. Splits and tabs already do; a new workspace must follow the
@@ -975,7 +961,6 @@ mod tests {
                         tokens,
                         seq: None,
                         ttl_ms: None,
-                        persist: false,
                     },
                 ),
             });
@@ -1016,7 +1001,6 @@ mod tests {
                 )]),
                 seq: None,
                 ttl_ms: Some(1),
-                persist: false,
             },
         );
         let _: SuccessResponse = serde_json::from_str(&response).unwrap();

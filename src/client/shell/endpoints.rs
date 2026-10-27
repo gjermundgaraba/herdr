@@ -16,6 +16,8 @@ pub(crate) struct ClientShellEndpoint {
     pub(crate) snapshot: Option<Box<ClientShellSnapshot>>,
     /// Connection generation that produced `snapshot`. `None` is reserved for local tests.
     pub(crate) snapshot_generation: Option<u64>,
+    pub(crate) agent_recency: HashMap<String, u64>,
+    pub(super) agent_presentation: super::endpoint_agent_state::EndpointAgentPresentation,
     pub(crate) agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pending_agent_view_projection: Option<ClientEndpointAgentViewProjection>,
     pub(crate) agent_view_projection_supported: bool,
@@ -73,6 +75,12 @@ impl ClientShellState {
                 ),
                 snapshot: previous.and_then(|endpoint| endpoint.snapshot.clone()),
                 snapshot_generation: previous.and_then(|endpoint| endpoint.snapshot_generation),
+                agent_recency: previous
+                    .map(|endpoint| endpoint.agent_recency.clone())
+                    .unwrap_or_default(),
+                agent_presentation: previous
+                    .map(|endpoint| endpoint.agent_presentation.clone())
+                    .unwrap_or_default(),
                 agent_view_projection: previous
                     .and_then(|endpoint| endpoint.agent_view_projection.clone()),
                 pending_agent_view_projection: previous
@@ -94,7 +102,6 @@ impl ClientShellState {
                 .any(|endpoint| &endpoint.endpoint_id == endpoint_id)
         });
         self.endpoints = next;
-        self.prune_history();
     }
 
     pub(crate) fn select_unavailable_local(&mut self) {
@@ -121,6 +128,8 @@ impl ClientShellState {
             endpoint.snapshot = None;
             endpoint.snapshot_generation = None;
             endpoint.methods = None;
+            endpoint.agent_recency.clear();
+            endpoint.agent_presentation = Default::default();
             endpoint.agent_view_projection = None;
             endpoint.pending_agent_view_projection = None;
             endpoint.agent_view_projection_supported = false;
@@ -160,10 +169,6 @@ impl ClientShellState {
             self.pending_integration_installs = 0;
             self.pane_scroll_in_flight.clear();
             self.pane_scroll_queued.clear();
-            // The picker goes with the connection that opened it, whose
-            // daemon cancels it when the connection drops. The answer names
-            // that connection, so it is never sent on a later one.
-            self.cancel_pick();
         }
     }
 
@@ -233,8 +238,6 @@ impl ClientShellState {
             self.active_endpoint_id = endpoint_id.clone();
             self.pane_surface = None;
             self.pending_pane_surface = None;
-            // A picker belongs to the endpoint that opened it.
-            self.cancel_pick();
         }
         self.apply_active_snapshot(snapshot, generation);
         if switching_endpoint {
@@ -317,6 +320,23 @@ impl ClientShellState {
             .snapshot
             .as_deref()
             .map(|snapshot| (snapshot.boot_id.as_str(), snapshot.revision))
+    }
+
+    pub(crate) fn set_endpoint_agent_completions(
+        &mut self,
+        endpoint_id: &ClientEndpointId,
+        generation: u64,
+        projection: crate::protocol::endpoint::EndpointAgentCompletions,
+    ) {
+        if let Some(endpoint) = self
+            .endpoints
+            .iter_mut()
+            .find(|endpoint| &endpoint.endpoint_id == endpoint_id)
+        {
+            endpoint
+                .agent_presentation
+                .receive_completions(Some(generation), projection);
+        }
     }
 
     pub(crate) fn set_endpoint_agent_view_projection_for_generation(
@@ -497,7 +517,7 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, None, snapshot, true);
     }
 
     pub(crate) fn cache_endpoint_snapshot_for_generation(
@@ -506,7 +526,7 @@ impl ClientShellState {
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, true);
     }
 
     /// Metadata delivered while an endpoint surface is inactive must never advance this
@@ -517,7 +537,7 @@ impl ClientShellState {
         generation: u64,
         snapshot: Box<ClientShellSnapshot>,
     ) {
-        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot);
+        self.cache_endpoint_snapshot_with_surface(endpoint_id, Some(generation), snapshot, false);
     }
 
     fn cache_endpoint_snapshot_with_surface(
@@ -525,6 +545,7 @@ impl ClientShellState {
         endpoint_id: &ClientEndpointId,
         generation: Option<u64>,
         mut snapshot: Box<ClientShellSnapshot>,
+        acknowledge_surface: bool,
     ) {
         snapshot
             .commands
@@ -546,7 +567,6 @@ impl ClientShellState {
         {
             return;
         }
-        self.observe_history(endpoint_id, &snapshot);
         let boot_changed = self.endpoints[index]
             .snapshot
             .as_deref()
@@ -554,7 +574,52 @@ impl ClientShellState {
         if boot_changed {
             self.retire_endpoint_notifications(endpoint_id);
         }
+        self.endpoints[index]
+            .agent_presentation
+            .project_snapshot_for_generation(&mut snapshot, generation);
+        let presented_surface = if acknowledge_surface && endpoint_id == &self.active_endpoint_id {
+            self.pane_surface.as_ref()
+        } else {
+            None
+        };
+        if let Some(surface) = presented_surface {
+            self.endpoints[index]
+                .agent_presentation
+                .acknowledge_surface(&mut snapshot, surface, self.outer_focused);
+        }
+        let previous = self.endpoints[index].snapshot.as_deref();
+        let mut next_recency = self
+            .endpoints
+            .iter()
+            .flat_map(|endpoint| endpoint.agent_recency.values())
+            .copied()
+            .max()
+            .unwrap_or_default();
+        let mut agents = snapshot.agents.iter().collect::<Vec<_>>();
+        agents.sort_by_key(|agent| agent.state_change_seq);
+        let mut recency = self.endpoints[index].agent_recency.clone();
+        for agent in agents {
+            let changed = previous
+                .and_then(|snapshot| {
+                    snapshot
+                        .agents
+                        .iter()
+                        .find(|previous| previous.pane_id == agent.pane_id)
+                })
+                .is_none_or(|previous| previous.state_change_seq != agent.state_change_seq);
+            if changed {
+                next_recency = next_recency.saturating_add(1);
+                recency.insert(agent.pane_id.clone(), next_recency);
+            }
+        }
+        recency.retain(|pane_id, _| {
+            snapshot
+                .agents
+                .iter()
+                .any(|agent| &agent.pane_id == pane_id)
+        });
         let endpoint = &mut self.endpoints[index];
+        endpoint.agent_recency = recency;
         endpoint.snapshot_generation = generation;
         endpoint.snapshot = Some(snapshot);
         let pending_matches =
@@ -586,6 +651,29 @@ impl ClientShellState {
                 endpoint.agent_view_projection = None;
             }
         }
+    }
+
+    pub(crate) fn acknowledge_active_surface_agents(&mut self, surface: &PaneSurfaceFrame) -> bool {
+        let Some(index) = self
+            .endpoints
+            .iter()
+            .position(|endpoint| endpoint.endpoint_id == self.active_endpoint_id)
+        else {
+            return false;
+        };
+        let changed = {
+            let endpoint = &mut self.endpoints[index];
+            let Some(snapshot) = endpoint.snapshot.as_deref_mut() else {
+                return false;
+            };
+            endpoint
+                .agent_presentation
+                .acknowledge_surface(snapshot, surface, self.outer_focused)
+        };
+        if changed {
+            self.snapshot = self.endpoints[index].snapshot.clone();
+        }
+        changed
     }
 
     #[cfg(test)]
@@ -648,6 +736,8 @@ pub(super) fn local_endpoint() -> ClientShellEndpoint {
         status: ClientEndpointStatus::Online,
         snapshot: None,
         snapshot_generation: None,
+        agent_recency: HashMap::new(),
+        agent_presentation: Default::default(),
         agent_view_projection: None,
         pending_agent_view_projection: None,
         agent_view_projection_supported: false,

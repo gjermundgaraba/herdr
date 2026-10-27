@@ -48,7 +48,7 @@ Agent states are:
 | `idle` | The agent is finished or waiting and has been seen. |
 | `unknown` | Herdr cannot confidently classify the state. |
 
-Every client shows the server's seen state, the one CLI/API statuses use. A Done badge is therefore the same in the CLI and in every attached client, and a badge cleared in one client is cleared in all of them. With several clients on different tabs, a completion that lands in a tab one client already shows keeps its badge until that client sends a command from that tab, such as focusing a pane; see [Client contract](/docs/client-contract/#agent-status). Both `idle` and `done` mean ready for input.
+Each client tracks which completions it has displayed. Viewing a completion in one client does not clear another client's Done badge. CLI/API statuses use the server's seen state, so they need not match a particular client's badge; both `idle` and `done` mean ready for input.
 
 ## Session
 

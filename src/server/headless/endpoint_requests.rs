@@ -36,10 +36,6 @@ impl HeadlessServer {
             return false;
         }
         let surface_active = client.shell_surface_active;
-        if let api::schema::Method::UiPickResolve(params) = &request.method {
-            self.resolve_client_pick(client_id, boot_id, request_id, params.clone());
-            return false;
-        }
         if let api::schema::Method::ClientShellSurfaceSet(params) = &request.method {
             let Some((changed, projection_revision)) =
                 self.set_client_shell_surface_active(client_id, params.active)

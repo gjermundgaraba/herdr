@@ -4,7 +4,6 @@ use tracing::info;
 
 use crate::layout::PaneId;
 
-use super::program_status::{parse_program_status_report, ProgramStatusReport};
 use super::terminal::GhosttyPaneCore;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -497,7 +496,6 @@ pub(super) struct AgentOscStateTracker {
     latest_title: Option<String>,
     terminal_title: Option<String>,
     latest_progress: Option<String>,
-    program_status_reports: Vec<ProgramStatusReport>,
 }
 
 impl AgentOscStateTracker {
@@ -525,17 +523,10 @@ impl AgentOscStateTracker {
                     *latest_progress =
                         Some(sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS));
                 }
-                b"7501" => self
-                    .program_status_reports
-                    .extend(parse_program_status_report(payload)),
                 _ => {}
             }
         });
         terminal_title_changed
-    }
-
-    pub(super) fn drain_program_status_reports(&mut self) -> Vec<ProgramStatusReport> {
-        std::mem::take(&mut self.program_status_reports)
     }
 
     pub(super) fn terminal_title(&self) -> Option<&str> {

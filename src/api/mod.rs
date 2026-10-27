@@ -49,7 +49,6 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::AgentViewSet(_)
             | Method::AgentViewClear(_)
             | Method::AgentFocus(_)
-            | Method::AgentMarkUnread(_)
             | Method::AgentStart(_)
             | Method::AgentPrompt(_)
             | Method::AgentSendKeys(_)
@@ -74,12 +73,10 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::PopupClose(_)
             | Method::PluginUnlink(_)
             | Method::PluginDisable(_)
-            | Method::PluginInvoke(_)
+            | Method::PluginActionInvoke(_)
             | Method::PluginPaneOpen(_)
             | Method::PluginPaneFocus(_)
             | Method::PluginPaneClose(_)
-            | Method::UiPick(_)
-            | Method::UiPickClose(_)
     )
 }
 

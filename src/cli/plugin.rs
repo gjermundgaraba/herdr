@@ -6,14 +6,13 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::schema::{
-    InstalledPluginInfo, Method, PluginActionListParams, PluginLinkParams, PluginListParams,
-    PluginLogListParams, PluginPaneCloseParams, PluginPaneFocusParams, PluginPaneOpenParams,
-    PluginPanePlacement, PluginPlatform, PluginSetEnabledParams, PluginSourceInfo,
-    PluginSourceKind, PluginUnlinkParams, Request, ResponseResult, SplitDirection, SuccessResponse,
+    InstalledPluginInfo, Method, PluginActionInvokeParams, PluginActionListParams,
+    PluginInvocationContext, PluginLinkParams, PluginListParams, PluginLogListParams,
+    PluginPaneCloseParams, PluginPaneFocusParams, PluginPaneOpenParams, PluginPanePlacement,
+    PluginPlatform, PluginSetEnabledParams, PluginSourceInfo, PluginSourceKind, PluginUnlinkParams,
+    Request, ResponseResult, SplitDirection, SuccessResponse,
 };
 use crate::popup_size::PopupSize;
-
-mod invoke;
 
 const PLUGIN_BUILD_OUTPUT_MAX_BYTES: usize = 64 * 1024;
 const PLUGIN_INSTALL_USAGE: &str =
@@ -36,7 +35,6 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
         "enable" => plugin_set_enabled(&args[1..], true),
         "disable" => plugin_set_enabled(&args[1..], false),
         "action" => run_plugin_action_command(&args[1..]),
-        "invoke" => invoke::plugin_invoke(&args[1..]),
         "log" | "logs" => plugin_log_list(&args[1..]),
         "pane" => run_plugin_pane_command(&args[1..]),
         "help" | "--help" | "-h" => {
@@ -586,6 +584,7 @@ fn run_plugin_action_command(args: &[String]) -> std::io::Result<i32> {
 
     match subcommand {
         "list" => plugin_action_list(&args[1..]),
+        "invoke" => plugin_action_invoke(&args[1..]),
         "help" | "--help" | "-h" => {
             print_plugin_action_help();
             Ok(0)
@@ -617,6 +616,51 @@ fn plugin_action_list(args: &[String]) -> std::io::Result<i32> {
 
     print_plugin_response(Method::PluginActionList(PluginActionListParams {
         plugin_id,
+    }))
+}
+
+fn plugin_action_invoke(args: &[String]) -> std::io::Result<i32> {
+    let Some(action_id) = args.first() else {
+        eprintln!("usage: herdr plugin action invoke <action_id> [--plugin ID]");
+        return Ok(2);
+    };
+    let mut plugin_id = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--plugin" => {
+                let Some(value) = required_value(args, &mut index, "--plugin") else {
+                    return Ok(2);
+                };
+                plugin_id = Some(value);
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    print_plugin_response(Method::PluginActionInvoke(PluginActionInvokeParams {
+        action_id: action_id.clone(),
+        plugin_id,
+        context: Some(PluginInvocationContext {
+            workspace_id: None,
+            workspace_label: None,
+            workspace_cwd: None,
+            worktree: None,
+            tab_id: None,
+            tab_label: None,
+            focused_pane_id: None,
+            focused_pane_cwd: None,
+            focused_pane_agent: None,
+            focused_pane_status: None,
+            selected_text: None,
+            invocation_source: Some("cli".into()),
+            correlation_id: None,
+            clicked_url: None,
+            link_handler_id: None,
+        }),
     }))
 }
 
@@ -1773,8 +1817,7 @@ fn print_plugin_help() {
     eprintln!("  herdr plugin unlink <plugin_id>");
     eprintln!("  herdr plugin enable <plugin_id>");
     eprintln!("  herdr plugin disable <plugin_id>");
-    eprintln!("  herdr plugin action list [--plugin ID]");
-    eprintln!("  herdr plugin invoke <plugin_id.entry_id> [--workspace ID] [--tab ID] [--pane ID]");
+    eprintln!("  herdr plugin action <list|invoke>");
     eprintln!("  herdr plugin log list [--plugin ID] [--limit N]");
     eprintln!("  herdr plugin pane <open|focus|close>");
 }
@@ -1782,6 +1825,7 @@ fn print_plugin_help() {
 fn print_plugin_action_help() {
     eprintln!("herdr plugin action commands:");
     eprintln!("  herdr plugin action list [--plugin ID]");
+    eprintln!("  herdr plugin action invoke <action_id> [--plugin ID]");
 }
 
 fn print_plugin_pane_help() {

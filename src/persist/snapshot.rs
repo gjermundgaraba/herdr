@@ -68,9 +68,6 @@ pub struct WorkspaceSnapshot {
     pub tabs: Vec<TabSnapshot>,
     #[serde(default)]
     pub active_tab: usize,
-    /// Metadata tokens reported with `persist`.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub metadata_tokens: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -178,7 +175,6 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             next_public_tab_number: 0,
             tabs: vec![tab],
             active_tab: 0,
-            metadata_tokens: Default::default(),
         }
     }
 }
@@ -321,7 +317,6 @@ fn capture_workspace(
         next_public_tab_number: ws.next_public_tab_number,
         tabs,
         active_tab: ws.active_tab,
-        metadata_tokens: ws.metadata_tokens.persisted(),
     }
 }
 
@@ -751,7 +746,6 @@ mod tests {
                     root_pane: Some(0),
                 }],
                 active_tab: 0,
-                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,
@@ -1453,7 +1447,6 @@ mod tests {
                     root_pane: Some(0),
                 }],
                 active_tab: 0,
-                metadata_tokens: Default::default(),
             }],
             active: Some(0),
             selected: 0,

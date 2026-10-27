@@ -1364,18 +1364,15 @@ fn plugin_action_list_and_invoke_round_trips() {
     assert_eq!(restored, list);
 
     let invoke = Request {
-        id: "req_plugin_invoke".into(),
-        method: Method::PluginInvoke(PluginInvokeParams {
-            plugin_id: "example.issue-flow".into(),
-            entry_id: "assign-issue".into(),
-            workspace_id: None,
-            tab_id: None,
-            pane_id: Some("w1:p1".into()),
-            selection: None,
+        id: "req_plugin_action_invoke".into(),
+        method: Method::PluginActionInvoke(PluginActionInvokeParams {
+            plugin_id: Some("example.issue-flow".into()),
+            action_id: "assign-issue".into(),
+            context: None,
         }),
     };
     let json = serde_json::to_value(&invoke).unwrap();
-    assert_eq!(json["method"], "plugin.invoke");
+    assert_eq!(json["method"], "plugin.action.invoke");
     let restored: Request = serde_json::from_value(json).unwrap();
     assert_eq!(restored, invoke);
 

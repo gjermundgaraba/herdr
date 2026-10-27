@@ -109,9 +109,8 @@ action = "apply"
 
 アクション id、ペイン id、リンクハンドラー id はプラグイン内部のローカル id です。
 ASCII の英字、数字、コロン、アンダースコア、ハイフンが使えますが、ドットは
-使えません。アクション id とペイン id は同じ名前空間を共有するため、アクションはペインの id を再利用できません。
-リンクハンドラー id はリンクハンドラー同士で一意でなければなりません。グローバルに
-一意な名前が必要なとき、Herdr はアクション id とペイン id を `plugin.id.entrypoint` の形に修飾します。
+使えません。各 id の種類はプラグイン内で一意でなければなりません。グローバルに
+一意な名前が必要なとき、Herdr はアクション id を `plugin.id.action` の形に修飾します。
 
 プラグインが動作する場所は `platforms = ["linux", "macos", "windows"]` で宣言します。
 ビルドコマンド、スタートアップフック、アクション、イベントフック、ペイン、
@@ -187,7 +186,7 @@ herdr plugin action list --plugin examples.agent-telegram-notify
 herdr plugin link /path/to/plugin
 herdr plugin config-dir example.layout
 herdr plugin action list --plugin example.layout
-herdr plugin invoke example.layout.apply
+herdr plugin action invoke example.layout.apply
 herdr plugin pane open --plugin example.layout --entrypoint board
 herdr plugin log list --plugin example.layout
 ```
@@ -283,14 +282,9 @@ GitHub からインストールされたプラグインのルートは管理さ�
 しません。ファイル形式とライフサイクルはプラグインが所有します。
 
 `HERDR_PLUGIN_CONTEXT_JSON` には、その呼び出しで利用可能な場合、ワークスペース、
-タブ、フォーカス中のペイン、worktree、エージェント、選択テキスト、
-クリックされた URL、リンクハンドラーのフィールドが含まれます。キーまたは API
-呼び出しがペイン、タブ、スペースを指定した場合、コンテキストはフォーカスではなくその
-対象を表します。シェルプラグインは、よく使う id は個別の環境変数から読み、完全な形が
-必要ならコンテキスト JSON をパースできます。
-
-シェルクライアント (TUI または Herdr GPUI) がプラグインを起動した場合、`client_id` と
-`HERDR_CLIENT_ID` がサーバー内でそのクライアントを識別します。イベントフックではどちらも省略されます。
+タブ、フォーカス中のペイン、worktree、エージェント、選択テキスト、クリックされた
+URL、リンクハンドラーのフィールドが含まれます。シェルプラグインは、よく使う id は
+個別の環境変数から読み、完全な形が必要ならコンテキスト JSON をパースできます。
 
 Node、PowerShell、Bash など別のランタイムから移植性を保って Herdr を呼び出す必要が
 あるときは `HERDR_BIN_PATH` を使ってください。`HERDR_SOCKET_PATH` の背後にある生の
@@ -299,24 +293,6 @@ Windows クライアントは名前付きパイプに接続します。`HERDR_BI
 呼び出しなら、そのトランスポートの違いを気にせずに済みます。利用可能なコマンドは
 [CLI リファレンス](/ja/docs/cli-reference/)、生のリクエスト形式は
 [ソケット API](/ja/docs/socket-api/)を参照してください。
-
-## ピッカー
-
-ユーザーに選択を求めるプラグインは、独自のピッカーペインを描画する代わりに
-`ui.pick` を呼び出します。Herdr はプラグインを起動したシェルクライアント (TUI
-または Herdr GPUI、コンテキストの `client_id`)、そのクライアントがいなければ前面の
-シェルクライアントに、絞り込み可能なネイティブのリストを表示し、ユーザーが答えるまで呼び出しはブロックします:
-
-```json
-{"id":"req_pick","method":"ui.pick","params":{"title":"Move pane to","items":[{"id":"t2","label":"build","badge":"2","detail":"3 panes"}],"selected":"t2","create":{"label":"New tab"},"client_id":7}}
-```
-
-結果の `outcome` は `{"type":"picked","id":"t2"}`、`create` を指定していてユーザーが
-どのラベルにも一致しない絞り込みテキストを確定した場合は
-`{"type":"created","text":"..."}`、または `{"type":"cancelled"}` です。ピッカーは
-クライアントごとに 1 つだけ開けます。2 つ目の呼び出しは `ui_busy` を返し、
-`no_client` はシェルクライアントが接続されていないことを示します。リクエストの接続を閉じるか、
-pick id を指定して `ui.pick.close` を呼ぶとピッカーは閉じます。
 
 ## ペイン
 
@@ -360,19 +336,15 @@ Windows では、ビルドコマンド、アクションコマンド、イベン
 
 ## キーバインド
 
-インストール済みプラグインのエントリーポイント（アクションまたはペイン）の完全修飾 ID を使ってキーを割り当てます:
+インストール済みプラグインのアクションにキーを割り当てます:
 
 ```toml
 [[keys.command]]
 key = "prefix+l"
-type = "plugin"
+type = "plugin_action"
 command = "example.layout.apply"
 description = "apply layout"
 ```
-
-Herdr は呼び出し元のペインと選択テキストのコンテキストを保持します。ペインはマニフェストのデフォルト値で開きます。
-任意の `width` と `height` はポップアップのサイズを上書きし、ほかの placement では無視されます。
-[カスタムコマンドキーバインド](./configuration#カスタムコマンドキーバインド)を参照してください。
 
 ## リンクハンドラー
 

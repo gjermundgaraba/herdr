@@ -5,7 +5,6 @@ mod agents;
 mod env;
 mod integrations;
 mod layouts;
-mod pane_cwd;
 mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
@@ -311,9 +310,6 @@ impl App {
                         data: crate::api::schema::EventData::PaneExited {
                             pane_id: public_pane_id,
                             workspace_id: self.public_workspace_id(ws_idx),
-                            tab_id: self
-                                .public_tab_id_for_pane(ws_idx, *pane_id)
-                                .unwrap_or_default(),
                         },
                     });
                 }
@@ -354,7 +350,6 @@ impl App {
                 None
             };
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
-        let reported_cwd = self.cwd_before_report(&ev);
         let previous_toast = self.state.toast.clone();
         let mut pane_updates = self.state.handle_app_event(ev);
         if update_ready.is_some() {
@@ -384,7 +379,6 @@ impl App {
             self.request_git_identity_refresh(Instant::now());
             self.render_dirty.request_generic();
             self.render_notify.notify_one();
-            self.emit_pane_cwd_changed(reported_cwd);
         }
         for update in &pane_updates {
             self.refresh_new_herdr_toast_context_for_update(update, &previous_toast);
@@ -1121,9 +1115,6 @@ impl App {
             Method::AgentList(_) => return self.handle_agent_list(request.id),
             Method::AgentGet(target) => return self.handle_agent_get(request.id, target),
             Method::AgentFocus(target) => return self.handle_agent_focus(request.id, target),
-            Method::AgentMarkUnread(target) => {
-                return self.handle_agent_mark_unread(request.id, target);
-            }
             Method::AgentRename(params) => return self.handle_agent_rename(request.id, params),
             Method::AgentViewSet(params) => return self.handle_agent_view_set(request.id, params),
             Method::AgentViewClear(params) => {
@@ -1250,8 +1241,8 @@ impl App {
             Method::PluginActionList(params) => {
                 return self.handle_plugin_action_list(request.id, params);
             }
-            Method::PluginInvoke(params) => {
-                return self.handle_plugin_invoke(request.id, params);
+            Method::PluginActionInvoke(params) => {
+                return self.handle_plugin_action_invoke(request.id, params);
             }
             Method::PluginLogList(params) => {
                 return self.handle_plugin_log_list(request.id, params);

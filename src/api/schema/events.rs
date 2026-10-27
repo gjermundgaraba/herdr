@@ -60,8 +60,6 @@ pub enum Subscription {
     PaneMoved {},
     #[serde(rename = "pane.exited")]
     PaneExited {},
-    #[serde(rename = "pane.cwd_changed")]
-    PaneCwdChanged {},
     #[serde(rename = "pane.agent_detected")]
     PaneAgentDetected {},
     #[serde(rename = "pane.output_matched")]
@@ -217,7 +215,6 @@ pub enum EventKind {
     PaneMoved,
     PaneOutputChanged,
     PaneExited,
-    PaneCwdChanged,
     PaneAgentDetected,
     PaneAgentStatusChanged,
     LayoutUpdated,
@@ -249,7 +246,6 @@ impl EventKind {
             EventKind::PaneMoved => "pane.moved",
             EventKind::PaneOutputChanged => "pane.output_changed",
             EventKind::PaneExited => "pane.exited",
-            EventKind::PaneCwdChanged => "pane.cwd_changed",
             EventKind::PaneAgentDetected => "pane.agent_detected",
             EventKind::PaneAgentStatusChanged => "pane.agent_status_changed",
             EventKind::LayoutUpdated => "layout.updated",
@@ -282,7 +278,6 @@ pub const KNOWN_EVENT_KINDS: &[EventKind] = &[
     EventKind::PaneMoved,
     EventKind::PaneOutputChanged,
     EventKind::PaneExited,
-    EventKind::PaneCwdChanged,
     EventKind::PaneAgentDetected,
     EventKind::PaneAgentStatusChanged,
     EventKind::LayoutUpdated,
@@ -309,7 +304,6 @@ pub const PLUGIN_HOOK_EVENT_KINDS: &[EventKind] = &[
     EventKind::PaneFocused,
     EventKind::PaneMoved,
     EventKind::PaneExited,
-    EventKind::PaneCwdChanged,
     EventKind::PaneAgentDetected,
     EventKind::PaneAgentStatusChanged,
 ];
@@ -502,7 +496,6 @@ pub enum EventData {
     PaneClosed {
         pane_id: String,
         workspace_id: String,
-        tab_id: String,
     },
     PaneUpdated {
         pane: PaneInfo,
@@ -533,14 +526,6 @@ pub enum EventData {
     PaneExited {
         pane_id: String,
         workspace_id: String,
-        tab_id: String,
-    },
-    /// The shell reported a new working directory.
-    PaneCwdChanged {
-        pane_id: String,
-        workspace_id: String,
-        tab_id: String,
-        cwd: String,
     },
     PaneAgentDetected {
         pane_id: String,

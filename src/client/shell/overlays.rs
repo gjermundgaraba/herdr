@@ -1,6 +1,5 @@
 use super::*;
 
-mod pick_overlay;
 mod settings_overlay;
 mod worktree_overlays;
 
@@ -80,7 +79,6 @@ pub(crate) fn render_client_overlay(
         ClientShellOverlay::WorktreeRemove(v) => {
             worktree_overlays::render_worktree_remove_overlay(b, v, p)
         }
-        ClientShellOverlay::Pick(v) => pick_overlay::render_pick_overlay(b, v, p),
         ClientShellOverlay::ContextMenu(_) | ClientShellOverlay::GlobalMenu(_) => None,
     }
 }
@@ -862,9 +860,7 @@ fn render_navigator_overlay(
                 )
                 .bg(p.panel_bg)
         };
-        // The flat agent list has no workspace rows to connect its panes to.
-        let is_pane = n.layout != NavigatorLayout::Agents
-            && matches!(r.target, ClientNavigatorTarget::Pane { .. });
+        let is_pane = matches!(r.target, ClientNavigatorTarget::Pane { .. });
         let connector = if !is_pane {
             ""
         } else if rows

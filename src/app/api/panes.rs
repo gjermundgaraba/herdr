@@ -1972,9 +1972,6 @@ impl App {
             return Err(pane_not_found(id, &target.pane_id));
         };
         let workspace_id = self.public_workspace_id(ws_idx);
-        let tab_id = self
-            .public_tab_id_for_pane(ws_idx, pane_id)
-            .unwrap_or_default();
         let layout_update_target = self.layout_update_target_after_pane_removal(ws_idx, pane_id);
         if self.state.close_pane_would_close_workspace(ws_idx, pane_id) {
             self.require_restored_group_close_ready(
@@ -2007,7 +2004,6 @@ impl App {
                 data: EventData::PaneClosed {
                     pane_id: public_pane_id,
                     workspace_id: workspace_id.clone(),
-                    tab_id,
                 },
             });
             self.emit_event(EventEnvelope {
@@ -2026,7 +2022,6 @@ impl App {
                 data: EventData::PaneClosed {
                     pane_id: public_pane_id,
                     workspace_id,
-                    tab_id,
                 },
             });
             if let Some((ws_idx, tab_idx)) = layout_update_target {
@@ -2334,8 +2329,6 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
-
-    mod cwd_changed;
 
     fn app_with_test_workspace() -> (App, String) {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();

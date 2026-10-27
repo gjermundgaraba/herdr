@@ -37,8 +37,6 @@ pub(crate) struct ClientShellConfig {
     pub(super) palette: Palette,
     pub(super) keybinds: LiveKeybindConfig,
     pub(super) local_keys: crate::config::KeysConfig,
-    /// Client-only actions stay bound from the local config under any profile.
-    pub(super) local_client_actions: crate::config::Keybinds,
     pub(super) keybinding_source: ClientShellKeybindingSource,
     pub(super) prompt_new_tab_name: bool,
     pub(super) prompt_new_workspace_name: bool,
@@ -293,7 +291,6 @@ pub(super) enum ClientShellOverlayKind {
     ContextMenu,
     GlobalMenu,
     Settings,
-    Pick,
 }
 
 #[derive(Debug)]
@@ -365,7 +362,6 @@ pub(super) struct ClientNavigatorRow {
 
 #[derive(Debug)]
 pub(super) struct ClientNavigatorOverlay {
-    pub(super) layout: NavigatorLayout,
     pub(super) query: TextEditor,
     pub(super) search_focused: bool,
     pub(super) selected: Option<ClientNavigatorTarget>,
@@ -598,7 +594,6 @@ pub(super) enum ClientShellOverlay {
     ContextMenu(ClientContextMenuOverlay),
     GlobalMenu(ClientGlobalMenuOverlay),
     Settings(ClientSettingsOverlay),
-    Pick(ClientPickOverlay),
 }
 
 impl ClientShellOverlay {
@@ -617,7 +612,6 @@ impl ClientShellOverlay {
             Self::ContextMenu(_) => ClientShellOverlayKind::ContextMenu,
             Self::GlobalMenu(_) => ClientShellOverlayKind::GlobalMenu,
             Self::Settings(_) => ClientShellOverlayKind::Settings,
-            Self::Pick(_) => ClientShellOverlayKind::Pick,
         }
     }
 }
@@ -680,8 +674,6 @@ pub(super) enum PendingEndpointKind {
         generation: u64,
         session_generation: u64,
     },
-    /// `agent.mark_unread` for the focused pane; success is confirmed to the user.
-    MarkUnread,
 }
 
 pub(super) struct PendingEndpointRequest {
@@ -905,7 +897,6 @@ pub(crate) struct ClientShellState {
     pub(super) selection_repaint_deadline: Option<std::time::Instant>,
     pub(super) hits: ShellHitMap,
     pub(super) endpoints: Vec<ClientShellEndpoint>,
-    pub(super) fork: super::fork_state::ForkState,
     pub(super) active_endpoint_id: ClientEndpointId,
     pub(super) collapsed_endpoints: HashSet<ClientEndpointId>,
     pub(super) mode: ClientShellMode,
@@ -1125,7 +1116,6 @@ impl ClientShellState {
             queued_notifications: VecDeque::new(),
             endpoint_notice_seen: HashSet::new(),
             visible_endpoint_notice: None,
-            fork: Default::default(),
             outer_focused: None,
             ascii_input_source_active: false,
             pending_input_source_changes: Vec::new(),
@@ -1671,6 +1661,7 @@ impl ClientShellState {
         if surface.projection_revision != snapshot.revision {
             self.hits = ShellHitMap::default();
         }
+        self.acknowledge_active_surface_agents(&surface);
         let previous_popup = self.popup_terminal_id.clone();
         let next_popup = surface
             .popup

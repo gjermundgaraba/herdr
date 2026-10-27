@@ -28,6 +28,7 @@ pub(super) struct EndpointCommandRegistry {
 struct EndpointCommand {
     id: String,
     binding: crate::config::CustomCommandKeybind,
+    action: crate::protocol::ClientShellCommandAction,
 }
 
 impl EndpointCommandRegistry {
@@ -37,6 +38,7 @@ impl EndpointCommandRegistry {
             .iter()
             .enumerate()
             .map(|(index, binding)| EndpointCommand {
+                action: binding.action.into(),
                 id: format!("cmd_{namespace}_{index}"),
                 binding: binding.clone(),
             })
@@ -58,7 +60,7 @@ impl App {
                 command_id: entry.id.clone(),
                 binding_label: entry.binding.label.clone(),
                 binding_labels: entry.binding.bindings.labels(),
-                action: self.client_shell_command_action(&entry.binding),
+                action: entry.action,
                 description: entry.binding.description.clone(),
             })
             .collect()
@@ -219,7 +221,7 @@ impl App {
             }
             crate::config::CustomCommandAction::Popup => self.spawn_custom_popup_command(binding),
             crate::config::CustomCommandAction::PluginAction => self
-                .invoke_plugin_from_keybind(binding, selected_text)
+                .invoke_plugin_action_from_keybind(binding.command.clone(), selected_text)
                 .map_err(io::Error::other),
         }
     }

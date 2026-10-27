@@ -853,20 +853,18 @@ fn plugin_command() -> Command {
         )
         .subcommand(
             Command::new("action")
-                .about("List plugin actions")
+                .about("List or invoke plugin actions")
                 .subcommand(
                     Command::new("list")
                         .about("List plugin actions")
                         .arg(option("plugin", "ID")),
+                )
+                .subcommand(
+                    Command::new("invoke")
+                        .about("Invoke a plugin action")
+                        .arg(required("action_id", "ACTION_ID"))
+                        .arg(option("plugin", "ID")),
                 ),
-        )
-        .subcommand(
-            Command::new("invoke")
-                .about("Run a plugin action or open a plugin pane")
-                .arg(required("target", "PLUGIN_ID.ENTRY_ID"))
-                .arg(option("workspace", "ID"))
-                .arg(option("tab", "ID"))
-                .arg(option("pane", "ID")),
         )
         .subcommand(
             Command::new("log")

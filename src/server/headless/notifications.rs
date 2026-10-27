@@ -433,11 +433,6 @@ impl HeadlessServer {
                 pane_id,
                 agent_label,
                 ..
-            }
-            | AppEvent::InBandHookStateReported {
-                pane_id,
-                app: agent_label,
-                ..
             } => {
                 // Hook reports can be stale or no-op after sequence rejection.
                 // Forward only effective state changes observed after handling.
@@ -714,13 +709,9 @@ impl HeadlessServer {
     ///   `ServerMessage::Notify { kind: Sound }` to the foreground client.
     /// - Detect when a toast is set on AppState and forward as
     ///   `ServerMessage::Notify` to the foreground client for terminal/system delivery.
-    ///
-    /// The unread holds are settled once after the batch: a closing pane or
-    /// space can move a client's focus too.
     pub(super) fn drain_internal_events_with_forwarding(&mut self) -> bool {
-        let (had_event, changed) =
-            self.drain_internal_events_with_forwarding_up_to(crate::app::APP_EVENT_DRAIN_LIMIT);
-        changed | (had_event && self.settle_unread_holds())
+        self.drain_internal_events_with_forwarding_up_to(crate::app::APP_EVENT_DRAIN_LIMIT)
+            .1
     }
 
     pub(super) fn drain_all_internal_events_with_forwarding(&mut self) -> bool {

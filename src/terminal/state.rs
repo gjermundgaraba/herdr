@@ -13,8 +13,6 @@ use crate::terminal::TerminalId;
 #[path = "metadata.rs"]
 mod metadata;
 pub use metadata::{AgentMetadata, AgentMetadataReport, EffectivePresentation};
-mod in_band;
-use in_band::HookReportOrdering;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HookAuthority {
@@ -710,31 +708,6 @@ impl TerminalState {
         seq: Option<u64>,
         now: Instant,
     ) -> Option<TerminalStateMutation> {
-        self.apply_hook_report_at(
-            source,
-            agent_label,
-            state,
-            message,
-            session_ref,
-            HookReportOrdering::Sequenced(seq),
-            now,
-        )
-    }
-
-    fn apply_hook_report_at(
-        &mut self,
-        source: String,
-        agent_label: String,
-        state: AgentState,
-        message: Option<String>,
-        session_ref: Option<crate::agent_resume::AgentSessionRef>,
-        ordering: HookReportOrdering,
-        now: Instant,
-    ) -> Option<TerminalStateMutation> {
-        let seq = match ordering {
-            HookReportOrdering::Sequenced(seq) => seq,
-            HookReportOrdering::InBand => None,
-        };
         if crate::detect::session_identity_only_integration(&source, &agent_label) {
             return None;
         }
@@ -789,10 +762,10 @@ impl TerminalState {
         ) {
             return None;
         }
-        if reanchor_sequence && ordering != HookReportOrdering::InBand {
+        if reanchor_sequence {
             self.hook_report_sequences.remove(&source);
         }
-        if ordering != HookReportOrdering::InBand && !self.accept_hook_report(&source, seq) {
+        if !self.accept_hook_report(&source, seq) {
             return None;
         }
 
@@ -2480,8 +2453,6 @@ pub(crate) fn stabilize_agent_detection(detection: crate::detect::AgentDetection
 mod tests {
     use super::*;
     use crate::detect::AgentDetection;
-
-    mod in_band;
 
     fn test_terminal() -> TerminalState {
         TerminalState::new(TerminalId::alloc(), "/tmp".into())

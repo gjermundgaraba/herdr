@@ -226,22 +226,17 @@ Windows では、代わりに `command = "powershell.exe -NoLogo"` のような�
 
 `type = "shell"` はバックグラウンドでデタッチ実行します。
 
-`type = "plugin"` はインストール済みプラグインのエントリーポイント（マニフェストで宣言されたアクションまたはペイン）を実行します。コマンドには完全修飾 ID `plugin_id.entrypoint` を指定します:
+`type = "plugin_action"` はインストール済みプラグインのアクション id を呼び出します。アクション id がグローバルに一意でない場合は修飾 id を使ってください:
 
 ```toml
 [[keys.command]]
-key = "prefix+s"
-type = "plugin"
-command = "gjermundgaraba.clankersnip.palette"
-description = "snippets"
+key = "prefix+l"
+type = "plugin_action"
+command = "example.layout.apply"
+description = "apply layout"
 ```
 
 任意で `description` を指定できます。指定すると、キーバインドヘルプパネル（`prefix+?` で開く）に、デフォルトの `'custom command'` ラベルの代わりに表示されます。
-
-Herdr は呼び出し元のペインと選択テキストをプラグインコンテキストに含めます。ペインのエントリーポイントは、マニフェストの placement、コマンド、サイズで開きます。
-任意の `width` と `height` は、ターミナルセル数または割合の文字列でポップアップのサイズを上書きします。アクションやポップアップ以外の placement では無視されます。
-
-Herdr はバインドの実行時に対象を解決し、形式が不正な対象、未修飾の対象、存在しない対象はその時点でエラーとして報告します。
 
 カスタムコマンドは、利用可能な場合に `HERDR_SOCKET_PATH`、`HERDR_BIN_PATH`、`HERDR_ACTIVE_WORKSPACE_ID`、`HERDR_ACTIVE_TAB_ID`、`HERDR_ACTIVE_PANE_ID`、`HERDR_ACTIVE_PANE_CWD` を受け取ります。Herdr が検出できる場合、シェルコマンドはフォーカス中のペインの作業ディレクトリから実行されます。
 
@@ -415,13 +410,6 @@ rows = [
 ```
 
 `fg` は厳密な `#RGB` または `#RRGGBB`、`bold` と `dim` は真偽値です。省略したフィールドはコンテキストのスタイルを保持し、明示的な `false` はその修飾を解除します。スタイルは 1 つの出現箇所だけに適用されます。`fg` を指定した `git_status` では、既定の緑/赤ではなく ahead と behind の両方が同じ色になります。区切りと行の背景は変更されません。
-
-トークンのテーブルでは、色やスタイルとは独立した `separator_before` も指定できます。`" "` は空白 1 個、`""` は直前の表示トークンとの直接連結を表します。省略時は従来どおり、`state_icon` の後または `git_status` の前は空白、それ以外は ` · ` です。先行トークンが未設定、ルールで非表示、または幅不足で省略された場合も、最初の表示トークンの前には区切りを表示しません。Space 行、Agent 行、`rows_by_agent` で使用できます。区切りに含まれる制御文字は無視されます。アイコンと `git_status` は常に表示対象のため、サイドバーが狭いと長い区切りに押し出されて端で切れることがあります。
-
-```toml
-[ui.sidebar.spaces]
-rows = [["branch", { token = "$git_dirty", fg = "#e5c07b", separator_before = " " }, "git_status"]]
-```
 
 テキスト値のトークンには、順序付きの `rules` を最大 16 個指定できます。各ルールには `equals`、`contains`、`starts_with`、`gt`、`lt` のいずれか 1 つの条件と、任意の `fg`、`bold`、`dim` 上書きを指定します:
 
