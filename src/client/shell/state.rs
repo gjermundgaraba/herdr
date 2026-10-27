@@ -87,7 +87,6 @@ pub(super) enum ClientMobileTarget {
 pub(super) struct ShellHitMap {
     pub(super) machines: Vec<MachineHit>,
     pub(super) workspaces: Vec<WorkspaceHit>,
-    pub(super) markers: Vec<super::space_groups::MarkerHit>,
     pub(super) workspace_body: Rect,
     pub(super) workspace_scrollbar: Rect,
     pub(super) workspace_scroll_metrics: Option<crate::pane::ScrollMetrics>,
@@ -178,8 +177,6 @@ pub(super) struct ClientPaneMouseGesture {
 pub(super) struct ClientWorkspacePress {
     pub(super) endpoint_id: ClientEndpointId,
     pub(super) workspace_id: String,
-    /// Pressed on a pinned section's mirror, which never drags.
-    pub(super) mirror: bool,
     pub(super) start_column: u16,
     pub(super) start_row: u16,
 }
@@ -221,10 +218,6 @@ pub(super) enum ClientChromeDrag {
         source_workspace_id: String,
         target: Option<(Option<String>, u16)>,
     },
-    SpaceGroup {
-        member_ids: Vec<String>,
-        target: Option<(Option<String>, u16)>,
-    },
     PaneSplit {
         hit: PaneSplitHit,
         tab_id: String,
@@ -246,8 +239,6 @@ pub(super) struct WorkspaceHit {
     pub(super) workspace_id: String,
     pub(super) indented: bool,
     pub(super) group_toggle: Option<(Rect, String)>,
-    /// A pinned section's copy of the space, which neither drags nor takes drops.
-    pub(super) mirror: bool,
 }
 
 #[derive(Debug)]
@@ -1225,11 +1216,15 @@ impl ClientShellState {
             .hits
             .workspaces
             .iter()
-            .any(|hit| !hit.mirror && hit.workspace_id == workspace_id)
+            .any(|hit| hit.workspace_id == workspace_id)
         {
             return;
         }
-        let target = self.sidebar_row_of(workspace_id);
+        let target = self.snapshot.as_deref().and_then(|snapshot| {
+            self.navigation_workspace_entries(snapshot)
+                .iter()
+                .position(|entry| snapshot.workspaces[entry.index].workspace_id == workspace_id)
+        });
         if let Some(target) = target {
             self.workspace_scroll = target.min(self.hits.workspace_max_scroll);
         }
@@ -1261,7 +1256,6 @@ impl ClientShellState {
         self.popup_terminal_id = None;
         self.chrome_drag = None;
         self.workspace_press = None;
-        self.fork.group_press = None;
         self.tab_press = None;
         self.workspace_scroll = 0;
         self.agent_scroll = 0;
@@ -1714,7 +1708,6 @@ impl ClientShellState {
             self.reset_copy_pipeline();
             self.chrome_drag = None;
             self.workspace_press = None;
-            self.fork.group_press = None;
             self.tab_press = None;
             if self.pane_mouse_gesture.as_ref().is_some_and(|gesture| {
                 gesture.hit.popup && previous_popup.as_deref() == Some(gesture.hit.pane_id.as_str())

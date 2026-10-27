@@ -583,7 +583,6 @@ impl App {
         };
 
         state.terminals = restored_terminals;
-        state.gather_worktree_families();
 
         // Background auto-update is disabled for non-persistent test apps
         // and in debug/test builds so local development never mutates the
@@ -741,7 +740,6 @@ impl App {
         app.state.selected = snapshot
             .selected
             .min(app.state.workspaces.len().saturating_sub(1));
-        app.state.gather_worktree_families();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
         } else {

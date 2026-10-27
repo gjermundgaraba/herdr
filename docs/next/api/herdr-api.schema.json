@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 23,
+  "protocol": 22,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -1120,22 +1120,8 @@
             "agent_status": {
               "$ref": "#/schemas/event/$defs/AgentStatus"
             },
-            "family_anchor_id": {
-              "description": "The family checkout whose group a linked worktree shares; absent for\nthe checkout itself and spaces outside a family.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "focused": {
               "type": "boolean"
-            },
-            "group": {
-              "description": "The space group of the space's worktree family.",
-              "type": [
-                "string",
-                "null"
-              ]
             },
             "label": {
               "type": "string"
@@ -4659,24 +4645,6 @@
           ],
           "type": "object"
         },
-        "WorkspaceSetGroupParams": {
-          "description": "Puts a space's worktree family in a group, or takes it out with `null`.",
-          "properties": {
-            "group": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "workspace_id": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "workspace_id"
-          ],
-          "type": "object"
-        },
         "WorkspaceTarget": {
           "properties": {
             "workspace_id": {
@@ -5179,22 +5147,6 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/WorkspaceReportMetadataParams"
-            }
-          },
-          "required": [
-            "method",
-            "params"
-          ],
-          "type": "object"
-        },
-        {
-          "properties": {
-            "method": {
-              "const": "workspace.set_group",
-              "type": "string"
-            },
-            "params": {
-              "$ref": "#/schemas/request/$defs/WorkspaceSetGroupParams"
             }
           },
           "required": [
@@ -10910,22 +10862,8 @@
             "agent_status": {
               "$ref": "#/schemas/success_response/$defs/AgentStatus"
             },
-            "family_anchor_id": {
-              "description": "The family checkout whose group a linked worktree shares; absent for\nthe checkout itself and spaces outside a family.",
-              "type": [
-                "string",
-                "null"
-              ]
-            },
             "focused": {
               "type": "boolean"
-            },
-            "group": {
-              "description": "The space group of the space's worktree family.",
-              "type": [
-                "string",
-                "null"
-              ]
             },
             "label": {
               "type": "string"

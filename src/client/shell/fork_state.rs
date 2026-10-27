@@ -7,8 +7,6 @@ pub(super) struct ForkState {
     pub(super) history: super::history::Trails,
     /// The `ui.pick` picker this client shows.
     pub(super) picks: super::picks::ClientPicks,
-    /// A press on a space group header, until it drags or toggles.
-    pub(super) group_press: Option<super::space_groups::ClientGroupPress>,
 }
 
 /// Which rows the Navigator lists.

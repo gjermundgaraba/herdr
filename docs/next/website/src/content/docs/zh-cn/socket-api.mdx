@@ -96,7 +96,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | 通知 | `notification.show` |
 | 客户端 | `client.window_title.set`、`client.window_title.clear` |
 | 会话 | `session.snapshot` |
-| 工作区 | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.set_group`、`workspace.close` |
+| 工作区 | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.move`、`workspace.move_block`、`workspace.report_metadata`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | 标签页 | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.move`、`tab.close` |
 | 窗格 | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
@@ -111,8 +111,6 @@ herdr pane read w1:p2 --source recent --lines 50
 `agent.wait` 由服务器拥有并由事件驱动。它会固定到已解析的窗格占用者,因此替换后的智能体不能满足该等待。`agent.prompt` 接受可选的 `wait` 对象,其中包含 `until` 和 `timeout_ms`;这样可在一个请求中提交提示并开始等待,避免两个独立调用之间的竞态。如果解析出的智能体已经是 `blocked`,`agent.prompt` 不会发送输入或开始等待,而是返回 `agent_blocked`。
 
 `workspace.move_block` 会将有序的 `workspace_ids` 原子地移动到 `before_workspace_id` 之前;省略锚点则将该块移动到末尾。id 必须唯一,且锚点不能属于被移动的块。响应包含服务器确认的有序工作区列表。
-
-`workspace.set_group` 把空间放入命名的空间分组,用 `"group": null` 移出。分组在空间顺序中分组变化的位置显示为侧边栏标题。worktree 家族共享其 checkout 的分组,因此该调用在 checkout 上设置持久化的 `space_group` 元数据令牌,并清除家族其他空间上的令牌。随后把家族移到该分组最后一个空间(家族按其第一个成员的位置计算)之后;新分组则移到第一个未分组空间之上;离开所有分组则移到末尾,并返回有序的工作区列表。当 `workspace.move` 或 `workspace.move_block` 把家族放进另一个分组的连续区段内时,家族加入该分组;放进未分组空间之间则离开其分组。工作区记录带有家族的 `group`,家族中的链接 worktree 以 `family_anchor_id` 携带其 checkout 的 id。家族的空间总是以 checkout 为首排在一起:`worktree.create` 和 `worktree.open` 会把加入家族的空间移到家族旁边,恢复会话时也会把分散的家族重新聚拢。在 `workspace.move` 或 `workspace.move_block` 之后,被移动的 checkout 会带上其 worktree,单独移动的 worktree 会回到其 checkout 旁边,并额外发出一个 `workspace.reordered` 事件。
 
 `session.snapshot` 为维护本地运行时缓存的客户端返回一次性引导快照。响应包含版本/协议元数据、当前聚焦的工作区/标签页/窗格 id、工作区记录、标签页记录、窗格记录、标签页布局快照和智能体记录。它不是订阅。初始化或恢复缓存时,应先建立订阅,再按下文事件订阅部分的说明读取服务器当前状态并核对、更新缓存。事件表示缓存可能过期,不能无条件重放到快照上。重新连接后或本地缓存可能已过期时,再次调用 `session.snapshot`。工作区记录也包含关联 worktree 的来源信息。完整的仓库 worktree 发现仍使用 `worktree.list`。
 

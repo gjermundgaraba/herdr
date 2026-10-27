@@ -16,8 +16,6 @@ advertises in its welcome, two endpoint control kinds, and socket API methods.
 The endpoint snapshot (`shell.snapshot.v1`) carries two optional additions.
 A client that lacks them decodes an empty key and no mark.
 
-Pinned space sections are TUI configuration, not part of the snapshot.
-
 ### Agent priority
 
 Each entry of `agents` has two more fields:

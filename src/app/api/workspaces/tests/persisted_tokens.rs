@@ -24,7 +24,7 @@ fn persisted_workspace_metadata_tokens_are_saved_with_the_session() {
         })
     };
     for (id, method) in [
-        ("persisted", report(true, None, "space_group")),
+        ("persisted", report(true, None, "note")),
         ("live", report(false, None, "git")),
     ] {
         let response = app.handle_api_request(crate::api::schema::Request {
@@ -35,7 +35,7 @@ fn persisted_workspace_metadata_tokens_are_saved_with_the_session() {
     }
     let response = app.handle_api_request(crate::api::schema::Request {
         id: "expiring".into(),
-        method: report(true, Some(1_000), "space_group"),
+        method: report(true, Some(1_000), "note"),
     });
     assert!(response.contains("invalid_metadata_ttl"), "{response}");
 
@@ -48,6 +48,6 @@ fn persisted_workspace_metadata_tokens_are_saved_with_the_session() {
     );
     assert_eq!(
         saved.workspaces[0].metadata_tokens,
-        std::collections::HashMap::from([("space_group".into(), "on".into())])
+        std::collections::HashMap::from([("note".into(), "on".into())])
     );
 }

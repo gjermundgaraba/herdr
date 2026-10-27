@@ -38,21 +38,6 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   completion in the daemon's current tab therefore never becomes a badge
   while every client presents another machine; see "Agent status" in
   `docs/next/website/src/content/docs/client-contract.md`
-- Space groups: the `space_group` workspace metadata token puts runs of
-  spaces under collapsible, draggable sidebar headers. `workspace.set_group`
-  assigns and places a worktree family, moved families take the group of
-  where they land, and a family's spaces are kept together, checkout first
-  (`src/space_order.rs`, `src/app/api/space_groups.rs`,
-  `src/client/shell/space_groups.rs`)
-- Pinned space sections: each `[[ui.sidebar.spaces.pinned]]` entry in the
-  TUI's own config shows a collapsible section at the top of every machine's
-  space list with copies of that machine's spaces whose given workspace
-  metadata token is non-empty, optionally matched with `equals`, `contains`,
-  or `starts_with`. Copies focus and open menus like the real rows, but do
-  not drag or take drops, and navigation skips them. The TUI resolves the
-  sections from each machine's snapshot; the daemon neither resolves nor
-  sends them, and Herdr GPUI does not show them
-  (`src/config/sidebar/pinned.rs`, `src/client/shell/space_groups.rs`)
 - Agent priority: a space whose `space_priority` workspace metadata token,
   the key the space-priority plugin writes, has a non-empty value lifts its
   blocked and done agents to the top of the `priority` agent order, and the
@@ -72,8 +57,8 @@ git log --oneline "$(git describe --tags --abbrev=0 --match 'v*' custom)..custom
   spaces, or a pane's agent session, through the socket API
   (`src/app/api/plugins/entrypoint.rs`)
 - Persisted workspace tokens: `workspace.report_metadata` with `persist`
-  saves tokens in the session snapshot, so plugin state such as space groups
-  and the `space_priority` token survives restarts and handoffs
+  saves tokens in the session snapshot, so plugin state such as the
+  `space_priority` token survives restarts and handoffs
   (`src/metadata_tokens.rs`)
 - Plugin-facing events: `pane.closed` and `pane.exited` carry `tab_id`, and
   `pane.cwd_changed` reports shell cwd changes. `agent.start` is upstream's:
@@ -127,7 +112,6 @@ first two kinds below.
 | Sidebar `separator_before` | `src/config/sidebar.rs`, `src/config/sidebar/separator.rs`, `src/ui/sidebar/tokens.rs` | `crates/herdr-gpui/src/config/sidebar.rs`, `crates/herdr-gpui/src/config/sidebar/separator.rs`, `crates/herdr-gpui/src/sidebar/tokens.rs` | yes |
 | Plugin picker | `src/client/shell/picks.rs`, `src/client/shell/pick_overlay.rs` | `crates/herdr-gpui/src/picker.rs`, `crates/herdr-gpui/src/picker/` | yes, except a picker that arrives while a menu, a dialog, or another picker or navigator is open: Herdr GPUI answers `cancelled`, the TUI replaces its overlay and shows the picker; and Herdr GPUI sends a picker's answer only after the request its connection holds is answered |
 | Agent priority order | `src/client/shell/aggregate_navigation/agent_order.rs` | `crates/herdr-gpui/src/sidebar/agents/priority.rs`, `crates/herdr-gpui/src/sidebar/agents.rs` | yes: both sort by the daemon's `priority_key`, whose `space_priority` lift neither client configures, and break ties between equal keys by host, then snapshot order, except for agents without a key, from a host that sends none: Herdr GPUI ranks them by upstream's status and recency order, the TUI keeps their listing order; under a plugin agent view: Herdr GPUI keeps each host's own view order, the TUI applies the active host's view across hosts; and for a host whose connection is up but that is not online (a moment during a refused handshake or an outage): Herdr GPUI's panel ranks it as connected, while the TUI ranks it as stale |
-| Space groups and pinned sections | `src/client/shell/space_groups.rs`, `src/space_order.rs` | `crates/herdr-gpui/src/sidebar/space_groups.rs`, `crates/herdr-gpui/src/sidebar/space_groups/group_row.rs` | no: Herdr GPUI does not show pinned sections, which the TUI resolves from its own config; group headers do not drag in Herdr GPUI, and it keeps collapse state in memory where the TUI saves it to its preferences file |
 | Mark unread | `src/client/shell/mark_unread.rs` | `crates/herdr-gpui/src/mark_unread.rs` | yes |
 | Agent and workspace pickers | `src/client/shell/aggregate_navigation/agent_picker.rs`, `src/client/shell/overlay_input.rs` | `crates/herdr-gpui/src/picker/navigator.rs`, `crates/herdr-gpui/src/picker/navigator/rows.rs` | no: Herdr GPUI lacks the Tree layout, the second detail line, and the current marker, and under a plugin agent view its agent picker lists each host's own view where the TUI applies the active host's view across hosts |
 | Back/Forward history | `src/client/shell/history.rs` | `crates/herdr-gpui/src/endpoint/history.rs` (upstream's), `crates/herdr-gpui/src/keymap/daemon.rs` (the fork's `history_back` and `history_forward` keys) | yes: the TUI ports upstream's per-host trail, except that after a pane opened from an activity-bar section, Back in Herdr GPUI first returns to that section, which the TUI does not have |

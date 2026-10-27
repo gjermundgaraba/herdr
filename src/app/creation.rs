@@ -388,8 +388,6 @@ impl App {
     pub(super) fn workspace_info(&self, index: usize) -> crate::api::schema::WorkspaceInfo {
         let ws = &self.state.workspaces[index];
         let (agg_state, seen) = ws.aggregate_state(&self.state.terminals);
-        let spaces = self.state.order_spaces();
-        let anchor = crate::space_order::anchor(&spaces, index);
         crate::api::schema::WorkspaceInfo {
             workspace_id: self.public_workspace_id(index),
             number: index + 1,
@@ -411,8 +409,6 @@ impl App {
                     checkout_path: space.checkout_path.display().to_string(),
                     is_linked_worktree: space.is_linked_worktree,
                 }),
-            group: crate::space_order::group(&spaces, index).map(str::to_owned),
-            family_anchor_id: (anchor != index).then(|| self.public_workspace_id(anchor)),
         }
     }
 }

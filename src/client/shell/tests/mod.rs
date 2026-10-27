@@ -266,6 +266,5 @@ mod picks;
 mod plugin_popups;
 mod popup_focus_projection;
 mod priority_order;
-mod space_groups;
 mod startup_overlays;
 mod unread_queue;

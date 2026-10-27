@@ -10,7 +10,6 @@ mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
 mod session;
-mod space_groups;
 mod tabs;
 mod workspaces;
 mod worktrees;
@@ -1082,9 +1081,6 @@ impl App {
             }
             Method::WorkspaceMoveBlock(params) => {
                 return self.handle_workspace_move_block(request.id, params);
-            }
-            Method::WorkspaceSetGroup(params) => {
-                return self.handle_workspace_set_group(request.id, params);
             }
             Method::WorkspaceReportMetadata(params) => {
                 return self.handle_workspace_report_metadata(request.id, params);

@@ -1,4 +1,3 @@
-use super::super::space_groups::{self, SidebarRow};
 use super::*;
 use ratatui::{
     text::Line,
@@ -108,7 +107,6 @@ pub(crate) fn render_collapsed_sidebar(
             workspace_id: workspace.workspace_id.clone(),
             indented: false,
             group_toggle: None,
-            mirror: false,
         });
     }
 
@@ -228,8 +226,7 @@ pub(crate) fn render_sidebar(
             .add_modifier(Modifier::BOLD),
     );
 
-    let entries =
-        space_groups::sidebar_rows(snapshot, &config.spaces.pinned, state.collapsed_groups);
+    let entries = workspace_entries(snapshot, state.collapsed_groups);
     let body = Rect::new(
         workspace_area.x,
         workspace_area.y.saturating_add(WORKSPACE_HEADER_ROWS),
@@ -241,22 +238,14 @@ pub(crate) fn render_sidebar(
     hits.workspace_body = body;
     let row_heights = entries
         .iter()
-        .map(|row| {
-            let (SidebarRow::Workspace(entry) | SidebarRow::Mirror(entry)) = row else {
-                return 1;
-            };
+        .map(|entry| {
             snapshot
                 .workspaces
                 .get(entry.index)
                 .map(|workspace| {
                     workspace_rows(
                         workspace,
-                        space_groups::workspace_status(
-                            snapshot,
-                            workspace,
-                            matches!(row, SidebarRow::Mirror(_)),
-                            state.collapsed_groups,
-                        ),
+                        displayed_workspace_status(snapshot, workspace, state.collapsed_groups),
                         entry.indented,
                         &config.spaces,
                     )
@@ -270,10 +259,10 @@ pub(crate) fn render_sidebar(
     let gaps = entries
         .iter()
         .enumerate()
-        .map(|(index, row)| {
-            entries.get(index + 1).map_or(0, |next| {
-                space_groups::gap_between(row, next, config.spaces.row_gap)
-            })
+        .map(|(index, _)| {
+            entries
+                .get(index + 1)
+                .map_or(0, |next| u16::from(!next.indented) * config.spaces.row_gap)
         })
         .collect::<Vec<_>>();
     let mut metrics = super::scroll::list_scroll_metrics(
@@ -283,9 +272,10 @@ pub(crate) fn render_sidebar(
         *state.workspace_scroll,
     );
     if !body.is_empty() && std::mem::take(state.reveal_focused_workspace) {
-        if let Some(target) = entries.iter().position(|row| {
-            matches!(row, SidebarRow::Workspace(entry) if snapshot.workspaces[entry.index].focused)
-        }) {
+        if let Some(target) = entries
+            .iter()
+            .position(|entry| snapshot.workspaces[entry.index].focused)
+        {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
                 &row_heights,
                 &gaps,
@@ -309,33 +299,11 @@ pub(crate) fn render_sidebar(
     let show_scrollbar = metrics.max_offset_from_bottom > 0 && body.width > 1;
     let content_width = body.width.saturating_sub(u16::from(show_scrollbar));
     let mut y = body.y;
-    for (entry_position, row) in entries.iter().enumerate().skip(*state.workspace_scroll) {
-        let (entry, mirror) = match row {
-            SidebarRow::Workspace(entry) => (entry, false),
-            SidebarRow::Mirror(entry) => (entry, true),
-            SidebarRow::Marker(marker) => {
-                if y >= body.bottom() {
-                    break;
-                }
-                let rect = Rect::new(body.x, y, content_width, 1);
-                space_groups::render_marker(
-                    buffer,
-                    rect,
-                    marker,
-                    snapshot,
-                    &ClientEndpointId::Local,
-                    config,
-                    hits,
-                );
-                y = y.saturating_add(1 + gaps[entry_position]);
-                continue;
-            }
-        };
+    for (entry_position, entry) in entries.iter().enumerate().skip(*state.workspace_scroll) {
         let Some(workspace) = snapshot.workspaces.get(entry.index) else {
             continue;
         };
-        let status =
-            space_groups::workspace_status(snapshot, workspace, mirror, state.collapsed_groups);
+        let status = displayed_workspace_status(snapshot, workspace, state.collapsed_groups);
         let rows = workspace_rows(workspace, status, entry.indented, &config.spaces);
         let row_height = (rows.len().max(1).min(u16::MAX as usize) as u16).min(body.height);
         if y.saturating_add(row_height) > body.bottom() {
@@ -345,8 +313,7 @@ pub(crate) fn render_sidebar(
         let selected = state.selected_workspace_id.is_some_and(|target| {
             target.matches(state.active_endpoint_id, &workspace.workspace_id)
         });
-        let dragged =
-            !mirror && state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
+        let dragged = state.dragged_workspace_id == Some(workspace.workspace_id.as_str());
         if selected {
             buffer.set_style(rect, Style::default().bg(palette.selection_bg));
         } else if dragged {
@@ -367,27 +334,25 @@ pub(crate) fn render_sidebar(
             dragged,
             palette,
         );
-        let group_toggle = if mirror {
-            None
-        } else {
-            render_parent_group_toggle(
-                buffer,
-                rect,
-                snapshot,
-                entry.index,
-                state.collapsed_groups,
-                palette,
-            )
-        };
+        let group_toggle = render_parent_group_toggle(
+            buffer,
+            rect,
+            snapshot,
+            entry.index,
+            state.collapsed_groups,
+            palette,
+        );
         hits.workspaces.push(WorkspaceHit {
             rect,
             endpoint_id: ClientEndpointId::Local,
             workspace_id: workspace.workspace_id.clone(),
             indented: entry.indented,
             group_toggle,
-            mirror,
         });
-        y = y.saturating_add(row_height + gaps[entry_position]);
+        let gap = entries
+            .get(entry_position + 1)
+            .map_or(0, |next| u16::from(!next.indented) * config.spaces.row_gap);
+        y = y.saturating_add(row_height + gap);
     }
 
     if show_scrollbar {

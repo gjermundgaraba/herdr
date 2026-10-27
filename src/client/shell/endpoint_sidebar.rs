@@ -1,5 +1,4 @@
 use super::render::{display_width, put_right_text, put_text, ShellRenderState};
-use super::space_groups::{self, SidebarRow};
 use super::*;
 
 fn collapsed_groups_for_endpoint<'a>(
@@ -193,7 +192,6 @@ pub(super) fn render_collapsed(
                 workspace_id: workspace.workspace_id.clone(),
                 indented: false,
                 group_toggle: None,
-                mirror: false,
             });
             y = y.saturating_add(1);
         }
@@ -270,15 +268,9 @@ pub(super) fn render_expanded(
 
     enum Row {
         Endpoint(usize),
-        Marker {
-            endpoint: usize,
-            marker: space_groups::Marker,
-        },
         Workspace {
             endpoint: usize,
             entry: WorkspaceEntry,
-            /// A pinned section's copy of the space.
-            mirror: bool,
         },
     }
     let mut rows = Vec::new();
@@ -291,23 +283,11 @@ pub(super) fn render_expanded(
             let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                 .unwrap_or(&empty_collapsed_groups);
             rows.extend(
-                space_groups::sidebar_rows(snapshot, &config.spaces.pinned, collapsed_groups)
+                super::sidebar::workspace_entries(snapshot, collapsed_groups)
                     .into_iter()
-                    .map(|row| match row {
-                        SidebarRow::Marker(marker) => Row::Marker {
-                            endpoint: endpoint_index,
-                            marker,
-                        },
-                        SidebarRow::Workspace(entry) => Row::Workspace {
-                            endpoint: endpoint_index,
-                            entry,
-                            mirror: false,
-                        },
-                        SidebarRow::Mirror(entry) => Row::Workspace {
-                            endpoint: endpoint_index,
-                            entry,
-                            mirror: true,
-                        },
+                    .map(|entry| Row::Workspace {
+                        endpoint: endpoint_index,
+                        entry,
                     }),
             );
         }
@@ -324,12 +304,8 @@ pub(super) fn render_expanded(
     let row_heights = rows
         .iter()
         .map(|row| match row {
-            Row::Endpoint(_) | Row::Marker { .. } => 1,
-            Row::Workspace {
-                endpoint,
-                entry,
-                mirror,
-            } => {
+            Row::Endpoint(_) => 1,
+            Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                     .unwrap_or(&empty_collapsed_groups);
@@ -341,10 +317,9 @@ pub(super) fn render_expanded(
                         Some(
                             super::sidebar::workspace_rows(
                                 workspace,
-                                space_groups::workspace_status(
+                                super::sidebar::displayed_workspace_status(
                                     snapshot,
                                     workspace,
-                                    *mirror,
                                     collapsed_groups,
                                 ),
                                 entry.indented,
@@ -368,16 +343,8 @@ pub(super) fn render_expanded(
                 Some(Row::Workspace {
                     endpoint: next_endpoint,
                     entry,
-                    ..
                 }),
             ) if endpoint == next_endpoint => u16::from(!entry.indented) * config.spaces.row_gap,
-            (
-                Row::Workspace { endpoint, .. },
-                Some(Row::Marker {
-                    endpoint: next_endpoint,
-                    ..
-                }),
-            ) if endpoint == next_endpoint => config.spaces.row_gap,
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -385,11 +352,7 @@ pub(super) fn render_expanded(
     let reveal_focus = !body.is_empty() && std::mem::take(state.reveal_focused_workspace);
     if reveal_navigation || reveal_focus {
         let selected_row = rows.iter().position(|row| match row {
-            Row::Workspace {
-                endpoint,
-                entry,
-                mirror: false,
-            } => {
+            Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 endpoint
                     .snapshot
@@ -409,7 +372,7 @@ pub(super) fn render_expanded(
                         }
                     })
             }
-            Row::Endpoint(_) | Row::Marker { .. } | Row::Workspace { mirror: true, .. } => false,
+            Row::Endpoint(_) => false,
         });
         if let Some(selected_row) = selected_row {
             *state.workspace_scroll = super::scroll::list_scroll_start_to_reveal(
@@ -469,28 +432,7 @@ pub(super) fn render_expanded(
                     .saturating_add(1)
                     .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
             }
-            Row::Marker { endpoint, marker } => {
-                if y >= body.bottom() {
-                    break;
-                }
-                space_groups::render_endpoint_marker(
-                    buffer,
-                    Rect::new(body.x, y, content_width, 1),
-                    marker,
-                    &state.endpoints[*endpoint],
-                    config,
-                    hits,
-                );
-                y = y
-                    .saturating_add(1)
-                    .saturating_add(gaps.get(row_index).copied().unwrap_or(0));
-            }
-            Row::Workspace {
-                endpoint,
-                entry,
-                mirror,
-            } => {
-                let mirror = *mirror;
+            Row::Workspace { endpoint, entry } => {
                 let endpoint = &state.endpoints[*endpoint];
                 let Some(snapshot) = endpoint.snapshot.as_deref() else {
                     continue;
@@ -500,8 +442,11 @@ pub(super) fn render_expanded(
                 };
                 let collapsed_groups = collapsed_groups_for_endpoint(state, &endpoint.endpoint_id)
                     .unwrap_or(&empty_collapsed_groups);
-                let status =
-                    space_groups::workspace_status(snapshot, workspace, mirror, collapsed_groups);
+                let status = super::sidebar::displayed_workspace_status(
+                    snapshot,
+                    workspace,
+                    collapsed_groups,
+                );
                 let tokens = super::sidebar::workspace_rows(
                     workspace,
                     status,
@@ -544,25 +489,20 @@ pub(super) fn render_expanded(
                             .add_modifier(Modifier::DIM),
                     );
                 }
-                let group_toggle = if mirror {
-                    None
-                } else {
-                    super::sidebar::render_parent_group_toggle(
-                        buffer,
-                        rect,
-                        snapshot,
-                        entry.index,
-                        collapsed_groups,
-                        palette,
-                    )
-                };
+                let group_toggle = super::sidebar::render_parent_group_toggle(
+                    buffer,
+                    rect,
+                    snapshot,
+                    entry.index,
+                    collapsed_groups,
+                    palette,
+                );
                 hits.workspaces.push(WorkspaceHit {
                     rect,
                     endpoint_id: endpoint.endpoint_id.clone(),
                     workspace_id: workspace.workspace_id.clone(),
                     indented: entry.indented,
                     group_toggle,
-                    mirror,
                 });
                 y = y
                     .saturating_add(height)

@@ -94,6 +94,3 @@ the key, which each machine's daemon computes. Custom sorts apply when the
 endpoint supplies their definitions. Older endpoints supply
 view membership and an initial order, and send no keys, so their agents keep
 that order, after every agent that has a key. Spaces retains the supplied order.
-
-Pinned sections of the Space panel are the TUI's own: it matches its local
-`[[ui.sidebar.spaces.pinned]]` against the spaces of every machine it shows.

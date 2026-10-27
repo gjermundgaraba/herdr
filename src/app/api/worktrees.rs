@@ -144,7 +144,6 @@ impl App {
         if created_workspace {
             self.emit_workspace_open_events(ws_idx);
         }
-        let ws_idx = self.gather_worktree_family(ws_idx);
 
         let tab_idx = self.state.workspaces[ws_idx].active_tab;
         let worktree = self.worktree_info_for_entry(&source, entry);
@@ -598,8 +597,6 @@ mod tests {
         WorktreeRemoveResult,
     };
     use crate::{config::Config, workspace::Workspace};
-
-    mod space_groups;
 
     fn unique_temp_path(name: &str) -> PathBuf {
         let nanos = SystemTime::now()
